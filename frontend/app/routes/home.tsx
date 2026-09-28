@@ -4,6 +4,8 @@ import {
   Controls,
   ReactFlow,
 } from "@xyflow/react";
+import { Button } from "~/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { useSandbox } from "../hooks/useSandbox";
 
 export function meta() {
@@ -20,30 +22,29 @@ export default function Home() {
         <Controls />
       </ReactFlow>
 
-      <section className="absolute left-4 top-4 w-full max-w-md rounded-lg border border-neutral-200 bg-white/90 p-4 text-sm shadow-lg backdrop-blur">
-        <h1 className="mb-2 font-semibold">Sandbox demo</h1>
-        <p data-testid="sandbox-count" className="mb-2">
-          Count: {count}
-        </p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            data-testid="increment"
-            onClick={() => setCount((current) => current + 1)}
-            className="rounded bg-neutral-900 px-3 py-1 text-white"
-          >
-            Increment
-          </button>
-          <button
-            type="button"
-            data-testid="reset"
-            onClick={() => setCount(0)}
-            className="rounded border border-neutral-300 px-3 py-1"
-          >
-            Reset
-          </button>
-        </div>
-      </section>
+      <Card className="absolute left-4 top-4 w-full max-w-md shadow-lg">
+        <CardHeader>
+          <CardTitle as="h1">Sandbox demo</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          <p data-testid="sandbox-count">Count: {count}</p>
+          <div className="flex gap-2">
+            <Button
+              data-testid="increment"
+              onClick={() => setCount((current) => current + 1)}
+            >
+              Increment
+            </Button>
+            <Button
+              variant="outline"
+              data-testid="reset"
+              onClick={() => setCount(0)}
+            >
+              Reset
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </main>
   );
 }
