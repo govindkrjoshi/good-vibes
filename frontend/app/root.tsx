@@ -8,6 +8,7 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { TooltipProvider } from "./components/ui/tooltip";
 import { SandboxProvider } from "./hooks/useSandbox";
 import "@xyflow/react/dist/style.css";
 import "./app.css";
@@ -35,7 +36,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <SandboxProvider>
-      <Outlet />
+      <TooltipProvider>
+        <Outlet />
+      </TooltipProvider>
     </SandboxProvider>
   );
 }
