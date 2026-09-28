@@ -8,12 +8,13 @@
     "test": "vitest run --passWithNoTests",
     "start": "react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc",
-    "format": "prettier --write app public *.ts package.json tsconfig.json README.md --ignore-unknown",
+    "format": "prettier --write app public *.ts package.json tsconfig.json README.md --ignore-unknown --no-error-on-unmatched-pattern",
     "lint": "oxlint app react-router.config.ts vite.config.ts vitest.config.ts"
   },
   "dependencies": {
     "@react-router/node": "^8.4.0",
     "@react-router/serve": "^8.4.0",
+    "@xyflow/react": "^12.12.0",
     "isbot": "^5.1.36",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -25,6 +26,7 @@
     "@types/node": "^22",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "happy-dom": "^20.14.5",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
     "vite": "^8.0.3",

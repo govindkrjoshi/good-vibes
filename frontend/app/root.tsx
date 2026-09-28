@@ -8,6 +8,8 @@ import {
 } from "react-router";
 
 import type { Route } from "./+types/root";
+import { SandboxProvider } from "./hooks/useSandbox";
+import "@xyflow/react/dist/style.css";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [];
@@ -31,7 +33,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  return <Outlet />;
+  return (
+    <SandboxProvider>
+      <Outlet />
+    </SandboxProvider>
+  );
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
