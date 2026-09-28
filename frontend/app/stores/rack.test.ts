@@ -74,6 +74,13 @@ test("gives a group block its own empty children and patches", () => {
   expect(block.patches).toEqual([]);
 });
 
+test("hands back the id of the block it added", () => {
+  const id = state().addBlock("node");
+
+  expect(id).toBeTypeOf("string");
+  expect(children()).toEqual([id]);
+});
+
 test("leaves the rack alone when run is called", () => {
   state().addBlock("node");
   const before = state().blocks;
