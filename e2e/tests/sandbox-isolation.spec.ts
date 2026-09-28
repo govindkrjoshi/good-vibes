@@ -20,7 +20,7 @@ test("serves the sandbox document with a locked-down CSP", async ({ page }) => {
   expect(csp).toContain("frame-ancestors 'self'");
   expect(csp).toContain("default-src 'none'");
   expect(csp).toContain("connect-src 'none'");
-  expect(csp).toContain("worker-src blob:");
+  expect(csp).not.toContain("worker-src");
 });
 
 test("sandbox frame runs with an opaque origin and cannot reach the parent page", async ({

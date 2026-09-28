@@ -30,29 +30,9 @@ function render(children: ReactNode = <Probe />) {
   const iframe = document.querySelector<HTMLIFrameElement>(
     'iframe[title="Code sandbox"]',
   );
-  if (iframe?.contentWindow === null || iframe === null)
-    throw new Error("sandbox iframe missing");
+  if (iframe === null) throw new Error("sandbox iframe missing");
 
-  const posted: unknown[] = [];
-  vi.spyOn(iframe.contentWindow, "postMessage").mockImplementation(
-    (message: unknown) => {
-      posted.push(message);
-    },
-  );
-
-  const reply = (
-    message: unknown,
-    source: MessageEventSource | null = iframe.contentWindow,
-    origin = "",
-  ) => {
-    act(() => {
-      window.dispatchEvent(
-        new MessageEvent("message", { data: message, source, origin }),
-      );
-    });
-  };
-
-  return { iframe, posted, reply };
+  return { iframe };
 }
 
 beforeEach(() => {
@@ -74,112 +54,39 @@ test("renders the iframe as an opaque-origin script-only sandbox", () => {
   expect(iframe.className).toContain("hidden");
 });
 
-test("queues code until the sandbox reports ready", () => {
-  const { posted, reply } = render();
+test("logs to the console once on mount", () => {
+  const log = vi.spyOn(console, "log").mockImplementation(() => {});
+  render();
 
-  act(() => current?.execute("return 42;"));
-  expect(posted).toEqual([]);
+  expect(log).toHaveBeenCalledWith("Sandbox loaded");
 
-  reply({ type: "ready" });
-
-  expect(current?.ready).toBe(true);
-  expect(posted).toHaveLength(1);
-  expect(posted[0]).toMatchObject({ type: "execute", code: "return 42;" });
-  expect(typeof (posted[0] as { id?: unknown }).id).toBe("string");
+  act(() => current?.setCount(3));
+  expect(log).toHaveBeenCalledTimes(1);
 });
 
-test("pings the sandbox when the iframe loads", () => {
-  const { iframe, posted } = render();
+test("starts the counter at zero and updates it through the hook", () => {
+  render();
 
-  act(() => iframe.dispatchEvent(new Event("load")));
+  expect(current?.count).toBe(0);
 
-  expect(current?.ready).toBe(false);
-  expect(posted).toEqual([{ type: "ping" }]);
+  act(() => current?.setCount((count) => count + 1));
+  expect(current?.count).toBe(1);
+
+  act(() => current?.setCount(7));
+  expect(current?.count).toBe(7);
+
+  act(() => current?.setCount(0));
+  expect(current?.count).toBe(0);
 });
 
-test("posts code immediately after the sandbox is ready", () => {
-  const { posted, reply } = render();
+test("throws when used outside the provider", () => {
+  const error = vi.spyOn(console, "error").mockImplementation(() => {});
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
 
-  reply({ type: "ready" });
-  act(() => current?.execute("return 'ok';"));
-
-  expect(posted).toHaveLength(1);
-  expect(posted[0]).toMatchObject({ type: "execute", code: "return 'ok';" });
-});
-
-test("does not trust opaque-origin messages from a different window", () => {
-  const { reply } = render();
-
-  reply({ type: "ready" }, null, "null");
-
-  expect(current?.ready).toBe(false);
-});
-
-test("stores results and errors for the active execution id", () => {
-  const { posted, reply } = render();
-
-  reply({ type: "ready" });
-  act(() => current?.execute("return 'done';"));
-  const resultId = (posted.at(-1) as { id: string }).id;
-
-  reply({ type: "result", id: "stale", result: "old" });
-  expect(current?.result).toBeUndefined();
-
-  reply({ type: "result", id: resultId, result: "done" });
-  expect(current?.result).toBe("done");
-  expect(current?.error).toBeUndefined();
-
-  act(() => current?.execute("throw new Error('boom');"));
-  const errorId = (posted.at(-1) as { id: string }).id;
-  reply({ type: "error", id: errorId, error: "boom" });
-  expect(current?.error).toBe("boom");
-  expect(current?.result).toBeUndefined();
-});
-
-test("ignores malformed messages and messages from other windows", () => {
-  const { reply } = render();
-
-  reply({ type: "ready" }, window);
-  reply({ type: "result", id: "1", result: "wrong source" }, window);
-  reply({ type: "result", result: "missing id" });
-
-  expect(current?.ready).toBe(false);
-  expect(current?.result).toBeUndefined();
-});
-
-test("reports an error when the sandbox never becomes ready", () => {
-  vi.useFakeTimers();
-  try {
-    const { iframe, posted } = render();
-
-    act(() => iframe.dispatchEvent(new Event("load")));
-    act(() => current?.execute("return 1;"));
-    expect(current?.error).toBeUndefined();
-
-    act(() => vi.advanceTimersByTime(5000));
-
-    expect(current?.ready).toBe(false);
-    expect(current?.error).toBe("Sandbox failed to load");
-    expect(
-      posted.filter((m) => (m as { type: string }).type === "execute"),
-    ).toEqual([]);
-  } finally {
-    vi.useRealTimers();
-  }
-});
-
-test("does not report a load error once the sandbox is ready", () => {
-  vi.useFakeTimers();
-  try {
-    const { iframe, reply } = render();
-
-    act(() => iframe.dispatchEvent(new Event("load")));
-    reply({ type: "ready" });
-    act(() => vi.advanceTimersByTime(5000));
-
-    expect(current?.ready).toBe(true);
-    expect(current?.error).toBeUndefined();
-  } finally {
-    vi.useRealTimers();
-  }
+  expect(() => act(() => root.render(<Probe />))).toThrow(
+    "useSandbox must be used inside SandboxProvider",
+  );
+  error.mockRestore();
 });

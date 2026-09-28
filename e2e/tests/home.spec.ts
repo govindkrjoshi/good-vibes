@@ -1,19 +1,21 @@
 import { expect, test } from "@playwright/test";
-import { DEFAULT_RESULT, openSandboxPage, status } from "./helpers";
+import { count, openSandboxPage } from "./helpers";
 
-test("runs the default snippet through the sandbox on load", async ({
-  page,
-}) => {
-  await page.goto("/");
+test("updates the sandbox counter through the hook", async ({ page }) => {
+  await openSandboxPage(page);
 
   await expect(
     page.getByRole("heading", { name: "Sandbox demo" }),
   ).toBeVisible();
-  await expect(page.getByTestId("code-input")).toContainText(
-    "Hello from the sandbox",
-  );
-  await expect(status(page)).toHaveText(`Sandbox result: ${DEFAULT_RESULT}`);
-  await expect(page.getByTestId("run-code")).toBeEnabled();
+
+  await page.getByTestId("increment").click();
+  await expect(count(page)).toHaveText("Count: 1");
+
+  await page.getByTestId("increment").click();
+  await expect(count(page)).toHaveText("Count: 2");
+
+  await page.getByTestId("reset").click();
+  await expect(count(page)).toHaveText("Count: 0");
 });
 
 test("embeds the sandbox as a hidden script-only iframe", async ({ page }) => {
@@ -26,24 +28,15 @@ test("embeds the sandbox as a hidden script-only iframe", async ({ page }) => {
   await expect(iframe).toBeHidden();
 });
 
-test("reports a load failure when the sandbox never becomes ready", async ({
+test("logs to the console once the sandbox provider mounts", async ({
   page,
 }) => {
-  await page.route("**/sandbox.html", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "text/html",
-      body: "<!doctype html><title>broken</title>",
-    }),
-  );
+  const logs: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "log") logs.push(message.text());
+  });
 
-  await page.goto("/");
+  await openSandboxPage(page);
 
-  await expect(status(page)).toHaveText("Loading sandbox…");
-  await expect(page.getByTestId("run-code")).toBeDisabled();
-  await expect(status(page)).toHaveText(
-    "Sandbox error: Sandbox failed to load",
-    { timeout: 10_000 },
-  );
-  await expect(page.getByTestId("run-code")).toBeDisabled();
+  await expect(() => expect(logs).toContain("Sandbox loaded")).toPass();
 });
