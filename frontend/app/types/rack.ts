@@ -64,3 +64,54 @@ export const emptyRack: Rack = EmptyRack.make({
   jackIds: [],
   paramIds: [],
 });
+
+export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
+
+/** A fresh block, parented to `parentId`. Groups nest; nodes hold code. */
+export const makeBlock = (
+  id: string,
+  parentId: string,
+  blockType: "node" | "tree",
+): Rack => {
+  const shared = { id, isRoot: false, parentId, jackIds: [], paramIds: [] };
+
+  return blockType === "tree"
+    ? TreeRack.make({
+        ...shared,
+        name: "Group",
+        type: "tree",
+        children: [],
+        patches: [],
+      })
+    : LeafRack.make({
+        ...shared,
+        name: "Node",
+        type: "node",
+        // A new node runs nothing until the editor gives it code. `make`
+        // checks this really is an Effect, so a null placeholder would throw.
+        code: Effect.void,
+      });
+};
+
+/**
+ * Rebuilds a block as a tree, keeping its identity. Adding the first block to
+ * an empty rack goes through here: the root keeps its id, so `rootId` and any
+ * `parentId` pointing at it stay valid.
+ */
+export const toTree = (
+  block: Rack,
+  children: readonly string[],
+  patches: readonly string[],
+): TreeBlock =>
+  TreeRack.make({
+    id: block.id,
+    name: block.name,
+    type: "tree",
+    isRoot: block.isRoot,
+    // `optionalKey` rejects an explicit `undefined`, so omit the key instead.
+    ...(block.parentId === undefined ? {} : { parentId: block.parentId }),
+    jackIds: block.jackIds,
+    paramIds: block.paramIds,
+    children,
+    patches,
+  });

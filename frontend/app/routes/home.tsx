@@ -4,15 +4,15 @@ import {
   ReactFlow,
   ReactFlowProvider,
 } from "@xyflow/react";
-import { useState } from "react";
 import { CanvasChrome } from "~/components/canvas-chrome";
+import { useCanvasStore } from "~/stores/canvas";
 
 export function meta() {
   return [{ title: "Good Vibes" }];
 }
 
 export default function Home() {
-  const [locked, setLocked] = useState(false);
+  const locked = useCanvasStore((state) => state.locked);
 
   return (
     <ReactFlowProvider>
@@ -26,10 +26,7 @@ export default function Home() {
           <Background variant={BackgroundVariant.Lines} />
         </ReactFlow>
 
-        <CanvasChrome
-          locked={locked}
-          onToggleLock={() => setLocked((current) => !current)}
-        />
+        <CanvasChrome />
       </main>
     </ReactFlowProvider>
   );

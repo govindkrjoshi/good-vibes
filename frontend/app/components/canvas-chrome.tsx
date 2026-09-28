@@ -5,26 +5,24 @@ import { HelpButton } from "~/components/help-button";
 import { RackToolbar } from "~/components/rack-toolbar";
 import { ViewportControls } from "~/components/viewport-controls";
 import { Button } from "~/components/ui/button";
-import { useRack } from "~/hooks/useRack";
 import { useShortcuts } from "~/hooks/useShortcuts";
-
-type CanvasChromeProps = {
-  readonly locked: boolean;
-  readonly onToggleLock: () => void;
-};
+import { useCanvasStore } from "~/stores/canvas";
+import { useRackStore } from "~/stores/rack";
 
 /**
  * Every floating control that sits over the canvas. It reads the viewport
  * through React Flow, so it has to render inside the provider.
  */
-export function CanvasChrome({ locked, onToggleLock }: CanvasChromeProps) {
-  const { dispatch } = useRack();
+export function CanvasChrome() {
+  const locked = useCanvasStore((state) => state.locked);
+  const toggleLock = useCanvasStore((state) => state.toggleLock);
+  const addBlock = useRackStore((state) => state.addBlock);
+  const run = useRackStore((state) => state.run);
   const { zoomIn, zoomOut, zoomTo, fitView } = useReactFlow();
   const zoom = useStore((state) => state.transform[2]);
 
-  const addNode = () => dispatch({ type: "addBlock", blockType: "node" });
-  const addGroup = () => dispatch({ type: "addBlock", blockType: "tree" });
-  const run = () => dispatch({ type: "run" });
+  const addNode = () => addBlock("node");
+  const addGroup = () => addBlock("tree");
 
   useShortcuts({ n: addNode, g: addGroup, r: run });
 
@@ -38,7 +36,7 @@ export function CanvasChrome({ locked, onToggleLock }: CanvasChromeProps) {
 
       <RackToolbar
         locked={locked}
-        onToggleLock={onToggleLock}
+        onToggleLock={toggleLock}
         onAddNode={addNode}
         onAddGroup={addGroup}
       />
