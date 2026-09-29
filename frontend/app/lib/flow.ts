@@ -1,8 +1,14 @@
-import type { Node, XYPosition } from "@xyflow/react";
-import type { Jack, Rack } from "~/types/rack";
+import type { Edge, Node, XYPosition } from "@xyflow/react";
+import { canPatch, type Jack, type Patch, type Rack } from "~/types/rack";
 
 /** The size a block renders at, used to centre new ones under the viewport. */
 export const blockSize = { width: 176, height: 44 };
+
+/** The size React Flow measured a block at on the canvas. */
+export type BlockDimensions = {
+  readonly width: number;
+  readonly height: number;
+};
 
 export type BlockNodeData = {
   readonly name: string;
@@ -25,6 +31,7 @@ export const toFlowNodes = (
   jacks: Record<string, Jack>,
   rootId: string,
   positions: Record<string, XYPosition>,
+  dimensions: Record<string, BlockDimensions>,
   selectedIds: readonly string[],
 ): BlockNode[] => {
   const root = blocks[rootId];
@@ -34,17 +41,65 @@ export const toFlowNodes = (
     const block = blocks[id];
     if (block === undefined) return [];
 
+    // React Flow rebuilds a controlled node's `measured` from the node handed
+    // to it, so a block it has already measured needs that size folded back in
+    // or it counts as uninitialised and will not drag. `measured` only: `width`
+    // and `height` are the author's own sizes and land as inline styles, which
+    // would pin the block at its first measurement instead of letting it grow
+    // with its content.
+    const measured = dimensions[block.id];
+
     return [
       {
         id: block.id,
         type: "block" as const,
         position: positions[block.id] ?? origin,
+        ...(measured === undefined ? {} : { measured }),
         selected: selectedIds.includes(block.id),
         data: {
           name: block.name,
           kind: block.type === "tree" ? "tree" : "node",
           jacks: block.jackIds.flatMap((jackId) => jacks[jackId] ?? []),
         },
+      },
+    ];
+  });
+};
+
+/** The rack's patches as React Flow edges between block jack handles. */
+export const toFlowEdges = (
+  blocks: Record<string, Rack>,
+  jacks: Record<string, Jack>,
+  patches: Record<string, Patch>,
+  rootId: string,
+): Edge[] => {
+  const root = blocks[rootId];
+  if (root === undefined || root.type !== "tree") return [];
+
+  return root.patches.flatMap((id) => {
+    const patch = patches[id];
+    if (patch === undefined) return [];
+
+    const source = jacks[patch.from];
+    const target = jacks[patch.to];
+
+    // The store patches by this same rule, so a patch that fails it is one the
+    // canvas cannot draw rather than one it would draw the wrong way round.
+    if (
+      source === undefined ||
+      target === undefined ||
+      !canPatch(root, source, target)
+    ) {
+      return [];
+    }
+
+    return [
+      {
+        id: patch.id,
+        source: source.belongToBlockId,
+        sourceHandle: source.id,
+        target: target.belongToBlockId,
+        targetHandle: target.id,
       },
     ];
   });

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openSandboxPage } from "./helpers";
 
 const blocks = (page: Page) => page.getByTestId("block-node");
@@ -106,6 +106,88 @@ test("drags a block to a new spot on the canvas", async ({ page }) => {
     expect(after.x - before.x).toBeGreaterThan(100);
     expect(after.y - before.y).toBeGreaterThan(40);
   }).toPass();
+});
+
+/** A block's jack handle, picked by the direction it faces. */
+const handle = (page: Page, index: number, direction: "in" | "out") =>
+  page
+    .locator(".react-flow__node")
+    .nth(index)
+    .locator(
+      direction === "in"
+        ? ".react-flow__handle-left"
+        : ".react-flow__handle-right",
+    );
+
+/**
+ * Drags a connection from the `from` handle to the `to` handle, and hands back
+ * whether React Flow was willing to end it there. It marks the handle under
+ * the cursor `valid` only while `isValidConnection` accepts the drop, so this
+ * reads the answer the canvas gave before the drop, not just its aftermath.
+ */
+async function connect(page: Page, from: Locator, to: Locator) {
+  const start = await from.boundingBox();
+  const end = await to.boundingBox();
+  if (start === null || end === null) throw new Error("no handle box");
+
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(end.x + end.width / 2, end.y + end.height / 2, {
+    steps: 10,
+  });
+
+  const valid = await to.evaluate((node) => node.classList.contains("valid"));
+  await page.mouse.up();
+
+  return valid;
+}
+
+test("patches one block's output into another block's input", async ({
+  page,
+}) => {
+  await openSandboxPage(page);
+
+  await page.getByTestId("add-node").click();
+  await page.getByTestId("add-node").click();
+  await expect(blocks(page)).toHaveCount(2);
+
+  expect(
+    await connect(page, handle(page, 0, "out"), handle(page, 1, "in")),
+  ).toBe(true);
+
+  await expect(page.locator(".react-flow__edge")).toHaveCount(1);
+});
+
+test("lays no second patch over the first across the same two jacks", async ({
+  page,
+}) => {
+  await openSandboxPage(page);
+
+  await page.getByTestId("add-node").click();
+  await page.getByTestId("add-node").click();
+  await expect(blocks(page)).toHaveCount(2);
+
+  await connect(page, handle(page, 0, "out"), handle(page, 1, "in"));
+  await expect(page.locator(".react-flow__edge")).toHaveCount(1);
+
+  await connect(page, handle(page, 0, "out"), handle(page, 1, "in"));
+
+  await expect(page.locator(".react-flow__edge")).toHaveCount(1);
+});
+
+test("refuses to patch a block's output back into its own input", async ({
+  page,
+}) => {
+  await openSandboxPage(page);
+
+  await page.getByTestId("add-node").click();
+  await expect(blocks(page)).toHaveCount(1);
+
+  expect(
+    await connect(page, handle(page, 0, "out"), handle(page, 0, "in")),
+  ).toBe(false);
+
+  await expect(page.locator(".react-flow__edge")).toHaveCount(0);
 });
 
 test("keeps a locked block where it is", async ({ page }) => {

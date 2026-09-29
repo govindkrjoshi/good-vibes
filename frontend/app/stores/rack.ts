@@ -1,10 +1,13 @@
 import { create } from "zustand";
 import {
+  canPatch,
   makeBlock,
+  makeDefaultJacks,
   toTree,
   type Jack,
   type Patch,
   type Rack,
+  type TreeBlock,
   emptyRack,
 } from "~/types/rack";
 
@@ -20,7 +23,45 @@ export type RackStore = RackState & {
   /** Adds a block under the root and returns its id, or `undefined` when the
    * rack has nowhere to put it. The canvas needs the id to place the block. */
   readonly addBlock: (blockType: "node" | "tree") => string | undefined;
+  /** Patches an output jack to an input jack on another block under the root
+   * and returns the patch id, or `undefined` when the two cannot be patched.
+   * Patching a pair that is already patched hands back the patch already
+   * joining them, so a second drag across the same two jacks does not stack a
+   * duplicate edge on top of the first. */
+  readonly connectJacks: (
+    fromJackId: string,
+    toJackId: string,
+  ) => string | undefined;
+  /** Whether `connectJacks` would patch these two jacks. The canvas asks
+   * before it lets a drag land, so an impossible connection is refused on the
+   * spot rather than silently dropped once the user lets go. */
+  readonly canConnectJacks: (fromJackId: string, toJackId: string) => boolean;
   readonly run: () => void;
+};
+
+/** The root and both jacks, when a patch between them is possible at all. */
+const resolvePatch = (
+  state: RackState,
+  fromJackId: string,
+  toJackId: string,
+):
+  | { readonly root: TreeBlock; readonly from: Jack; readonly to: Jack }
+  | undefined => {
+  const root = state.blocks[state.rootId];
+  const from = state.jacks[fromJackId];
+  const to = state.jacks[toJackId];
+
+  if (
+    root === undefined ||
+    root.type !== "tree" ||
+    from === undefined ||
+    to === undefined ||
+    !canPatch(root, from, to)
+  ) {
+    return undefined;
+  }
+
+  return { root, from, to };
 };
 
 export const initialRackState: RackState = {
@@ -45,6 +86,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     // the root into the tree that holds it.
     const root = current.type === "tree" ? current : toTree(current, [], []);
     const block = makeBlock(crypto.randomUUID(), root.id, blockType);
+    const jacks = makeDefaultJacks(block.id);
 
     set((state) => ({
       blocks: {
@@ -52,9 +94,51 @@ export const useRackStore = create<RackStore>()((set, get) => ({
         [root.id]: { ...root, children: [...root.children, block.id] },
         [block.id]: block,
       },
+      jacks: {
+        ...state.jacks,
+        ...Object.fromEntries(jacks.map((jack) => [jack.id, jack])),
+      },
     }));
 
     return block.id;
+  },
+
+  canConnectJacks: (fromJackId, toJackId) =>
+    resolvePatch(get(), fromJackId, toJackId) !== undefined,
+
+  connectJacks: (fromJackId, toJackId) => {
+    const state = get();
+    const resolved = resolvePatch(state, fromJackId, toJackId);
+    if (resolved === undefined) return undefined;
+
+    const { root, from, to } = resolved;
+
+    // React Flow reports a connection for every drag that lands, so the same
+    // pair of jacks can arrive more than once. Two patches between one pair
+    // would draw as two edges stacked on the same line, with no way to tell
+    // them apart or to remove only one.
+    const held = root.patches.find((id) => {
+      const patch = state.patches[id];
+      return patch?.from === from.id && patch.to === to.id;
+    });
+    if (held !== undefined) return held;
+
+    const patch: Patch = {
+      id: crypto.randomUUID(),
+      name: `${from.name} → ${to.name}`,
+      from: from.id,
+      to: to.id,
+    };
+
+    set((state) => ({
+      blocks: {
+        ...state.blocks,
+        [root.id]: { ...root, patches: [...root.patches, patch.id] },
+      },
+      patches: { ...state.patches, [patch.id]: patch },
+    }));
+
+    return patch.id;
   },
 
   run: () => {

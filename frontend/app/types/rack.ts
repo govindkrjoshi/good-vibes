@@ -67,13 +67,63 @@ export const emptyRack: Rack = EmptyRack.make({
 
 export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
 
+/** The input and output jacks every new block starts with. */
+export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
+  {
+    id: `${blockId}:in`,
+    name: "Input",
+    belongToBlockId: blockId,
+    direction: "in",
+  },
+  {
+    id: `${blockId}:out`,
+    name: "Output",
+    belongToBlockId: blockId,
+    direction: "out",
+  },
+];
+
+/**
+ * Whether `block` has an output jack to wire out of. Only the rack can answer
+ * this: a block holds jack ids and the directions live in the jack table, so a
+ * block schema on its own can do no better than match on how an id is spelled.
+ * The root is exempt, having nothing above it to wire into, and so is an empty
+ * rack, which is a rack with no blocks and so no jacks either.
+ */
+export const hasOutputJack = (
+  block: Rack,
+  jacks: Record<string, Jack>,
+): boolean =>
+  block.isRoot ||
+  block.type === "empty" ||
+  block.jackIds.some((id) => jacks[id]?.direction === "out");
+
+/**
+ * Whether a patch may run from `from` to `to` under `root`: an output jack on
+ * one of its children wired to an input jack on a different one. The store
+ * checks this before it stores a patch and the canvas checks it again before it
+ * draws one, so the two cannot drift apart on what counts as a patch.
+ */
+export const canPatch = (root: TreeBlock, from: Jack, to: Jack): boolean =>
+  from.direction === "out" &&
+  to.direction === "in" &&
+  from.belongToBlockId !== to.belongToBlockId &&
+  root.children.includes(from.belongToBlockId) &&
+  root.children.includes(to.belongToBlockId);
+
 /** A fresh block, parented to `parentId`. Groups nest; nodes hold code. */
 export const makeBlock = (
   id: string,
   parentId: string,
   blockType: "node" | "tree",
 ): Rack => {
-  const shared = { id, isRoot: false, parentId, jackIds: [], paramIds: [] };
+  const shared = {
+    id,
+    isRoot: false,
+    parentId,
+    jackIds: makeDefaultJacks(id).map((jack) => jack.id),
+    paramIds: [],
+  };
 
   return blockType === "tree"
     ? TreeRack.make({

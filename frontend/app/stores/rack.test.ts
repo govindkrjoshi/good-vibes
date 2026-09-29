@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { beforeEach, expect, test } from "vitest";
 import { useRackStore } from "./rack";
+import { hasOutputJack } from "~/types/rack";
 
 // The store is a module singleton, so it carries state between tests. Snapshot
 // it before anything runs and replace it wholesale each time. The snapshot
@@ -72,6 +73,128 @@ test("gives a group block its own empty children and patches", () => {
   if (block.type !== "tree") throw new Error("expected a tree block");
   expect(block.children).toEqual([]);
   expect(block.patches).toEqual([]);
+});
+
+test("gives each new block one input and one output jack", () => {
+  state().addBlock("node");
+
+  const block = state().blocks[children()[0]];
+  const jacks = block.jackIds.map((id) => state().jacks[id]);
+
+  expect(jacks.map((jack) => jack.direction)).toEqual(["in", "out"]);
+  expect(jacks.every((jack) => jack.belongToBlockId === block.id)).toBe(true);
+});
+
+test("gives every non-root block an output jack to wire out of", () => {
+  const nodeId = state().addBlock("node");
+  const treeId = state().addBlock("tree");
+  if (nodeId === undefined || treeId === undefined) {
+    throw new Error("expected blocks to be added");
+  }
+
+  const jacks = state().jacks;
+  expect(hasOutputJack(state().blocks[nodeId], jacks)).toBe(true);
+  expect(hasOutputJack(state().blocks[treeId], jacks)).toBe(true);
+  expect(hasOutputJack({ ...state().blocks[nodeId], jackIds: [] }, jacks)).toBe(
+    false,
+  );
+});
+
+test("reads a block's output jack off its direction, not its id", () => {
+  const blockId = state().addBlock("node");
+  if (blockId === undefined) throw new Error("expected block to be added");
+
+  const renamed = {
+    id: "renamed",
+    name: "Out",
+    belongToBlockId: blockId,
+    direction: "out",
+  } as const;
+
+  expect(
+    hasOutputJack(
+      { ...state().blocks[blockId], jackIds: ["renamed"] },
+      {
+        ...state().jacks,
+        renamed,
+      },
+    ),
+  ).toBe(true);
+});
+
+test("exempts the root, which has nothing above it to wire into", () => {
+  expect(hasOutputJack(root(), state().jacks)).toBe(true);
+});
+
+test("connects output jacks to input jacks on other blocks", () => {
+  const fromBlockId = state().addBlock("node");
+  const toBlockId = state().addBlock("tree");
+  if (fromBlockId === undefined || toBlockId === undefined) {
+    throw new Error("expected blocks to be added");
+  }
+
+  const patchId = state().connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
+
+  expect(patchId).toBeTypeOf("string");
+  const rootBlock = root();
+  expect(rootBlock.type).toBe("tree");
+  expect(children()).toEqual([fromBlockId, toBlockId]);
+  if (rootBlock.type !== "tree" || patchId === undefined) return;
+  expect(rootBlock.patches).toEqual([patchId]);
+  expect(state().patches[patchId]).toMatchObject({
+    from: `${fromBlockId}:out`,
+    to: `${toBlockId}:in`,
+  });
+});
+
+test("hands back the patch already there rather than doubling it up", () => {
+  const fromBlockId = state().addBlock("node");
+  const toBlockId = state().addBlock("node");
+  if (fromBlockId === undefined || toBlockId === undefined) {
+    throw new Error("expected blocks to be added");
+  }
+
+  const first = state().connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
+  const second = state().connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
+
+  expect(second).toBe(first);
+  expect(Object.keys(state().patches)).toHaveLength(1);
+  const rootBlock = root();
+  if (rootBlock.type !== "tree") throw new Error("root is not a tree");
+  expect(rootBlock.patches).toEqual([first]);
+});
+
+test("rejects invalid jack connections", () => {
+  const blockId = state().addBlock("node");
+  if (blockId === undefined) throw new Error("expected block to be added");
+
+  expect(state().connectJacks(`${blockId}:in`, `${blockId}:out`)).toBe(
+    undefined,
+  );
+  expect(state().connectJacks(`${blockId}:out`, `${blockId}:in`)).toBe(
+    undefined,
+  );
+  expect(state().connectJacks(`${blockId}:out`, "nobody:in")).toBe(undefined);
+  expect(state().patches).toEqual({});
+});
+
+test("refuses up front the connections it would reject", () => {
+  const fromBlockId = state().addBlock("node");
+  const toBlockId = state().addBlock("node");
+  if (fromBlockId === undefined || toBlockId === undefined) {
+    throw new Error("expected blocks to be added");
+  }
+
+  expect(state().canConnectJacks(`${fromBlockId}:out`, `${toBlockId}:in`)).toBe(
+    true,
+  );
+  expect(state().canConnectJacks(`${fromBlockId}:in`, `${toBlockId}:out`)).toBe(
+    false,
+  );
+  expect(
+    state().canConnectJacks(`${fromBlockId}:out`, `${fromBlockId}:in`),
+  ).toBe(false);
+  expect(state().patches).toEqual({});
 });
 
 test("hands back the id of the block it added", () => {
