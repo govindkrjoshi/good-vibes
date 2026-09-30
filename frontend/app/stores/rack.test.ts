@@ -89,6 +89,47 @@ test("gives every non-root block an output jack to wire out of", () => {
   );
 });
 
+test("adds AMSynth from the instrument catalogue", () => {
+  const id = state().addCatalogueBlock("instruments", "AMSynth");
+  if (id === undefined) throw new Error("expected AMSynth to be added");
+
+  const block = state().blocks[id];
+  if (block.type !== "leaf") throw new Error("expected AMSynth to be a leaf");
+
+  expect(children()).toEqual([id]);
+  expect(block.name).toBe("AMSynth");
+  expect(block.parentId).toBe("root");
+  const harmonicityId = block.paramIds.paramIds?.harmonicity;
+  const triggerAttackReleaseId = block.methodIds.find(
+    (methodId) => state().methods[methodId]?.method === "triggerAttackRelease",
+  );
+
+  expect(harmonicityId).toBeTypeOf("string");
+  if (harmonicityId === undefined) throw new Error("missing harmonicity");
+  expect(state().params[harmonicityId]).toMatchObject({
+    id: harmonicityId,
+    belongToBlockId: id,
+    kind: "number",
+  });
+  expect(triggerAttackReleaseId).toBeTypeOf("string");
+  if (triggerAttackReleaseId === undefined) {
+    throw new Error("missing triggerAttackRelease");
+  }
+  expect(state().methods[triggerAttackReleaseId]).toMatchObject({
+    id: triggerAttackReleaseId,
+    belongToBlockId: id,
+    method: "triggerAttackRelease",
+  });
+  expect(
+    block.jackIds.map((jackId) => state().jacks[jackId]?.direction),
+  ).toEqual(["in", "out"]);
+});
+
+test("ignores missing catalogue blocks", () => {
+  expect(state().addCatalogueBlock("instruments", "Missing")).toBeUndefined();
+  expect(children()).toEqual([]);
+});
+
 test("reads a block's output jack off its direction, not its id", () => {
   const blockId = state().addBlock("leaf");
   if (blockId === undefined) throw new Error("expected block to be added");
@@ -228,6 +269,23 @@ test("removes a block with its jacks and the patches wired to it", () => {
   expect(block.patches).toEqual([kept]);
 });
 
+test("removes a block with its params and methods", () => {
+  const id = state().addCatalogueBlock("instruments", "AMSynth");
+  if (id === undefined) throw new Error("expected AMSynth to be added");
+
+  const block = state().blocks[id];
+  const harmonicityId = block.paramIds.paramIds?.harmonicity;
+  const methodId = block.methodIds[0];
+  if (harmonicityId === undefined || methodId === undefined) {
+    throw new Error("expected normalized params and methods");
+  }
+
+  state().removeBlocks([id]);
+
+  expect(state().params[harmonicityId]).toBeUndefined();
+  expect(state().methods[methodId]).toBeUndefined();
+});
+
 test("removes several blocks at once", () => {
   const first = state().addBlock("leaf");
   const second = state().addBlock("tree");
@@ -279,13 +337,154 @@ test("ignores patches the root does not hold", () => {
 });
 
 test("lists every category", () => {
-  expect(state().categories()).toEqual(["source"]);
+  expect(state().categories()).toEqual(["source", "instruments"]);
 });
 
 test("lists the sub categories of a category", () => {
-  expect(state().subCategories("source")).toEqual([{ name: "AMOscillator" }]);
+  expect(
+    state()
+      .subCategories("source")
+      .map((entry) => entry.name),
+  ).toEqual(["AMOscillator"]);
 });
 
 test("has no sub categories for an unknown category", () => {
   expect(state().subCategories("nope")).toEqual([]);
+});
+
+const addSynth = () => {
+  const id = state().addCatalogueBlock("instruments", "AMSynth");
+  if (id === undefined) throw new Error("expected AMSynth to be added");
+  const block = state().blocks[id];
+  const param = (key: string, group?: string) => {
+    const paramId =
+      group === undefined
+        ? block.paramIds.paramIds?.[key]
+        : block.paramIds.groups?.[group]?.paramIds?.[key];
+    if (paramId === undefined) throw new Error(`missing param ${key}`);
+    return paramId;
+  };
+  const method = (name: string) => {
+    const methodId = block.methodIds.find(
+      (held) => state().methods[held]?.method === name,
+    );
+    if (methodId === undefined) throw new Error(`missing method ${name}`);
+    return methodId;
+  };
+  return { id, param, method };
+};
+
+test("starts every catalogue param at its default value", () => {
+  const synth = addSynth();
+
+  expect(state().values[synth.param("harmonicity")]).toBe(3);
+  expect(state().values[synth.param("type", "oscillator")]).toBe("sine");
+});
+
+test("sets a param value, clamped into its range", () => {
+  const synth = addSynth();
+  const volume = synth.param("volume");
+
+  state().setParamValue(volume, -12);
+  expect(state().values[volume]).toBe(-12);
+
+  state().setParamValue(volume, 100);
+  expect(state().values[volume]).toBe(12);
+});
+
+test("refuses a value that does not fit the param", () => {
+  const synth = addSynth();
+  const type = synth.param("type", "oscillator");
+  const volume = synth.param("volume");
+
+  state().setParamValue(type, "banjo");
+  state().setParamValue(volume, "loud");
+
+  expect(state().values[type]).toBe("sine");
+  expect(state().values[volume]).toBe(0);
+});
+
+test("schedules and removes automation on a param", () => {
+  const synth = addSynth();
+  const volume = synth.param("volume");
+
+  const eventId = state().addAutomation(volume, {
+    method: "rampTo",
+    value: -6,
+    time: "0",
+    rampTime: "1",
+  });
+  if (eventId === undefined) throw new Error("expected automation");
+
+  expect(state().automations[volume]).toEqual([
+    { id: eventId, method: "rampTo", value: -6, time: "0", rampTime: "1" },
+  ]);
+
+  state().removeAutomation(volume, eventId);
+  expect(state().automations[volume]).toEqual([]);
+});
+
+test("refuses automation a param does not offer", () => {
+  const synth = addSynth();
+
+  expect(
+    state().addAutomation(synth.param("attack", "envelope"), {
+      method: "setValueAtTime",
+      value: 1,
+      time: "0",
+    }),
+  ).toBeUndefined();
+  expect(
+    state().addAutomation(synth.param("volume"), {
+      method: "exponentialRampToValueAtTime",
+      value: 1,
+      time: "0",
+    }),
+  ).toBeUndefined();
+});
+
+test("queues a method call with the arguments given", () => {
+  const synth = addSynth();
+  const methodId = synth.method("triggerAttackRelease");
+
+  const callId = state().callMethod(methodId, {
+    note: "C4",
+    duration: "8n",
+    time: "",
+    velocity: 0.5,
+  });
+
+  expect(state().calls).toEqual([
+    {
+      id: callId,
+      methodId,
+      args: { note: "C4", duration: "8n", velocity: 0.5 },
+    },
+  ]);
+});
+
+test("refuses a method call missing a required argument", () => {
+  const synth = addSynth();
+
+  expect(
+    state().callMethod(synth.method("triggerAttack"), { note: "" }),
+  ).toBeUndefined();
+  expect(state().calls).toEqual([]);
+});
+
+test("removes a block with its values, automation and queued calls", () => {
+  const synth = addSynth();
+  const volume = synth.param("volume");
+  state().addAutomation(volume, {
+    method: "setValueAtTime",
+    value: -3,
+    time: "0",
+  });
+  state().callMethod(synth.method("triggerRelease"), {});
+
+  state().removeBlocks([synth.id]);
+
+  expect(state().values[volume]).toBeUndefined();
+  expect(state().automations[volume]).toBeUndefined();
+  expect(state().calls).toEqual([]);
 });

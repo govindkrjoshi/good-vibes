@@ -1,6 +1,11 @@
 import type { Edge } from "@xyflow/react";
 import { expect, test } from "vitest";
-import { layoutNodes, syncNodesFromRack, toFlowEdges } from "./canvas-viewport";
+import {
+  layoutNodes,
+  syncNodesFromRack,
+  toFlowEdges,
+  type CanvasNode,
+} from "./canvas-viewport";
 import type { BlockNodeType as BlockNode } from "./block-node";
 import {
   makeBlock,
@@ -38,7 +43,7 @@ const patch = (id: string, from: string, to: string): Patch => ({
 
 const sync = (
   blocks: Record<string, Rack>,
-  current: readonly BlockNode[] = [],
+  current: readonly CanvasNode[] = [],
   jacks: Record<string, Jack> = {},
 ) => syncNodesFromRack(current, blocks, jacks, "root");
 
@@ -63,7 +68,9 @@ test("gives every block under the root a node", () => {
   const nodes = sync(rack([leaf, group]));
 
   expect(nodes.map((flow) => flow.id)).toEqual(["a", "b"]);
-  expect(nodes.map((flow) => flow.data.kind)).toEqual(["leaf", "tree"]);
+  expect(
+    nodes.map((flow) => (flow.type === "block" ? flow.data.kind : undefined)),
+  ).toEqual(["leaf", "tree"]);
   expect(nodes.every((flow) => flow.type === "block")).toBe(true);
 });
 
@@ -259,4 +266,19 @@ test("skips a patch id with no patch behind it", () => {
   const jacks = { out: jack("out", "a", "out"), in: jack("in", "b", "in") };
 
   expect(toFlowEdges(twoBlocks(), jacks, {}, "root")).toEqual([]);
+});
+
+test("gives a block with params or methods a panel of controls", () => {
+  const plain = makeBlock("a", "root", "leaf");
+  const synth = {
+    ...makeBlock("b", "root", "leaf"),
+    name: "AMSynth",
+    methodIds: ["b:method:triggerAttack"],
+  };
+
+  const [box, panel] = sync(rack([plain, synth]));
+
+  expect(box.type).toBe("block");
+  expect(panel.type).toBe("rack");
+  expect(panel.data).toEqual({ blockId: "b", name: "AMSynth", jacks: [] });
 });

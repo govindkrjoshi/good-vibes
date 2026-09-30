@@ -9,25 +9,24 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 import dagre from "@dagrejs/dagre";
-import {
-  BlockNode,
-  type BlockNodeData,
-  type BlockNodeType,
-} from "./block-node";
+import { BlockNode, type BlockNodeType } from "./block-node";
+import { RackNode, rackNodeWidth, type RackNodeType } from "./rack-node";
 import { canPatch, type Jack, type Patch, type Rack } from "../types/rack";
 import { useCanvasStore } from "../stores/canvas";
 import { useRackStore } from "../stores/rack";
 
 // React Flow re-registers every node type when this object changes identity,
 // so it has to be built once, outside the component.
-const nodeTypes = { block: BlockNode };
+const nodeTypes = { block: BlockNode, rack: RackNode };
+
+export type CanvasNode = BlockNodeType | RackNodeType;
 
 // The first block arrives after the initial fit, so React Flow fits again for
 // it. Without a cap it would fit one block by zooming to 200%, which is not a
 // canvas anyone asked to zoom.
 const fitViewOptions = { maxZoom: 1 };
 
-const noNodes: BlockNodeType[] = [];
+const noNodes: CanvasNode[] = [];
 const noEdges: Edge[] = [];
 
 const jackIds = (connection: Connection | Edge) =>
@@ -82,52 +81,76 @@ export function CanvasViewport() {
   );
 }
 
-const sameBlocks = (a: readonly BlockNodeType[], b: readonly BlockNodeType[]) =>
+const sameBlocks = (a: readonly CanvasNode[], b: readonly CanvasNode[]) =>
   a.length === b.length && a.every((node, i) => node.id === b[i]?.id);
 
 const origin: XYPosition = { x: 0, y: 0 };
 
+// A block with anything to set or trigger is drawn as a panel of controls; one
+// without is only a box to wire.
+const hasControls = (block: Rack) =>
+  block.methodIds.length > 0 ||
+  block.paramIds.paramIds !== undefined ||
+  block.paramIds.groups !== undefined;
+
 export const syncNodesFromRack = (
-  currentNodes: readonly BlockNodeType[],
+  currentNodes: readonly CanvasNode[],
   blocks: Record<string, Rack>,
   jacks: Record<string, Jack>,
   rootId: string,
-): BlockNodeType[] => {
+): CanvasNode[] => {
   const root = blocks[rootId];
   if (root === undefined || root.type !== "tree") return [];
 
   const held = new Map(currentNodes.map((node) => [node.id, node]));
 
-  return root.children.flatMap((id): BlockNodeType[] => {
+  return root.children.flatMap((id): CanvasNode[] => {
     const block = blocks[id];
     if (block === undefined) return [];
 
-    const data: BlockNodeData = {
-      name: block.name,
-      kind: block.type,
-      jacks: block.jackIds.flatMap((jackId) => jacks[jackId] ?? []),
-    };
+    const blockJacks = block.jackIds.flatMap((jackId) => jacks[jackId] ?? []);
+    const base = held.get(id) ?? { id: block.id, position: origin };
 
-    const existing = held.get(id);
-    if (existing !== undefined) return [{ ...existing, data }];
-
-    return [{ id: block.id, type: "block", position: origin, data }];
+    return [
+      hasControls(block)
+        ? {
+            ...base,
+            type: "rack",
+            data: { blockId: block.id, name: block.name, jacks: blockJacks },
+          }
+        : {
+            ...base,
+            type: "block",
+            data: { name: block.name, kind: block.type, jacks: blockJacks },
+          },
+    ];
   });
 };
 
 const nodeWidth = 176;
 const nodeHeight = 44;
+// A rack panel opens with its sections closed; this is roughly that height,
+// used until React Flow has measured the real one.
+const rackNodeHeight = 420;
+
+const nodeSize = (node: CanvasNode) => ({
+  width:
+    node.measured?.width ?? (node.type === "rack" ? rackNodeWidth : nodeWidth),
+  height:
+    node.measured?.height ??
+    (node.type === "rack" ? rackNodeHeight : nodeHeight),
+});
 
 export const layoutNodes = (
-  nodes: readonly BlockNodeType[],
+  nodes: readonly CanvasNode[],
   edges: readonly Edge[],
-): BlockNodeType[] => {
+): CanvasNode[] => {
   const graph = new dagre.graphlib.Graph();
   graph.setDefaultEdgeLabel(() => ({}));
   graph.setGraph({ rankdir: "LR" });
 
   for (const node of nodes) {
-    graph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+    graph.setNode(node.id, nodeSize(node));
   }
   for (const edge of edges) graph.setEdge(edge.source, edge.target);
 
@@ -135,10 +158,8 @@ export const layoutNodes = (
 
   return nodes.map((node) => {
     const { x, y } = graph.node(node.id);
-    return {
-      ...node,
-      position: { x: x - nodeWidth / 2, y: y - nodeHeight / 2 },
-    };
+    const { width, height } = nodeSize(node);
+    return { ...node, position: { x: x - width / 2, y: y - height / 2 } };
   });
 };
 
@@ -179,7 +200,7 @@ export const toFlowEdges = (
 };
 
 function RackReactFlowSync() {
-  const { setNodes, setEdges } = useReactFlow<BlockNodeType>();
+  const { setNodes, setEdges } = useReactFlow<CanvasNode>();
   const blocks = useRackStore((state) => state.blocks);
   const jacks = useRackStore((state) => state.jacks);
   const patches = useRackStore((state) => state.patches);

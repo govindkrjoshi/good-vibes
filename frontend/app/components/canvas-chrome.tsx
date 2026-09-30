@@ -13,6 +13,7 @@ export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
   const addBlock = useRackStore((state) => state.addBlock);
+  const addCatalogueBlock = useRackStore((state) => state.addCatalogueBlock);
   const removeBlocks = useRackStore((state) => state.removeBlocks);
   const removePatches = useRackStore((state) => state.removePatches);
   const run = useRackStore((state) => state.run);
@@ -32,7 +33,7 @@ export function CanvasChrome() {
   // The rack only models leaves and trees so far, so each typed tool adds the
   // closest of the two until its own block type lands in the store.
   const addSource = addLeaf;
-  const addInstrument = addLeaf;
+  const addInstrument = () => addCatalogueBlock("instruments", "AMSynth");
   const addEffect = addLeaf;
   const addComponent = addGroup;
   const addSignal = addLeaf;

@@ -37,7 +37,9 @@ const ParamAutomationSchema = Schema.Struct({
 });
 
 const BaseParamFields = {
+  id: Schema.String,
   name: Schema.String,
+  belongToBlockId: Schema.String,
   path: Schema.Array(Schema.String),
   order: Schema.optionalKey(Schema.Number),
   description: Schema.optionalKey(Schema.String),
@@ -84,13 +86,13 @@ export type Param = Schema.Schema.Type<typeof ParamSchema>;
 
 export interface ParamGroup {
   readonly name?: string;
-  readonly params?: Readonly<Record<string, Param>>;
+  readonly paramIds?: Readonly<Record<string, string>>;
   readonly groups?: Readonly<Record<string, ParamGroup>>;
 }
 
 const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
   name: Schema.optionalKey(Schema.String),
-  params: Schema.optionalKey(Schema.Record(Schema.String, ParamSchema)),
+  paramIds: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
   groups: Schema.optionalKey(
     Schema.Record(
       Schema.String,
@@ -121,7 +123,9 @@ const MethodArgSchema = Schema.Struct({
 });
 
 const MethodSchema = Schema.Struct({
+  id: Schema.String,
   name: Schema.String,
+  belongToBlockId: Schema.String,
   method: Schema.String,
   description: Schema.optionalKey(Schema.String),
   args: Schema.Array(MethodArgSchema),
@@ -133,8 +137,8 @@ const BaseBlockFields = {
   isRoot: Schema.Boolean,
   parentId: Schema.optionalKey(Schema.String),
   jackIds: Schema.Array(Schema.String),
-  params: ParamGroupSchema,
-  methods: Schema.optionalKey(Schema.Record(Schema.String, MethodSchema)),
+  paramIds: ParamGroupSchema,
+  methodIds: Schema.Array(Schema.String),
 };
 
 const LeafRack = Schema.Struct({
@@ -153,6 +157,8 @@ const TreeRack = Schema.Struct({
 const RackSchema = Schema.Union([LeafRack, TreeRack]);
 
 export type Rack = Schema.Schema.Type<typeof RackSchema>;
+export type LeafRack = Schema.Schema.Type<typeof LeafRack>;
+export type TreeRack = Schema.Schema.Type<typeof TreeRack>;
 export type Jack = Schema.Schema.Type<typeof JackSchema>;
 export type ParamValue = Schema.Schema.Type<typeof ParamValueSchema>;
 export type ParamOption = Schema.Schema.Type<typeof ParamOptionSchema>;
@@ -163,6 +169,43 @@ export type Method = Schema.Schema.Type<typeof MethodSchema>;
 export type Patch = Schema.Schema.Type<typeof PatchSchema>;
 export type Code = Schema.Schema.Type<typeof CodeSchema>;
 
+// One scheduled change to a number param, named after the Tone.js call that
+// will make it. `time` is when it lands (or, for the two ramp-to-value calls,
+// when the ramp ends); `rampTime` is only read by `rampTo`, which ramps over a
+// duration starting at `time`.
+export type AutomationEvent = {
+  readonly id: string;
+  readonly method: RampMethod;
+  readonly value: number;
+  readonly time: string;
+  readonly rampTime?: string;
+};
+
+// A method the user has asked a block to run, waiting for the interpreter to
+// pick it up.
+export type MethodCall = {
+  readonly id: string;
+  readonly methodId: string;
+  readonly args: Readonly<Record<string, ParamValue>>;
+};
+
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+export interface ParamTemplateGroup {
+  readonly name?: string;
+  readonly params?: Readonly<Record<string, ParamTemplate>>;
+  readonly groups?: Readonly<Record<string, ParamTemplateGroup>>;
+}
+
+export type ParamTemplate = DistributiveOmit<Param, "id" | "belongToBlockId">;
+export type MethodTemplate = Omit<Method, "id" | "belongToBlockId">;
+export type RackTemplate = DistributiveOmit<Rack, "paramIds" | "methodIds"> & {
+  readonly params: ParamTemplateGroup;
+  readonly methods?: Readonly<Record<string, MethodTemplate>>;
+};
+
 export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
 
 export const rootRack: TreeBlock = TreeRack.make({
@@ -171,7 +214,8 @@ export const rootRack: TreeBlock = TreeRack.make({
   type: "tree",
   isRoot: true,
   jackIds: [],
-  params: {},
+  paramIds: {},
+  methodIds: [],
   children: [],
   patches: [],
 });
@@ -214,7 +258,8 @@ export const makeBlock = (
     isRoot: false,
     parentId,
     jackIds: makeDefaultJacks(id).map((jack) => jack.id),
-    params: {},
+    paramIds: {},
+    methodIds: [],
   };
 
   return blockType === "tree"
