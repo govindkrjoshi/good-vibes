@@ -1,8 +1,17 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Box, Group } from "lucide-react";
 import { cn } from "cn";
 import { Card, CardHeader, CardTitle } from "./ui/card";
-import type { BlockNode as BlockNodeType } from "../lib/flow";
+import type { Jack } from "../types/rack";
+
+export type BlockNodeData = {
+  readonly name: string;
+  readonly kind: "node" | "tree";
+  /** The block's jacks, resolved from their ids: one handle each. */
+  readonly jacks: readonly Jack[];
+};
+
+export type BlockNodeType = Node<BlockNodeData, "block">;
 
 /**
  * One rack block on the canvas. A block wires up through its jacks, so a block

@@ -1,11 +1,7 @@
 import type { Edge } from "@xyflow/react";
 import { expect, test } from "vitest";
-import {
-  layoutNodes,
-  syncNodesFromRack,
-  toFlowEdges,
-  type BlockNode,
-} from "./flow";
+import { layoutNodes, syncNodesFromRack, toFlowEdges } from "./canvas-viewport";
+import type { BlockNodeType as BlockNode } from "./block-node";
 import {
   makeBlock,
   rootRack,

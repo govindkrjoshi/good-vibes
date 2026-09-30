@@ -14,9 +14,8 @@
   "rtl": false,
   "aliases": {
     "components": "app/components",
-    "utils": "app/lib/utils",
+    "utils": "cn",
     "ui": "app/components/ui",
-    "lib": "app/lib",
     "hooks": "app/hooks"
   },
   "menuColor": "default",
