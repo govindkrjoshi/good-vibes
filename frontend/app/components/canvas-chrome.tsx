@@ -9,10 +9,6 @@ import { useShortcuts } from "../hooks/useShortcuts";
 import { useCanvasStore } from "../stores/canvas";
 import { useRackStore } from "../stores/rack";
 
-/**
- * Every floating control that sits over the canvas. It reads the viewport
- * through React Flow, so it has to render inside the provider.
- */
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
@@ -30,20 +26,18 @@ export function CanvasChrome() {
   );
   const canDelete = !locked && hasSelection;
 
-  const addNode = () => addBlock("node");
+  const addLeaf = () => addBlock("leaf");
   const addGroup = () => addBlock("tree");
 
-  // The rack only models nodes and trees so far, so each typed tool adds the
+  // The rack only models leaves and trees so far, so each typed tool adds the
   // closest of the two until its own block type lands in the store.
-  const addSource = addNode;
-  const addInstrument = addNode;
-  const addEffect = addNode;
+  const addSource = addLeaf;
+  const addInstrument = addLeaf;
+  const addEffect = addLeaf;
   const addComponent = addGroup;
-  const addSignal = addNode;
-  const addEvent = addNode;
+  const addSignal = addLeaf;
+  const addEvent = addLeaf;
 
-  // Node ids are block ids and edge ids are patch ids, so the selection names
-  // what to remove. The canvas drops them once the rack no longer holds them.
   const deleteSelection = () => {
     if (!canDelete) return;
     removePatches(

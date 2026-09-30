@@ -9,25 +9,9 @@ import {
   type Rack,
   type TreeBlock,
 } from "../types/rack";
-
-export type CatalogueEntry = {
-  readonly name: string;
-};
-
-/** Every block the user can pick from, grouped by category and keyed by the
- * sub category's name. */
-export type Catalogue = Record<string, Record<string, CatalogueEntry>>;
-
-const CATALOGUE: Catalogue = {
-  source: {
-    AMOscillator: {
-      name: "AMOscillator",
-    },
-  },
-};
+import { CATALOGUE, type Catalogue, type CatalogueEntry } from "./catalogue";
 
 export type RackState = {
-  /** Every block in the rack, flat and keyed by id. */
   readonly blocks: Record<string, Rack>;
   readonly jacks: Record<string, Jack>;
   readonly patches: Record<string, Patch>;
@@ -36,37 +20,19 @@ export type RackState = {
 };
 
 export type RackStore = RackState & {
-  /** Adds a block under the root and returns its id, or `undefined` when the
-   * rack has nowhere to put it. The canvas needs the id to place the block. */
-  readonly addBlock: (blockType: "node" | "tree") => string | undefined;
-  /** Patches an output jack to an input jack on another block under the root
-   * and returns the patch id, or `undefined` when the two cannot be patched.
-   * Patching a pair that is already patched hands back the patch already
-   * joining them, so a second drag across the same two jacks does not stack a
-   * duplicate edge on top of the first. */
+  readonly addBlock: (blockType: "leaf" | "tree") => string | undefined;
   readonly connectJacks: (
     fromJackId: string,
     toJackId: string,
   ) => string | undefined;
-  /** Whether `connectJacks` would patch these two jacks. The canvas asks
-   * before it lets a drag land, so an impossible connection is refused on the
-   * spot rather than silently dropped once the user lets go. */
   readonly canConnectJacks: (fromJackId: string, toJackId: string) => boolean;
-  /** Removes these blocks from under the root, along with their jacks and
-   * every patch wired to them. Ids that are not children of the root, the
-   * root included, are ignored. */
   readonly removeBlocks: (blockIds: readonly string[]) => void;
-  /** Removes these patches from under the root. Ids the root does not hold
-   * are ignored. */
   readonly removePatches: (patchIds: readonly string[]) => void;
   readonly run: () => void;
   readonly categories: () => string[];
-  /** The sub categories filed under `category`, or an empty list when there
-   * is no such category. */
   readonly subCategories: (category: string) => CatalogueEntry[];
 };
 
-/** The root and both jacks, when a patch between them is possible at all. */
 const resolvePatch = (
   state: RackState,
   fromJackId: string,
@@ -176,7 +142,6 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     const doomed = new Set(blockIds.filter((id) => root.children.includes(id)));
     if (doomed.size === 0) return;
 
-    // A patch left behind would point at a jack that no longer exists.
     const cut = new Set(
       root.patches.filter((id) => {
         const patch = state.patches[id];

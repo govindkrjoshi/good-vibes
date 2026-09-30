@@ -18,7 +18,6 @@ type CanvasMenuProps = {
   readonly className?: string;
 };
 
-/** The menu island in the top-left corner. */
 export function CanvasMenu({
   onFitView,
   onResetZoom,

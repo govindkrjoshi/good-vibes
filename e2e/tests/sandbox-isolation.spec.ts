@@ -63,8 +63,6 @@ test("sandbox frame runs with an opaque origin and cannot reach the parent page"
 test("logs to the console once the sandbox provider mounts", async ({
   context,
 }) => {
-  // A cold page, not the fixture's: the fixture already waits for this very log
-  // before handing the page over, which would leave nothing here to observe.
   const page = await context.newPage();
   const logs: string[] = [];
   page.on("console", (message) => {
@@ -79,7 +77,6 @@ test("logs to the console once the sandbox provider mounts", async ({
 test("sandbox document refuses to run when the CSP sandbox header is missing", async ({
   context,
 }) => {
-  // Also a cold page: the route has to be in place before the first request.
   const page = await context.newPage();
   await page.route("**/sandbox.html", async (route) => {
     const response = await route.fetch();

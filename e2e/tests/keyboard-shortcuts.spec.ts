@@ -13,7 +13,6 @@ test("moves focus across the tool island with the arrow keys", async ({
 }) => {
   const addEvent = page.getByTestId("add-event");
 
-  // Focus crosses the separator from one group into the next.
   await addEvent.focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByTestId("add-group")).toBeFocused();
@@ -24,8 +23,6 @@ test("moves focus across the tool island with the arrow keys", async ({
 test("lists every shortcut behind the help button", async ({ page }) => {
   await page.getByTestId("help").click();
 
-  // Base UI gives the popover a dialog role once it opens, so the whole panel
-  // can be matched in one go: the keys and the actions they belong to.
   await expect(page.getByRole("dialog")).toMatchAriaSnapshot(`
     - dialog:
       - heading "Keyboard shortcuts" [level=2]

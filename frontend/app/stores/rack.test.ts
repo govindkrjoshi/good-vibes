@@ -3,9 +3,6 @@ import { beforeEach, expect, test } from "vitest";
 import { useRackStore } from "./rack";
 import { hasOutputJack } from "../types/rack";
 
-// The store is a module singleton, so it carries state between tests. Snapshot
-// it before anything runs and replace it wholesale each time. The snapshot
-// holds the actions too, so replacing keeps them.
 const initial = useRackStore.getState();
 
 const state = () => useRackStore.getState();
@@ -32,13 +29,13 @@ test("starts as an empty root tree", () => {
 });
 
 test("files each new block under the root and keeps insertion order", () => {
-  state().addBlock("node");
+  state().addBlock("leaf");
   state().addBlock("tree");
 
   const [first, second] = children();
   expect(children()).toHaveLength(2);
   expect(first).not.toBe(second);
-  expect(state().blocks[first].type).toBe("node");
+  expect(state().blocks[first].type).toBe("leaf");
   expect(state().blocks[second].type).toBe("tree");
 });
 
@@ -50,11 +47,11 @@ test("points every added block back at its parent", () => {
   expect(block.isRoot).toBe(false);
 });
 
-test("gives a node block an Effect to run", () => {
-  state().addBlock("node");
+test("gives a leaf block an Effect to run", () => {
+  state().addBlock("leaf");
 
   const block = state().blocks[children()[0]];
-  if (block.type !== "node") throw new Error("expected a node block");
+  if (block.type !== "leaf") throw new Error("expected a leaf block");
   expect(Effect.isEffect(block.code)).toBe(true);
 });
 
@@ -68,7 +65,7 @@ test("gives a group block its own empty children and patches", () => {
 });
 
 test("gives each new block one input and one output jack", () => {
-  state().addBlock("node");
+  state().addBlock("leaf");
 
   const block = state().blocks[children()[0]];
   const jacks = block.jackIds.map((id) => state().jacks[id]);
@@ -78,22 +75,22 @@ test("gives each new block one input and one output jack", () => {
 });
 
 test("gives every non-root block an output jack to wire out of", () => {
-  const nodeId = state().addBlock("node");
+  const leafId = state().addBlock("leaf");
   const treeId = state().addBlock("tree");
-  if (nodeId === undefined || treeId === undefined) {
+  if (leafId === undefined || treeId === undefined) {
     throw new Error("expected blocks to be added");
   }
 
   const jacks = state().jacks;
-  expect(hasOutputJack(state().blocks[nodeId], jacks)).toBe(true);
+  expect(hasOutputJack(state().blocks[leafId], jacks)).toBe(true);
   expect(hasOutputJack(state().blocks[treeId], jacks)).toBe(true);
-  expect(hasOutputJack({ ...state().blocks[nodeId], jackIds: [] }, jacks)).toBe(
+  expect(hasOutputJack({ ...state().blocks[leafId], jackIds: [] }, jacks)).toBe(
     false,
   );
 });
 
 test("reads a block's output jack off its direction, not its id", () => {
-  const blockId = state().addBlock("node");
+  const blockId = state().addBlock("leaf");
   if (blockId === undefined) throw new Error("expected block to be added");
 
   const renamed = {
@@ -119,7 +116,7 @@ test("exempts the root, which has nothing above it to wire into", () => {
 });
 
 test("connects output jacks to input jacks on other blocks", () => {
-  const fromBlockId = state().addBlock("node");
+  const fromBlockId = state().addBlock("leaf");
   const toBlockId = state().addBlock("tree");
   if (fromBlockId === undefined || toBlockId === undefined) {
     throw new Error("expected blocks to be added");
@@ -140,8 +137,8 @@ test("connects output jacks to input jacks on other blocks", () => {
 });
 
 test("hands back the patch already there rather than doubling it up", () => {
-  const fromBlockId = state().addBlock("node");
-  const toBlockId = state().addBlock("node");
+  const fromBlockId = state().addBlock("leaf");
+  const toBlockId = state().addBlock("leaf");
   if (fromBlockId === undefined || toBlockId === undefined) {
     throw new Error("expected blocks to be added");
   }
@@ -157,7 +154,7 @@ test("hands back the patch already there rather than doubling it up", () => {
 });
 
 test("rejects invalid jack connections", () => {
-  const blockId = state().addBlock("node");
+  const blockId = state().addBlock("leaf");
   if (blockId === undefined) throw new Error("expected block to be added");
 
   expect(state().connectJacks(`${blockId}:in`, `${blockId}:out`)).toBe(
@@ -171,8 +168,8 @@ test("rejects invalid jack connections", () => {
 });
 
 test("refuses up front the connections it would reject", () => {
-  const fromBlockId = state().addBlock("node");
-  const toBlockId = state().addBlock("node");
+  const fromBlockId = state().addBlock("leaf");
+  const toBlockId = state().addBlock("leaf");
   if (fromBlockId === undefined || toBlockId === undefined) {
     throw new Error("expected blocks to be added");
   }
@@ -190,14 +187,14 @@ test("refuses up front the connections it would reject", () => {
 });
 
 test("hands back the id of the block it added", () => {
-  const id = state().addBlock("node");
+  const id = state().addBlock("leaf");
 
   expect(id).toBeTypeOf("string");
   expect(children()).toEqual([id]);
 });
 
 test("leaves the rack alone when run is called", () => {
-  state().addBlock("node");
+  state().addBlock("leaf");
   const before = state().blocks;
 
   state().run();
@@ -206,8 +203,8 @@ test("leaves the rack alone when run is called", () => {
 });
 
 test("removes a block with its jacks and the patches wired to it", () => {
-  const first = state().addBlock("node");
-  const second = state().addBlock("node");
+  const first = state().addBlock("leaf");
+  const second = state().addBlock("leaf");
   const third = state().addBlock("tree");
   if (first === undefined || second === undefined || third === undefined)
     throw new Error("blocks not added");
@@ -232,7 +229,7 @@ test("removes a block with its jacks and the patches wired to it", () => {
 });
 
 test("removes several blocks at once", () => {
-  const first = state().addBlock("node");
+  const first = state().addBlock("leaf");
   const second = state().addBlock("tree");
   if (first === undefined || second === undefined)
     throw new Error("blocks not added");
@@ -244,7 +241,7 @@ test("removes several blocks at once", () => {
 });
 
 test("never removes the root or blocks it does not hold", () => {
-  state().addBlock("node");
+  state().addBlock("leaf");
   const before = state();
 
   state().removeBlocks([before.rootId, "no-such-block"]);
@@ -253,8 +250,8 @@ test("never removes the root or blocks it does not hold", () => {
 });
 
 test("removes a patch and leaves its blocks and jacks", () => {
-  const first = state().addBlock("node");
-  const second = state().addBlock("node");
+  const first = state().addBlock("leaf");
+  const second = state().addBlock("leaf");
   if (first === undefined || second === undefined)
     throw new Error("blocks not added");
 
@@ -273,7 +270,7 @@ test("removes a patch and leaves its blocks and jacks", () => {
 });
 
 test("ignores patches the root does not hold", () => {
-  state().addBlock("node");
+  state().addBlock("leaf");
   const before = state();
 
   state().removePatches(["no-such-patch"]);

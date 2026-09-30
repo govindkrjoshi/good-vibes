@@ -34,7 +34,6 @@ type RackToolbarProps = {
   readonly className?: string;
 };
 
-/** The tool island: centred at the top edge, floating over the canvas. */
 export function RackToolbar({
   locked,
   onToggleLock,

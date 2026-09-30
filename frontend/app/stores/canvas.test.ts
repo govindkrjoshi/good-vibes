@@ -1,9 +1,6 @@
 import { beforeEach, expect, test } from "vitest";
 import { useCanvasStore } from "./canvas";
 
-// The store is a module singleton, so it carries state between tests. Snapshot
-// it before anything runs and replace it wholesale each time. The snapshot
-// holds the actions too, so replacing keeps them.
 const initial = useCanvasStore.getState();
 
 const state = () => useCanvasStore.getState();

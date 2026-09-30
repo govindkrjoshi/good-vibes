@@ -33,7 +33,7 @@ function ToolbarGroup({ className, ...props }: ToolbarPrimitive.Group.Props) {
 // into the corner of the icon, the way canvas tools usually label themselves.
 // Passing `active` makes the button a toggle and announces it as one; leaving it
 // off keeps the button plain, since `aria-pressed="false"` would tell a screen
-// reader that a one-shot button like "Add node" has an off state.
+// reader that a one-shot button like "Add leaf" has an off state.
 function ToolbarButton({
   className,
   variant = "ghost",

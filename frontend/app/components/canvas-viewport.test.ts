@@ -10,8 +10,6 @@ import {
   type Rack,
 } from "../types/rack";
 
-/** A root tree holding `children` and `patches`, shaped like the rack store
- * builds it. */
 const rack = (
   children: readonly Rack[],
   patches: readonly string[] = [],
@@ -44,15 +42,13 @@ const sync = (
   jacks: Record<string, Jack> = {},
 ) => syncNodesFromRack(current, blocks, jacks, "root");
 
-/** A node as React Flow would hold it once it has placed, measured and
- * selected it. */
 const held = (id: string, overrides: Partial<BlockNode> = {}): BlockNode => ({
   id,
   type: "block",
   position: { x: 100, y: 200 },
   measured: { width: 176, height: 44 },
   selected: true,
-  data: { name: "stale", kind: "node", jacks: [] },
+  data: { name: "stale", kind: "leaf", jacks: [] },
   ...overrides,
 });
 
@@ -61,42 +57,42 @@ test("renders nothing while the rack is still empty", () => {
 });
 
 test("gives every block under the root a node", () => {
-  const node = makeBlock("a", "root", "node");
+  const leaf = makeBlock("a", "root", "leaf");
   const group = makeBlock("b", "root", "tree");
 
-  const nodes = sync(rack([node, group]));
+  const nodes = sync(rack([leaf, group]));
 
   expect(nodes.map((flow) => flow.id)).toEqual(["a", "b"]);
-  expect(nodes.map((flow) => flow.data.kind)).toEqual(["node", "tree"]);
+  expect(nodes.map((flow) => flow.data.kind)).toEqual(["leaf", "tree"]);
   expect(nodes.every((flow) => flow.type === "block")).toBe(true);
 });
 
 test("starts a new block at the origin", () => {
-  const [node] = sync(rack([makeBlock("a", "root", "node")]));
+  const [node] = sync(rack([makeBlock("a", "root", "leaf")]));
 
   expect(node.position).toEqual({ x: 0, y: 0 });
 });
 
 test("keeps where React Flow has put an existing block", () => {
-  const [node] = sync(rack([makeBlock("a", "root", "node")]), [held("a")]);
+  const [node] = sync(rack([makeBlock("a", "root", "leaf")]), [held("a")]);
 
   expect(node.position).toEqual({ x: 100, y: 200 });
 });
 
 test("keeps what React Flow measured an existing block at", () => {
-  const [node] = sync(rack([makeBlock("a", "root", "node")]), [held("a")]);
+  const [node] = sync(rack([makeBlock("a", "root", "leaf")]), [held("a")]);
 
   expect(node.measured).toEqual({ width: 176, height: 44 });
 });
 
 test("keeps an existing block selected", () => {
-  const [node] = sync(rack([makeBlock("a", "root", "node")]), [held("a")]);
+  const [node] = sync(rack([makeBlock("a", "root", "leaf")]), [held("a")]);
 
   expect(node.selected).toBe(true);
 });
 
 test("keeps React Flow's own bookkeeping on an existing block", () => {
-  const [node] = sync(rack([makeBlock("a", "root", "node")]), [
+  const [node] = sync(rack([makeBlock("a", "root", "leaf")]), [
     held("a", { dragging: true }),
   ]);
 
@@ -104,7 +100,7 @@ test("keeps React Flow's own bookkeeping on an existing block", () => {
 });
 
 test("updates the name of an existing block", () => {
-  const block = { ...makeBlock("a", "root", "node"), name: "Renamed" };
+  const block = { ...makeBlock("a", "root", "leaf"), name: "Renamed" };
 
   const [node] = sync(rack([block]), [held("a")]);
 
@@ -112,7 +108,7 @@ test("updates the name of an existing block", () => {
 });
 
 test("resolves a block's jacks so it can grow handles", () => {
-  const block = { ...makeBlock("a", "root", "node"), jackIds: ["in1", "gone"] };
+  const block = { ...makeBlock("a", "root", "leaf"), jackIds: ["in1", "gone"] };
   const jacks = { in1: jack("in1", "a", "in") };
 
   const [node] = sync(rack([block]), [], jacks);
@@ -125,7 +121,7 @@ test("updates the jacks of an existing block", () => {
     in1: jack("in1", "a", "in"),
     out1: jack("out1", "a", "out"),
   };
-  const before = { ...makeBlock("a", "root", "node"), jackIds: ["in1"] };
+  const before = { ...makeBlock("a", "root", "leaf"), jackIds: ["in1"] };
   const after = { ...before, jackIds: ["out1"] };
 
   const [first] = sync(rack([before]), [], jacks);
@@ -140,7 +136,7 @@ test("updates the jacks of an existing block", () => {
 });
 
 test("drops nodes for blocks no longer under the root", () => {
-  const nodes = sync(rack([makeBlock("a", "root", "node")]), [
+  const nodes = sync(rack([makeBlock("a", "root", "leaf")]), [
     held("a"),
     held("gone"),
   ]);
@@ -150,7 +146,7 @@ test("drops nodes for blocks no longer under the root", () => {
 
 test("adds a node for a block that has just arrived", () => {
   const nodes = sync(
-    rack([makeBlock("a", "root", "node"), makeBlock("b", "root", "node")]),
+    rack([makeBlock("a", "root", "leaf"), makeBlock("b", "root", "leaf")]),
     [held("a")],
   );
 
@@ -164,10 +160,8 @@ test("skips a child id with no block behind it", () => {
 });
 
 test("leaves a new block for React Flow to size", () => {
-  const [node] = sync(rack([makeBlock("a", "root", "node")]));
+  const [node] = sync(rack([makeBlock("a", "root", "leaf")]));
 
-  // Author-set sizes land as inline styles and would pin the block at one
-  // size instead of letting it grow with its content.
   expect(node.measured).toBeUndefined();
   expect(node.width).toBeUndefined();
   expect(node.height).toBeUndefined();
@@ -202,7 +196,7 @@ test("keeps everything but the position when laying out", () => {
 });
 
 const twoBlocks = () =>
-  rack([makeBlock("a", "root", "node"), makeBlock("b", "root", "node")], ["p"]);
+  rack([makeBlock("a", "root", "leaf"), makeBlock("b", "root", "leaf")], ["p"]);
 
 test("renders patches as edges between output and input handles", () => {
   const jacks = {

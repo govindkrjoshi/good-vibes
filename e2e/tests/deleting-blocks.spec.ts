@@ -12,7 +12,6 @@ test("deletes the selected block and the patches wired to it", async ({
   await connect(page, handle(page, 0, "out"), handle(page, 1, "in"));
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
 
-  // Nothing to delete until a block is picked.
   await expect(remove).toBeDisabled();
 
   await blocks(page).first().click();

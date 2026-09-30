@@ -38,9 +38,7 @@ const ParamAutomationSchema = Schema.Struct({
 
 const BaseParamFields = {
   name: Schema.String,
-  /** Path into the options object this param edits, e.g. ["envelope", "attack"]. */
   path: Schema.Array(Schema.String),
-  /** Sort order within the containing group. */
   order: Schema.optionalKey(Schema.Number),
   description: Schema.optionalKey(Schema.String),
 };
@@ -53,7 +51,6 @@ const NumberParamSchema = Schema.Struct({
   max: Schema.optionalKey(Schema.Number),
   step: Schema.optionalKey(Schema.Number),
   unit: Schema.optionalKey(Schema.String),
-  /** Tone-style signal/param automation available for this value. */
   automation: Schema.optionalKey(ParamAutomationSchema),
 });
 
@@ -104,7 +101,7 @@ const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
 
 const CodeSchema = Schema.declare(Effect.isEffect, {
   title: "Code",
-  description: "The Effect a node block runs",
+  description: "The Effect a leaf block runs",
 });
 
 const MethodArgKindSchema = Schema.Literals([
@@ -125,7 +122,6 @@ const MethodArgSchema = Schema.Struct({
 
 const MethodSchema = Schema.Struct({
   name: Schema.String,
-  /** Name of the method to call on the runtime object, e.g. triggerAttack. */
   method: Schema.String,
   description: Schema.optionalKey(Schema.String),
   args: Schema.Array(MethodArgSchema),
@@ -137,9 +133,7 @@ const BaseBlockFields = {
   isRoot: Schema.Boolean,
   parentId: Schema.optionalKey(Schema.String),
   jackIds: Schema.Array(Schema.String),
-  /** Root param group for this block. Top-level params need no fake "General" group. */
   params: ParamGroupSchema,
-  /** Callable runtime behaviours, e.g. Tone performance methods. */
   methods: Schema.optionalKey(Schema.Record(Schema.String, MethodSchema)),
 };
 
@@ -182,7 +176,6 @@ export const rootRack: TreeBlock = TreeRack.make({
   patches: [],
 });
 
-/** The input and output jacks every new block starts with. */
 export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
   {
     id: `${blockId}:in`,
@@ -198,24 +191,12 @@ export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
   },
 ];
 
-/**
- * Whether `block` has an output jack to wire out of. Only the rack can answer
- * this: a block holds jack ids and the directions live in the jack table, so a
- * block schema on its own can do no better than match on how an id is spelled.
- * The root is exempt, having nothing above it to wire into.
- */
 export const hasOutputJack = (
   block: Rack,
   jacks: Record<string, Jack>,
 ): boolean =>
   block.isRoot || block.jackIds.some((id) => jacks[id]?.direction === "out");
 
-/**
- * Whether a patch may run from `from` to `to` under `root`: an output jack on
- * one of its children wired to an input jack on a different one. The store
- * checks this before it stores a patch and the canvas checks it again before it
- * draws one, so the two cannot drift apart on what counts as a patch.
- */
 export const canPatch = (root: TreeBlock, from: Jack, to: Jack): boolean =>
   from.direction === "out" &&
   to.direction === "in" &&
@@ -223,11 +204,10 @@ export const canPatch = (root: TreeBlock, from: Jack, to: Jack): boolean =>
   root.children.includes(from.belongToBlockId) &&
   root.children.includes(to.belongToBlockId);
 
-/** A fresh block, parented to `parentId`. Groups nest; nodes hold code. */
 export const makeBlock = (
   id: string,
   parentId: string,
-  blockType: "node" | "tree",
+  blockType: "leaf" | "tree",
 ): Rack => {
   const shared = {
     id,
@@ -247,9 +227,9 @@ export const makeBlock = (
       })
     : LeafRack.make({
         ...shared,
-        name: "Node",
+        name: "Leaf",
         type: "leaf",
-        // A new node runs nothing until the editor gives it code. `make`
+        // A new leaf runs nothing until the editor gives it code. `make`
         // checks this really is an Effect, so a null placeholder would throw.
         code: Effect.void,
       });

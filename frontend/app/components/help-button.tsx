@@ -11,7 +11,6 @@ import {
   PopoverTrigger,
 } from "./ui/popover";
 
-/** Kept next to the shortcut handler in `useShortcuts` so the two agree. */
 const shortcuts = [
   { keys: "G", action: "Add group" },
   { keys: "S", action: "Add source" },
@@ -24,7 +23,6 @@ const shortcuts = [
   { keys: "R", action: "Run rack" },
 ] as const;
 
-/** The help island, bottom-right. */
 export function HelpButton({ className }: { readonly className?: string }) {
   return (
     <Island className={cn("absolute right-4 bottom-4 z-10", className)}>

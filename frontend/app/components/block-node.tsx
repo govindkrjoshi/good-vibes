@@ -6,17 +6,12 @@ import type { Jack } from "../types/rack";
 
 export type BlockNodeData = {
   readonly name: string;
-  readonly kind: "node" | "tree";
-  /** The block's jacks, resolved from their ids: one handle each. */
+  readonly kind: "leaf" | "tree";
   readonly jacks: readonly Jack[];
 };
 
 export type BlockNodeType = Node<BlockNodeData, "block">;
 
-/**
- * One rack block on the canvas. A block wires up through its jacks, so a block
- * without any has no handles yet and simply cannot be patched.
- */
 export function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
   const Icon = data.kind === "tree" ? Group : Box;
 

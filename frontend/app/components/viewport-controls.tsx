@@ -9,7 +9,6 @@ type ViewportControlsProps = {
   readonly onZoomIn: () => void;
   readonly onZoomOut: () => void;
   readonly onResetZoom: () => void;
-  /** History is not implemented yet, so undo and redo stay disabled. */
   readonly onUndo?: () => void;
   readonly onRedo?: () => void;
   readonly className?: string;
@@ -17,7 +16,6 @@ type ViewportControlsProps = {
 
 const iconButton = "rounded-lg [&_svg:not([class*='size-'])]:size-4";
 
-/** Zoom and history islands, bottom-left. */
 export function ViewportControls({
   zoom,
   onZoomIn,

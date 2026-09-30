@@ -129,8 +129,6 @@ test("marks the lock button active and relabels it while locked", () => {
 test("announces the lock as a toggle and the block tools as plain buttons", () => {
   const { button } = render(handlers());
 
-  // Only a control with an on state should carry aria-pressed: on "Add group" it
-  // would promise an off state that does not exist.
   expect(button("toggle-lock").getAttribute("aria-pressed")).toBe("false");
   expect(button("add-group").hasAttribute("aria-pressed")).toBe(false);
   for (const tool of typedTools) {

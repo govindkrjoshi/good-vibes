@@ -78,6 +78,4 @@ test("unbinds the listener on unmount", () => {
   act(() => root.unmount());
   press("r");
   expect(run).not.toHaveBeenCalled();
-
-  // The shared teardown unmounts again, which React tolerates.
 });
