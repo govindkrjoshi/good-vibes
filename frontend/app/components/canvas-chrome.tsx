@@ -18,11 +18,15 @@ export function CanvasChrome() {
   const toggleLock = useCanvasStore((state) => state.toggleLock);
   const addBlock = useRackStore((state) => state.addBlock);
   const removeBlocks = useRackStore((state) => state.removeBlocks);
+  const removePatches = useRackStore((state) => state.removePatches);
   const run = useRackStore((state) => state.run);
-  const { zoomIn, zoomOut, zoomTo, fitView, getNodes } = useReactFlow();
+  const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
+    useReactFlow();
   const zoom = useStore((state) => state.transform[2]);
-  const hasSelection = useStore((state) =>
-    state.nodes.some((node) => node.selected === true),
+  const hasSelection = useStore(
+    (state) =>
+      state.nodes.some((node) => node.selected === true) ||
+      state.edges.some((edge) => edge.selected === true),
   );
   const canDelete = !locked && hasSelection;
 
@@ -38,10 +42,15 @@ export function CanvasChrome() {
   const addSignal = addNode;
   const addEvent = addNode;
 
-  // Node ids are block ids, so the selection names the blocks to remove. The
-  // canvas drops their nodes once the rack no longer holds them.
+  // Node ids are block ids and edge ids are patch ids, so the selection names
+  // what to remove. The canvas drops them once the rack no longer holds them.
   const deleteSelection = () => {
     if (!canDelete) return;
+    removePatches(
+      getEdges()
+        .filter((edge) => edge.selected === true)
+        .map((edge) => edge.id),
+    );
     removeBlocks(
       getNodes()
         .filter((node) => node.selected === true)

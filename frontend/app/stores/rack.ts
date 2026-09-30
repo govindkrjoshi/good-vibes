@@ -10,12 +10,29 @@ import {
   type TreeBlock,
 } from "../types/rack";
 
+export type CatalogueEntry = {
+  readonly name: string;
+};
+
+/** Every block the user can pick from, grouped by category and keyed by the
+ * sub category's name. */
+export type Catalogue = Record<string, Record<string, CatalogueEntry>>;
+
+const CATALOGUE: Catalogue = {
+  source: {
+    AMOscillator: {
+      name: "AMOscillator",
+    },
+  },
+};
+
 export type RackState = {
   /** Every block in the rack, flat and keyed by id. */
   readonly blocks: Record<string, Rack>;
   readonly jacks: Record<string, Jack>;
   readonly patches: Record<string, Patch>;
   readonly rootId: string;
+  readonly catalogue: Catalogue;
 };
 
 export type RackStore = RackState & {
@@ -39,7 +56,14 @@ export type RackStore = RackState & {
    * every patch wired to them. Ids that are not children of the root, the
    * root included, are ignored. */
   readonly removeBlocks: (blockIds: readonly string[]) => void;
+  /** Removes these patches from under the root. Ids the root does not hold
+   * are ignored. */
+  readonly removePatches: (patchIds: readonly string[]) => void;
   readonly run: () => void;
+  readonly categories: () => string[];
+  /** The sub categories filed under `category`, or an empty list when there
+   * is no such category. */
+  readonly subCategories: (category: string) => CatalogueEntry[];
 };
 
 /** The root and both jacks, when a patch between them is possible at all. */
@@ -72,6 +96,7 @@ export const initialRackState: RackState = {
   jacks: {},
   patches: {},
   rootId: rootRack.id,
+  catalogue: CATALOGUE,
 };
 
 export const useRackStore = create<RackStore>()((set, get) => ({
@@ -100,6 +125,10 @@ export const useRackStore = create<RackStore>()((set, get) => ({
 
     return block.id;
   },
+
+  categories: () => Object.keys(get().catalogue),
+
+  subCategories: (category) => Object.values(get().catalogue[category] ?? {}),
 
   canConnectJacks: (fromJackId, toJackId) =>
     resolvePatch(get(), fromJackId, toJackId) !== undefined,
@@ -182,6 +211,28 @@ export const useRackStore = create<RackStore>()((set, get) => ({
         doomed.has(jack.belongToBlockId),
       ),
       patches: without(state.patches, (id) => cut.has(id)),
+    });
+  },
+
+  removePatches: (patchIds) => {
+    const state = get();
+    const root = state.blocks[state.rootId];
+    if (root === undefined || root.type !== "tree") return;
+
+    const cut = new Set(patchIds.filter((id) => root.patches.includes(id)));
+    if (cut.size === 0) return;
+
+    set({
+      blocks: {
+        ...state.blocks,
+        [root.id]: {
+          ...root,
+          patches: root.patches.filter((id) => !cut.has(id)),
+        },
+      },
+      patches: Object.fromEntries(
+        Object.entries(state.patches).filter(([id]) => !cut.has(id)),
+      ),
     });
   },
 

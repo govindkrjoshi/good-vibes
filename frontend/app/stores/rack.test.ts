@@ -251,3 +251,44 @@ test("never removes the root or blocks it does not hold", () => {
 
   expect(state()).toBe(before);
 });
+
+test("removes a patch and leaves its blocks and jacks", () => {
+  const first = state().addBlock("node");
+  const second = state().addBlock("node");
+  if (first === undefined || second === undefined)
+    throw new Error("blocks not added");
+
+  const patch = state().connectJacks(`${first}:out`, `${second}:in`);
+  if (patch === undefined) throw new Error("patch not made");
+
+  state().removePatches([patch]);
+
+  expect(state().patches[patch]).toBeUndefined();
+  expect(children()).toEqual([first, second]);
+  expect(state().jacks[`${first}:out`]).toBeDefined();
+
+  const block = root();
+  if (block.type !== "tree") throw new Error("root is not a tree");
+  expect(block.patches).toEqual([]);
+});
+
+test("ignores patches the root does not hold", () => {
+  state().addBlock("node");
+  const before = state();
+
+  state().removePatches(["no-such-patch"]);
+
+  expect(state()).toBe(before);
+});
+
+test("lists every category", () => {
+  expect(state().categories()).toEqual(["source"]);
+});
+
+test("lists the sub categories of a category", () => {
+  expect(state().subCategories("source")).toEqual([{ name: "AMOscillator" }]);
+});
+
+test("has no sub categories for an unknown category", () => {
+  expect(state().subCategories("nope")).toEqual([]);
+});
