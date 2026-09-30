@@ -257,6 +257,9 @@ importers:
       shadcn:
         specifier: ^4.21.0
         version: 4.21.0(typescript@5.9.3)
+      tone:
+        specifier: ^15.1.22
+        version: 15.1.22
       tw-animate-css:
         specifier: ^1.4.0
         version: 1.4.0
@@ -297,8 +300,141 @@ importers:
       vitest:
         specifier: ^5.0.2
         version: 5.0.2(@types/node@22.20.4)(happy-dom@20.14.5)(vite@8.3.1(@types/node@22.20.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15))
+      web-audio-api:
+        specifier: ^1.5.6
+        version: 1.5.6
 
 packages:
+
+  '@audio/decode-aac@1.6.0':
+    resolution: {integrity: sha512-4EdPNlHkFstqlfZhMC1pER+SKKldh1ZubD2VaxLAxSPH8fLA6upwVCVyMnqZ41PD6XTBrvf87aRZ0aPQTb4eiw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-ac3@1.0.0':
+    resolution: {integrity: sha512-GR2PLqxxrybNRwdA3/ZazB4ZWz7yQNihYtjuigGfEpSqKt95FnUgjIVfE7aJmznvxa6voq8Mou6NvSoTqH104g==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-aiff@1.3.0':
+    resolution: {integrity: sha512-GgCNYZMmma5Xol8lxqDZQ7qFYsIpfWn8LXKPZ8ZR6IaVOs1O+nCge/Bli1tNZSEucgG6mWh4Jvw+/XL6eXbwWw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-amr@1.3.1':
+    resolution: {integrity: sha512-rYwY8HpmAwptaQDeNAoccbzbcYteHmL4s+KWVW8Y+NgJugQFhApsFeqs0ljVmuI2TvOmZRivMJwvg6++MdsUaA==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-avi@1.1.0':
+    resolution: {integrity: sha512-/EczjSR5RG1ZfRZ3aJy1XD82/g54wfqpq+CCo3tooiEvumGpAhUSmAMnQtdJrmE1cY+iximJYwpvjQhJKNDmdg==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-caf@1.4.1':
+    resolution: {integrity: sha512-iA0jNpUbGkFi45TjAbePrh/1K+SkVaQnp4r4br0kvd0IaD/cSzqOewi197Rba/VBlgoVFAro9ypuyh/VtTNNBw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-dsd@1.0.0':
+    resolution: {integrity: sha512-CRO0jS1M7DAeePn8cSDxw41xHDRLe79bZkOGYdCvZkjpdkrMHXR2eVJ6YIge3NX21wM+RLrJuMCmoHVikQcgnA==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-dts@1.0.0':
+    resolution: {integrity: sha512-WApeOndo8C+3IzncPFg7vwRm9/ZbWjCzB93mx86en/+4/IWpUVz0W/wRINzg5gKGQa23xz5ZwGMGNC0X7i8nJw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-eac3@1.0.0':
+    resolution: {integrity: sha512-2UFpJUhI6MBouhP7Dztby5xfTem38Ql1QYxDnqqJAINI65O6xjqGqlxQgpWIwH/oZ2imaRislsTu0X0IrPe3+A==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-flac@1.3.5':
+    resolution: {integrity: sha512-ZaPeaprVjBpFfTFRjrfzWpxj5MBVJZR0j90g7aCfDTb82KFEdsVaf5cMrrVCKKrnSu0b2VBqXnEm6JZY1poTpA==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-mod@1.0.0':
+    resolution: {integrity: sha512-tqLhIFdVgokthJjE6UIwFG/LERqBqpp6iYD5wfRFl5g7AppRJMYNHVOQL8SBEfz79lZdmlmOii+KXGvbym2TNg==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-mp3@1.3.1':
+    resolution: {integrity: sha512-GhGm6C2hwngU+t5uEpUc94jZGCrCIXrgfneDURfK9/2tgFAWHVeckFNsSRmL4+Vd7u32uv8wQamjTnBSlrkVGA==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-mp4@1.3.1':
+    resolution: {integrity: sha512-t0EhxlrR7WFzk40SGjgXpi+Y8xUzkGKouw4wwsfii0S2iKvMbZwA5NAx2ZcZbWRzl4zWwzitll6XTek54RHT5A==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-mpc@1.0.0':
+    resolution: {integrity: sha512-oRHDBSHNW8sDjz0QvqlF6gHRh4Gz0zgwqLxc0MBE9hLOBlwshiJ4LuA7XKasRxF3V/zPgYTLOQHhUaWwor7e4w==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-opus@1.3.3':
+    resolution: {integrity: sha512-/iykUcA9cgdqqj9pLwPjBkJ4z+WlpLIyWA4xGzvTBkHb1uWpMxYX5yoG+slw8HhmBmrBP2LxKqw6i779g4acVA==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-qoa@1.3.0':
+    resolution: {integrity: sha512-bg1VRc7NwKKDtfqj8/y+RiQnBfz0LLpqdhNJkb6cwYFNzndv/+rl5AmLwCtIf4VnAASeCz4Jw1bE8Af5JB3b3Q==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-tta@1.0.0':
+    resolution: {integrity: sha512-aTEoPkZmh1BUJ7ewqKhPT3Sk3OSKzoaUxDFp4AJSQLQDE+Bapc3MRTldoxp8VHu2YZSuiJgcfDutz96uGQV41w==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-vorbis@1.3.4':
+    resolution: {integrity: sha512-0bgH1zgLlpgjdHj9NWdiYkMeLyCz5w1UEuvg2qiwJFXbwYSvRhOcmeT82CQUlb8RZSblS3AWpDJzLnAmQJ2cgg==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-wav@1.5.1':
+    resolution: {integrity: sha512-/Hq4kblCuKdMceUDVfu+tcNDTWDvzr6Lr2enBXjEnQpyVXcPpEFIDUVU30OXDqyRy+YySIFNfBxFsC/kF3MBGw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-wavpack@1.0.0':
+    resolution: {integrity: sha512-yUY2fCABNluzRipAmxGO/FL6MGwx3fZm5RynWtYn2mhBtoqWxa/UycEYLOuZiwgrc8E9u203OeAvBD4E4rlDEw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-webm@1.6.1':
+    resolution: {integrity: sha512-Te5A7MOUKV2Eb0y3iIFQMhg0dT8IC2I/8Hwc8BZlsHjU9Ka1qoH+LpWiFPrImOCvRcMDr6hd3qilkvBy3PJRDw==}
+    engines: {node: '>=18'}
+
+  '@audio/decode-wma@1.4.0':
+    resolution: {integrity: sha512-jRkArGnTKmPczd0WZiOnzm5cBYsJ5n4jg2LyXlpToZoEbudVRlzvIinnZ8bI+FihSMJiLzJNDbQhz2KP5KO4QA==}
+    engines: {node: '>=18'}
+
+  '@audio/decode@3.16.2':
+    resolution: {integrity: sha512-meR9Y2I0TMbbA6yccSstZVTF6Bdi2aMsVcGmjY2GFvBpfla2eSf4iEMJ/sa4RX+eL8e4AVucgT5m05icBnDC8Q==}
+    engines: {node: '>=18'}
+
+  '@audio/resample-polyphase@1.1.0':
+    resolution: {integrity: sha512-mSPyTABEzAcF+/kI2gys0+tI9GCJsYQ81tVpzY81rvLCHbop2HVFsbJLVRHHXD8mTGX9c27ggkthF+QnnHLqSA==}
+    engines: {node: '>=18'}
+
+  '@audio/speaker-darwin-arm64@2.3.3':
+    resolution: {integrity: sha512-0uTpyhB1K1Z9ecf1s58IjgiMZgDZ99nmIaayPHQ0hXoKJeFsb4CIr5M8O/ZH9+sg70folxdhmyryXxxmsQvwtg==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@audio/speaker-darwin-x64@2.3.3':
+    resolution: {integrity: sha512-q3WgBvvxiqjvAK1gCTJXWY6FTk1og38H809I6JTFMdBvDvvjw9Cc2AVNraktY5+40ZexmN7oYaMZ2n2pgvC7cw==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@audio/speaker-linux-arm64@2.3.3':
+    resolution: {integrity: sha512-VTvmK92KatC0KOzAEj96rLb6MfXzNOKK4sRDEveXmtS1mlPbXzAK9XoZgOc0UDN4IwU9agIxDFBIcDmbrL1GCg==}
+    engines: {node: '>=18'}
+    cpu: [arm64]
+    os: [linux]
+
+  '@audio/speaker-linux-x64@2.3.3':
+    resolution: {integrity: sha512-UqKtHm+EvgGuruA57/1O8ZhU6xgN6C0yFOfVBXFbBb4kkqBa1yiX65bNwKxONpjt24nL/Yv03rUaWaDp2XX00w==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [linux]
+
+  '@audio/speaker-win32-x64@2.3.3':
+    resolution: {integrity: sha512-fD7E3otk2kZjaCC1d5iBOcqvnS6xTrdQRYm0J7FyGnByVFZzol2oG+RSSxUYT2rolMCQvBMWif7vJAyLBcXX9w==}
+    engines: {node: '>=18'}
+    cpu: [x64]
+    os: [win32]
+
+  '@audio/speaker@2.4.0':
+    resolution: {integrity: sha512-lCPvEHPXOVJfinPqa2/MBOSbvG0CC8r5tOLmQpKpyq/cGQoGv3T8fjvJhpo+u23LWLE6xHdBkYs88UqMdUDfOw==}
+    engines: {node: '>=18'}
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -628,6 +764,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@eshaz/web-worker@1.2.2':
+    resolution: {integrity: sha512-WxXiHFmD9u/owrzempiDlBB1ZYqiLnm9s6aPc8AlFQalq2tKmqdmMr9GXOupDgzXtqnBipj8Un0gkIm7Sjf8mw==}
 
   '@floating-ui/core@1.8.0':
     resolution: {integrity: sha512-0CIZ5itps/8x7BG8dEIhs53BvCUH2PCoogtakwRTut+Arm58sJooJ0AuZhLw2HJYIR5cMLNPBSS728sPho2khQ==}
@@ -1079,6 +1218,14 @@ packages:
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
 
+  '@thi.ng/bitstream@2.4.55':
+    resolution: {integrity: sha512-9Oj7k8SrPZ/T+ke7nivbNnoTm+fnICzz8jbgN/+JdpeohfplVW64rSiTqgbhzq8BakFa3yxeFjxeFlFZ+2gFYg==}
+    engines: {node: '>=18'}
+
+  '@thi.ng/errors@2.6.17':
+    resolution: {integrity: sha512-momw7wo3EXes1wa6Smckr+l4BaJi/h+E67R3furYOBjQpciie1OgoTa43PXPb1POsuWxynkEF8OCnQgreE8twg==}
+    engines: {node: '>=18'}
+
   '@ts-morph/common@0.27.0':
     resolution: {integrity: sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ==}
 
@@ -1266,6 +1413,15 @@ packages:
   '@vitest/spy@5.0.2':
     resolution: {integrity: sha512-Ijc7T1nT9efNb5LxvjaBrEqw3f/QwUv5EE0nKqZxgqsaV/FxAAZ8baGylA8X/Z2oS4Lp+K74Jr6dTJsDKxJDeg==}
 
+  '@wasm-audio-decoders/common@9.0.7':
+    resolution: {integrity: sha512-WRaUuWSKV7pkttBygml/a6dIEpatq2nnZGFIoPTc5yPLkxL6Wk4YaslPM98OPQvWacvNZ+Py9xROGDtrFBDzag==}
+
+  '@wasm-audio-decoders/flac@0.2.11':
+    resolution: {integrity: sha512-bbSGuDDxY89CrS7FYc2cBBfvtgk3EY9As8dVe8PFIgX7ECd/wefdi8UbGlvcdQZczRwE500KBt4cqf/+mMVsfw==}
+
+  '@wasm-audio-decoders/ogg-vorbis@0.1.20':
+    resolution: {integrity: sha512-zaQPasU5usRjUDXtXOHYED5tfkR4QMXd+EH3Nrz1+4+M5pCsdD+s9YxJqb0oqnTyRu/KUujOmu5Z/m/NT47vwg==}
+
   '@xyflow/react@12.12.0':
     resolution: {integrity: sha512-74oXI0Rgm1Eu33cHQAd74J6oVgCH9mbFyTVQbsGgp2kmWwh0HdtBr2VP04z8mbPD+M/xO69nqG5dDEt7/EN2rQ==}
     peerDependencies:
@@ -1331,6 +1487,21 @@ packages:
   atomically@1.7.0:
     resolution: {integrity: sha512-Xcz9l0z7y9yQ9rdDaxlmaI4uJHf/T8g9hOEzJcsEqX2SjCj4J20uK7+ldkDHMbpJDK76wF7xEIgxc/vSlsfw5w==}
     engines: {node: '>=10.12.0'}
+
+  audio-buffer@7.3.2:
+    resolution: {integrity: sha512-Kq/38pVlPFEqSw01CE2vUm31iSYeT0o7Qjjk9Cj5TKAoEI1MfvWwChH6Wm5k/j9QxA8xmRMLQt/4JPkfnG8aIw==}
+
+  audio-effect@1.0.1:
+    resolution: {integrity: sha512-qaL/0T3w+VL3oqK4fY6hQj7JsvwKM1dxYh4uvUPSl3bZCXtA/5u0xc4N/ySKHC42Aa+M/nganTz2IzKFJV0p+g==}
+    deprecated: Split into @audio/effect, @audio/dynamics, @audio/spatial, @audio/reverb; pitch-shifting -> @audio/shift
+
+  audio-type@2.8.0:
+    resolution: {integrity: sha512-11GuSvJedvhjc7/6JaCHVndKcapelof4jicOTcM6Sn6j+YyZBnd4+7YnQBEJgwAzJ5Ts4yIv8Vfdt8P7/XaNeQ==}
+    engines: {node: '>=14'}
+
+  automation-events@7.1.19:
+    resolution: {integrity: sha512-cD+TLhJTI0q4AI3ktd353lrGZiVa9AchowSDzQzzGjSoYe22js4vlS32VUtWuaulghi1Yq0KYNWKk9wWuGymPA==}
+    engines: {node: '>=18.2.0'}
 
   babel-dead-code-elimination@1.0.12:
     resolution: {integrity: sha512-GERT7L2TiYcYDtYk1IpD+ASAYXjKbLTDPhBtYj7X1NuRMDTMtAx9kyBenub1Ev41lo91OHCKdmP+egTDmfQ7Ig==}
@@ -1437,6 +1608,9 @@ packages:
 
   code-block-writer@13.0.3:
     resolution: {integrity: sha512-Oofo0pq3IKnsFtuHqSF7TqBfr71aeyZDVJ0HpmqB7FBM2qEigL0iPONSCZSO9pE9dZTAxANe5XHG9Uy0YMv8cg==}
+
+  codec-parser@2.5.0:
+    resolution: {integrity: sha512-Ru9t80fV8B0ZiixQl8xhMTLru+dzuis/KQld32/x5T/+3LwZb0/YvQdSKytX9JqCnRdiupvAvyYJINKrXieziQ==}
 
   commander@11.1.0:
     resolution: {integrity: sha512-yPVavfyCcRhmorC7rWlkHn15b4wDVgVmBA7kV4QVBsF7kv/9TKJAbAXVTxvTnwP8HHKjRCJDClKbciiYS7p0DQ==}
@@ -1615,6 +1789,10 @@ packages:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
     engines: {node: '>=0.3.1'}
 
+  digital-filter@2.4.2:
+    resolution: {integrity: sha512-whhiIcz/YlKqDca8CqpGjMvP4Jly/De2QCCmilPAeKgZFAyzTS62prcdl0pKZOQxhez33pipbsF8WYVY3/9YTA==}
+    engines: {node: '>=18'}
+
   dot-prop@6.0.1:
     resolution: {integrity: sha512-tE7ztYzXHIeyvc7N+hR3oi7FIbf/NIjVP9hmAt3yMXzrQ072/fpjGLx2GxNxGxUl5V73MEqYzioOMoVhGMJ5cA==}
     engines: {node: '>=10'}
@@ -1779,6 +1957,9 @@ packages:
   forwarded@0.2.0:
     resolution: {integrity: sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==}
     engines: {node: '>= 0.6'}
+
+  fourier-transform@2.5.1:
+    resolution: {integrity: sha512-9LLx88HeCiipLu0TAMqI25UrHYR5IxFzRcmzxMdWEwGAZPSVQH9Ucqm/h5LMebcRcxU6cuuj9yaCf2/b7RdzMw==}
 
   fresh@2.0.0:
     resolution: {integrity: sha512-Rx/WycZ60HOaqLKAi6cHRKKI7zxWbJ31MhntmtwMoaTeF7XFH9hhBp8vITaMidfljRQ6eYWCKkaTK+ykVJHP2A==}
@@ -2263,6 +2444,9 @@ packages:
     resolution: {integrity: sha512-tljKC0ex20AjO58Ob/eZ53JloycbVswbVNCHx6V6VLGzqt/w8dIynVGL0G8qVjNKwiA7sYSogCrN6QtJ82IV+g==}
     engines: {node: '>= 0.8.0'}
 
+  mpg123-decoder@1.0.3:
+    resolution: {integrity: sha512-+fjxnWigodWJm3+4pndi+KUg9TBojgn31DPk85zEsim7C6s0X5Ztc/hQYdytXkwuGXH+aB0/aEkG40Emukv6oQ==}
+
   ms@2.0.0:
     resolution: {integrity: sha512-Tpp60P6IUJDTuOq/5Z8cdskzJujfwqfOTkrwIwj7IRISpnkJnT6SyJ4PCPnGMoFjC9ddhal5KVIYtAt97ix05A==}
 
@@ -2407,6 +2591,12 @@ packages:
   pathe@2.0.3:
     resolution: {integrity: sha512-WUjGcAqP1gQacoQe+OBJsFA7Ld4DyXuUIjZ5cc75cLHvJ7dtNsTugphxIADwspS+AraAUePCKrSVtPLFj/F88w==}
 
+  pcm-convert@3.3.0:
+    resolution: {integrity: sha512-ZdiB5JZ06FrwAcKNRbX0PQdzqHuDXN4X7uH1JcUyy6zVp2EaZccQ4x2IvoHn/alTjhEV6k8Wan5ngLmB81PeHw==}
+
+  periodic-function@2.1.2:
+    resolution: {integrity: sha512-/plcq6tcduzQC4nnjDKv6g4J8wwTfGghWCKC5puj4wPQ4FcDxRmaJ0V8yIoJ1Vd1xE6tYwx0T3qO6V9zsYIyMQ==}
+
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
 
@@ -2471,6 +2661,9 @@ packages:
   proxy-addr@2.0.8:
     resolution: {integrity: sha512-5nnx0yGyVUcY6t9RnWcARWtwT9F1D8O9rt08htPvnd49W1IgZtmLkhu9WfMzQj1cFxjHIO6connUNVW5k7AVyQ==}
     engines: {node: '>= 0.10'}
+
+  qoa-format@1.0.1:
+    resolution: {integrity: sha512-dMB0Z6XQjdpz/Cw4Rf6RiBpQvUSPCfYlQMWvmuWlWkAT7nDQD29cVZ1SwDUB6DYJSitHENwbt90lqfI+7bvMcw==}
 
   qs@6.16.0:
     resolution: {integrity: sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==}
@@ -2621,6 +2814,9 @@ packages:
     resolution: {integrity: sha512-bzyZ1e88w9O1iNJbKnOlvYTrWPDl46O1bG0D3XInv+9tkPrxrN8jUUTiFlDkkmKWgn1M6CfIA13SuGqOa9Korw==}
     engines: {node: '>=14'}
 
+  simple-yenc@1.0.4:
+    resolution: {integrity: sha512-5gvxpSd79e9a3V4QDYUqnqxeD4HGlhCakVpb6gMnDD7lexJggSBJRBO5h52y/iJrdXRilX9UCuDaIJhSWm5OWw==}
+
   sisteransi@1.0.5:
     resolution: {integrity: sha512-bLGGlR1QxBcynn2d5YmDX4MGjlZvy2MRBDRNHLJ8VI6l6+9FUiyTFNJ0IveOSP0bcXgVDPRcfGqA0pjaqUpfVg==}
 
@@ -2642,6 +2838,9 @@ packages:
   source-map@0.6.1:
     resolution: {integrity: sha512-UjgapumWlbMhkBgzT7Ykc5YXUT46F0iKu8SGXq0bcwP5dz/h0Plj6enJqjz1Zbq2l5WaqYnrVbwWOWMyF3F47g==}
     engines: {node: '>=0.10.0'}
+
+  standardized-audio-context@25.3.77:
+    resolution: {integrity: sha512-Ki9zNz6pKcC5Pi+QPjPyVsD9GwJIJWgryji0XL9cAJXMGyn+dPOf6Qik1AHei0+UNVcc4BOCa0hWLBzlwqsW/A==}
 
   statuses@2.0.2:
     resolution: {integrity: sha512-DvEy55V3DB7uknRo+4iOGT5fP1slR8wQohVdknigZPMpMstaKJQWhwiYBACJE3Ul2pTnATihhBYnRhZQHGBiRw==}
@@ -2717,6 +2916,9 @@ packages:
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
+
+  tone@15.1.22:
+    resolution: {integrity: sha512-TCScAGD4sLsama5DjvTUXlLDXSqPealhL64nsdV1hhr6frPWve0DeSo63AKnSJwgfg55fhvxj0iPPRwPN5o0ag==}
 
   ts-morph@26.0.0:
     resolution: {integrity: sha512-ztMO++owQnz8c/gIENcM9XfCEzgoGphTv+nKpYNM1bgsdOVC/jRZuEBf6N+mLLDNg68Kl+GgUZfOySaRiG1/Ug==}
@@ -2886,6 +3088,16 @@ packages:
       jsdom:
         optional: true
 
+  web-audio-api@1.5.6:
+    resolution: {integrity: sha512-GB2zRdnmVueX8leXRD+J2I3Judet8qVt3k+CUnJUBOfeIZXk9Pgl/anjrIWg8eA6bF6mqRKzi2Jt+vFlS9DREw==}
+    engines: {node: '>=18'}
+    hasBin: true
+    peerDependencies:
+      '@audio/mic': ^1.1.3
+    peerDependenciesMeta:
+      '@audio/mic':
+        optional: true
+
   whatwg-mimetype@3.0.0:
     resolution: {integrity: sha512-nt+N2dzIutVRxARx1nghPKGv1xHikU7HKdfafKkLNLindmPU/ch3U31NOCGGA/dmPcmb1VlofO0vnKAcsm0o/Q==}
     engines: {node: '>=12'}
@@ -2904,6 +3116,10 @@ packages:
     resolution: {integrity: sha512-NKUzAelcoCXhXL4dJzKIwXeR8iEVqsA0Lq6Vnd0UXvgaKbzVo4ZTHROF2Jidrv+SgxOQ03fMinnNhzZATxOD3A==}
     engines: {node: '>=20.11'}
     hasBin: true
+
+  window-function@3.0.3:
+    resolution: {integrity: sha512-iSmD/0wDE9diI0TGqSn9ht7FhpTUsNrYkj0nb7Hmu7Ej4a6s+dLnCb0IaFIMFKno0brw5eingn6QouoMArIzvw==}
+    engines: {node: '>=18'}
 
   wrappy@1.0.2:
     resolution: {integrity: sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ==}
@@ -2980,6 +3196,137 @@ packages:
         optional: true
 
 snapshots:
+
+  '@audio/decode-aac@1.6.0': {}
+
+  '@audio/decode-ac3@1.0.0': {}
+
+  '@audio/decode-aiff@1.3.0': {}
+
+  '@audio/decode-amr@1.3.1': {}
+
+  '@audio/decode-avi@1.1.0':
+    dependencies:
+      '@audio/decode-aac': 1.6.0
+      '@audio/decode-ac3': 1.0.0
+      '@audio/decode-dts': 1.0.0
+      '@audio/decode-mp3': 1.3.1
+
+  '@audio/decode-caf@1.4.1': {}
+
+  '@audio/decode-dsd@1.0.0':
+    dependencies:
+      '@audio/decode-mp3': 1.3.1
+
+  '@audio/decode-dts@1.0.0': {}
+
+  '@audio/decode-eac3@1.0.0': {}
+
+  '@audio/decode-flac@1.3.5':
+    dependencies:
+      '@wasm-audio-decoders/flac': 0.2.11
+      codec-parser: 2.5.0
+
+  '@audio/decode-mod@1.0.0': {}
+
+  '@audio/decode-mp3@1.3.1':
+    dependencies:
+      mpg123-decoder: 1.0.3
+
+  '@audio/decode-mp4@1.3.1':
+    dependencies:
+      '@audio/decode-aac': 1.6.0
+      '@audio/decode-ac3': 1.0.0
+      '@audio/decode-amr': 1.3.1
+      '@audio/decode-dts': 1.0.0
+      '@audio/decode-eac3': 1.0.0
+      '@audio/decode-flac': 1.3.5
+      '@audio/decode-mp3': 1.3.1
+      '@audio/decode-opus': 1.3.3
+
+  '@audio/decode-mpc@1.0.0': {}
+
+  '@audio/decode-opus@1.3.3':
+    dependencies:
+      codec-parser: 2.5.0
+
+  '@audio/decode-qoa@1.3.0':
+    dependencies:
+      qoa-format: 1.0.1
+
+  '@audio/decode-tta@1.0.0': {}
+
+  '@audio/decode-vorbis@1.3.4':
+    dependencies:
+      '@wasm-audio-decoders/ogg-vorbis': 0.1.20
+      codec-parser: 2.5.0
+
+  '@audio/decode-wav@1.5.1': {}
+
+  '@audio/decode-wavpack@1.0.0': {}
+
+  '@audio/decode-webm@1.6.1':
+    dependencies:
+      '@audio/decode-aac': 1.6.0
+      '@audio/decode-ac3': 1.0.0
+      '@audio/decode-dts': 1.0.0
+      '@audio/decode-eac3': 1.0.0
+      '@audio/decode-flac': 1.3.5
+      '@audio/decode-mp3': 1.3.1
+      '@audio/decode-opus': 1.3.3
+      '@audio/decode-vorbis': 1.3.4
+
+  '@audio/decode-wma@1.4.0': {}
+
+  '@audio/decode@3.16.2':
+    dependencies:
+      '@audio/decode-aac': 1.6.0
+      '@audio/decode-ac3': 1.0.0
+      '@audio/decode-aiff': 1.3.0
+      '@audio/decode-amr': 1.3.1
+      '@audio/decode-avi': 1.1.0
+      '@audio/decode-caf': 1.4.1
+      '@audio/decode-dsd': 1.0.0
+      '@audio/decode-dts': 1.0.0
+      '@audio/decode-flac': 1.3.5
+      '@audio/decode-mod': 1.0.0
+      '@audio/decode-mp3': 1.3.1
+      '@audio/decode-mp4': 1.3.1
+      '@audio/decode-mpc': 1.0.0
+      '@audio/decode-opus': 1.3.3
+      '@audio/decode-qoa': 1.3.0
+      '@audio/decode-tta': 1.0.0
+      '@audio/decode-vorbis': 1.3.4
+      '@audio/decode-wav': 1.5.1
+      '@audio/decode-wavpack': 1.0.0
+      '@audio/decode-webm': 1.6.1
+      '@audio/decode-wma': 1.4.0
+      audio-type: 2.8.0
+
+  '@audio/resample-polyphase@1.1.0': {}
+
+  '@audio/speaker-darwin-arm64@2.3.3':
+    optional: true
+
+  '@audio/speaker-darwin-x64@2.3.3':
+    optional: true
+
+  '@audio/speaker-linux-arm64@2.3.3':
+    optional: true
+
+  '@audio/speaker-linux-x64@2.3.3':
+    optional: true
+
+  '@audio/speaker-win32-x64@2.3.3':
+    optional: true
+
+  '@audio/speaker@2.4.0':
+    optionalDependencies:
+      '@audio/speaker-darwin-arm64': 2.3.3
+      '@audio/speaker-darwin-x64': 2.3.3
+      '@audio/speaker-linux-arm64': 2.3.3
+      '@audio/speaker-linux-x64': 2.3.3
+      '@audio/speaker-win32-x64': 2.3.3
 
   '@babel/code-frame@7.29.7':
     dependencies:
@@ -3296,6 +3643,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@eshaz/web-worker@1.2.2': {}
 
   '@floating-ui/core@1.8.0':
     dependencies:
@@ -3622,6 +3971,12 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.3.1(@types/node@22.20.4)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)
 
+  '@thi.ng/bitstream@2.4.55':
+    dependencies:
+      '@thi.ng/errors': 2.6.17
+
+  '@thi.ng/errors@2.6.17': {}
+
   '@ts-morph/common@0.27.0':
     dependencies:
       fast-glob: 3.3.3
@@ -3762,6 +4117,21 @@ snapshots:
 
   '@vitest/spy@5.0.2': {}
 
+  '@wasm-audio-decoders/common@9.0.7':
+    dependencies:
+      '@eshaz/web-worker': 1.2.2
+      simple-yenc: 1.0.4
+
+  '@wasm-audio-decoders/flac@0.2.11':
+    dependencies:
+      '@wasm-audio-decoders/common': 9.0.7
+      codec-parser: 2.5.0
+
+  '@wasm-audio-decoders/ogg-vorbis@0.1.20':
+    dependencies:
+      '@wasm-audio-decoders/common': 9.0.7
+      codec-parser: 2.5.0
+
   '@xyflow/react@12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@xyflow/system': 0.0.83
@@ -3822,6 +4192,17 @@ snapshots:
       tslib: 2.8.1
 
   atomically@1.7.0: {}
+
+  audio-buffer@7.3.2: {}
+
+  audio-effect@1.0.1: {}
+
+  audio-type@2.8.0: {}
+
+  automation-events@7.1.19:
+    dependencies:
+      '@babel/runtime': 7.29.7
+      tslib: 2.8.1
 
   babel-dead-code-elimination@1.0.12:
     dependencies:
@@ -3923,6 +4304,8 @@ snapshots:
   cn@0.4.0: {}
 
   code-block-writer@13.0.3: {}
+
+  codec-parser@2.5.0: {}
 
   commander@11.1.0: {}
 
@@ -4068,6 +4451,10 @@ snapshots:
   detect-libc@2.1.2: {}
 
   diff@8.0.4: {}
+
+  digital-filter@2.4.2:
+    dependencies:
+      window-function: 3.0.3
 
   dot-prop@6.0.1:
     dependencies:
@@ -4284,6 +4671,8 @@ snapshots:
       locate-path: 3.0.0
 
   forwarded@0.2.0: {}
+
+  fourier-transform@2.5.1: {}
 
   fresh@2.0.0: {}
 
@@ -4648,6 +5037,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  mpg123-decoder@1.0.3:
+    dependencies:
+      '@wasm-audio-decoders/common': 9.0.7
+
   ms@2.0.0: {}
 
   ms@2.1.3: {}
@@ -4785,6 +5178,12 @@ snapshots:
 
   pathe@2.0.3: {}
 
+  pcm-convert@3.3.0:
+    dependencies:
+      '@audio/resample-polyphase': 1.1.0
+
+  periodic-function@2.1.2: {}
+
   picocolors@1.1.1: {}
 
   picomatch@2.3.2: {}
@@ -4839,6 +5238,10 @@ snapshots:
     dependencies:
       forwarded: 0.2.0
       ipaddr.js: 1.9.1
+
+  qoa-format@1.0.1:
+    dependencies:
+      '@thi.ng/bitstream': 2.4.55
 
   qs@6.16.0:
     dependencies:
@@ -5051,6 +5454,8 @@ snapshots:
 
   signal-exit@4.1.0: {}
 
+  simple-yenc@1.0.4: {}
+
   sisteransi@1.0.5: {}
 
   smart-buffer@4.2.0: {}
@@ -5068,6 +5473,12 @@ snapshots:
       source-map: 0.6.1
 
   source-map@0.6.1: {}
+
+  standardized-audio-context@25.3.77:
+    dependencies:
+      '@babel/runtime': 7.29.7
+      automation-events: 7.1.19
+      tslib: 2.8.1
 
   statuses@2.0.2: {}
 
@@ -5123,6 +5534,11 @@ snapshots:
       is-number: 7.0.0
 
   toidentifier@1.0.1: {}
+
+  tone@15.1.22:
+    dependencies:
+      standardized-audio-context: 25.3.77
+      tslib: 2.8.1
 
   ts-morph@26.0.0:
     dependencies:
@@ -5280,6 +5696,18 @@ snapshots:
     transitivePeerDependencies:
       - msw
 
+  web-audio-api@1.5.6:
+    dependencies:
+      '@audio/decode': 3.16.2
+      '@audio/speaker': 2.4.0
+      audio-buffer: 7.3.2
+      audio-effect: 1.0.1
+      automation-events: 7.1.19
+      digital-filter: 2.4.2
+      fourier-transform: 2.5.1
+      pcm-convert: 3.3.0
+      periodic-function: 2.1.2
+
   whatwg-mimetype@3.0.0: {}
 
   which@2.0.2:
@@ -5291,6 +5719,8 @@ snapshots:
       isexe: 3.1.5
 
   why-is-node-running@3.2.2: {}
+
+  window-function@3.0.3: {}
 
   wrappy@1.0.2: {}
 

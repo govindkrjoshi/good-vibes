@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { LeafError, type LeafCode } from "../audio-renderer";
 
 const JackSchema = Schema.Struct({
   id: Schema.String,
@@ -101,10 +102,14 @@ const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
   ),
 });
 
-const CodeSchema = Schema.declare(Effect.isEffect, {
-  title: "Code",
-  description: "The Effect a leaf block runs",
-});
+const CodeSchema = Schema.declare(
+  (input): input is LeafCode => typeof input === "function",
+  {
+    title: "Code",
+    description:
+      "A function returning the Effect that builds a leaf's Tone.js node",
+  },
+);
 
 const MethodArgKindSchema = Schema.Literals([
   "boolean",
@@ -204,6 +209,9 @@ export type MethodTemplate = Omit<Method, "id" | "belongToBlockId">;
 export type RackTemplate = DistributiveOmit<Rack, "paramIds" | "methodIds"> & {
   readonly params: ParamTemplateGroup;
   readonly methods?: Readonly<Record<string, MethodTemplate>>;
+  // Which of the default jacks a block made from this template gets. Most get
+  // both; a sink like the destination only takes input.
+  readonly jacks?: readonly Jack["direction"][];
 };
 
 export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
@@ -274,8 +282,8 @@ export const makeBlock = (
         ...shared,
         name: "Leaf",
         type: "leaf",
-        // A new leaf runs nothing until the editor gives it code. `make`
-        // checks this really is an Effect, so a null placeholder would throw.
-        code: Effect.void,
+        // A new leaf has no Tone.js node until the editor gives it code, so
+        // rendering it fails rather than silently producing nothing.
+        code: () => Effect.fail(new LeafError({ message: "Leaf has no code" })),
       });
 };
