@@ -7,15 +7,15 @@ import {
   type Connection,
   type Edge,
 } from "@xyflow/react";
-import { BlockNode } from "~/components/block-node";
+import { BlockNode } from "./block-node";
 import {
   layoutNodes,
   syncNodesFromRack,
   toFlowEdges,
   type BlockNode as BlockNodeType,
-} from "~/lib/flow";
-import { useCanvasStore } from "~/stores/canvas";
-import { useRackStore } from "~/stores/rack";
+} from "../lib/flow";
+import { useCanvasStore } from "../stores/canvas";
+import { useRackStore } from "../stores/rack";
 
 // React Flow re-registers every node type when this object changes identity,
 // so it has to be built once, outside the component.

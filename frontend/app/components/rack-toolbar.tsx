@@ -11,13 +11,13 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "cn";
-import { Hint } from "~/components/hint";
+import { Hint } from "./hint";
 import {
   Toolbar,
   ToolbarButton,
   ToolbarGroup,
   ToolbarSeparator,
-} from "~/components/ui/toolbar";
+} from "./ui/toolbar";
 
 type RackToolbarProps = {
   readonly locked: boolean;

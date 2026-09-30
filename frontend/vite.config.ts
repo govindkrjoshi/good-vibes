@@ -24,7 +24,4 @@ export default defineConfig({
       "zustand",
     ],
   },
-  resolve: {
-    tsconfigPaths: true,
-  },
 });

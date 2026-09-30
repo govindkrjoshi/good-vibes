@@ -8,7 +8,7 @@ import {
   type Patch,
   type Rack,
   type TreeBlock,
-} from "~/types/rack";
+} from "../types/rack";
 
 export type RackState = {
   /** Every block in the rack, flat and keyed by id. */

@@ -1,8 +1,8 @@
 import { Minus, Plus, Redo2, Undo2 } from "lucide-react";
 import { cn } from "cn";
-import { Hint } from "~/components/hint";
-import { Button } from "~/components/ui/button";
-import { Island } from "~/components/ui/island";
+import { Hint } from "./hint";
+import { Button } from "./ui/button";
+import { Island } from "./ui/island";
 
 type ViewportControlsProps = {
   readonly zoom: number;

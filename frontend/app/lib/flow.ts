@@ -1,6 +1,6 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node, XYPosition } from "@xyflow/react";
-import { canPatch, type Jack, type Patch, type Rack } from "~/types/rack";
+import { canPatch, type Jack, type Patch, type Rack } from "../types/rack";
 
 export type BlockNodeData = {
   readonly name: string;

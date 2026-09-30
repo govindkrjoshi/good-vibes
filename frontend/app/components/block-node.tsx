@@ -1,8 +1,8 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Box, Group } from "lucide-react";
 import { cn } from "cn";
-import { Card, CardHeader, CardTitle } from "~/components/ui/card";
-import type { BlockNode as BlockNodeType } from "~/lib/flow";
+import { Card, CardHeader, CardTitle } from "./ui/card";
+import type { BlockNode as BlockNodeType } from "../lib/flow";
 
 /**
  * One rack block on the canvas. A block wires up through its jacks, so a block

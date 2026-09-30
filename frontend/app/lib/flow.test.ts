@@ -12,7 +12,7 @@ import {
   type Jack,
   type Patch,
   type Rack,
-} from "~/types/rack";
+} from "../types/rack";
 
 /** A root tree holding `children` and `patches`, shaped like the rack store
  * builds it. */

@@ -1,9 +1,5 @@
 import { cloneElement, type ReactElement } from "react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "~/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 type HintProps = {
   readonly label: string;

@@ -1,6 +1,6 @@
 import { Maximize, Menu, Play, Scan } from "lucide-react";
 import { cn } from "cn";
-import { Button } from "~/components/ui/button";
+import { Button } from "./ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,8 +8,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuTrigger,
-} from "~/components/ui/dropdown-menu";
-import { Island } from "~/components/ui/island";
+} from "./ui/dropdown-menu";
+import { Island } from "./ui/island";
 
 type CanvasMenuProps = {
   readonly onFitView: () => void;

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { beforeEach, expect, test } from "vitest";
 import { useRackStore } from "./rack";
-import { hasOutputJack } from "~/types/rack";
+import { hasOutputJack } from "../types/rack";
 
 // The store is a module singleton, so it carries state between tests. Snapshot
 // it before anything runs and replace it wholesale each time. The snapshot

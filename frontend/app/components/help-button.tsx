@@ -1,15 +1,15 @@
 import { CircleQuestionMark } from "lucide-react";
 import { cn } from "cn";
-import { Button } from "~/components/ui/button";
-import { Island } from "~/components/ui/island";
-import { Kbd } from "~/components/ui/kbd";
+import { Button } from "./ui/button";
+import { Island } from "./ui/island";
+import { Kbd } from "./ui/kbd";
 import {
   Popover,
   PopoverContent,
   PopoverHeader,
   PopoverTitle,
   PopoverTrigger,
-} from "~/components/ui/popover";
+} from "./ui/popover";
 
 /** Kept next to the shortcut handler in `useShortcuts` so the two agree. */
 const shortcuts = [

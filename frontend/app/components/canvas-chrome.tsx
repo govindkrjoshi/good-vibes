@@ -1,13 +1,13 @@
 import { Play } from "lucide-react";
 import { useReactFlow, useStore } from "@xyflow/react";
-import { CanvasMenu } from "~/components/canvas-menu";
-import { HelpButton } from "~/components/help-button";
-import { RackToolbar } from "~/components/rack-toolbar";
-import { ViewportControls } from "~/components/viewport-controls";
-import { Button } from "~/components/ui/button";
-import { useShortcuts } from "~/hooks/useShortcuts";
-import { useCanvasStore } from "~/stores/canvas";
-import { useRackStore } from "~/stores/rack";
+import { CanvasMenu } from "./canvas-menu";
+import { HelpButton } from "./help-button";
+import { RackToolbar } from "./rack-toolbar";
+import { ViewportControls } from "./viewport-controls";
+import { Button } from "./ui/button";
+import { useShortcuts } from "../hooks/useShortcuts";
+import { useCanvasStore } from "../stores/canvas";
+import { useRackStore } from "../stores/rack";
 
 /**
  * Every floating control that sits over the canvas. It reads the viewport

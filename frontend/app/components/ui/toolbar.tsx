@@ -1,8 +1,8 @@
 import { Toolbar as ToolbarPrimitive } from "@base-ui/react/toolbar";
 import type { VariantProps } from "class-variance-authority";
 import { cn } from "cn";
-import { buttonVariants } from "~/components/ui/button";
-import { islandClassName } from "~/components/ui/island";
+import { buttonVariants } from "./button";
+import { islandClassName } from "./island";
 
 function Toolbar({ className, ...props }: ToolbarPrimitive.Root.Props) {
   return (
