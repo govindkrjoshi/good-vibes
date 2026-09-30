@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { beforeEach, expect, test } from "vitest";
+import { noopRuntime, type ToneRuntime } from "../audio-renderer";
 import { useRackStore } from "./rack";
 import { hasOutputJack } from "../types/rack";
 
@@ -47,12 +48,12 @@ test("points every added block back at its parent", () => {
   expect(block.isRoot).toBe(false);
 });
 
-test("gives a leaf block an Effect to run", () => {
+test("gives a leaf block code that returns an Effect", () => {
   state().addBlock("leaf");
 
   const block = state().blocks[children()[0]];
   if (block.type !== "leaf") throw new Error("expected a leaf block");
-  expect(Effect.isEffect(block.code)).toBe(true);
+  expect(Effect.isEffect(block.code())).toBe(true);
 });
 
 test("gives a group block its own empty children and patches", () => {
@@ -337,7 +338,7 @@ test("ignores patches the root does not hold", () => {
 });
 
 test("lists every category", () => {
-  expect(state().categories()).toEqual(["source", "instruments"]);
+  expect(state().categories()).toEqual(["source", "instruments", "output"]);
 });
 
 test("lists the sub categories of a category", () => {
@@ -487,4 +488,74 @@ test("removes a block with its values, automation and queued calls", () => {
   expect(state().values[volume]).toBeUndefined();
   expect(state().automations[volume]).toBeUndefined();
   expect(state().calls).toEqual([]);
+});
+
+// A runtime that only writes down which commands it was sent, so these tests
+// check the store's side of the wiring without any audio.
+const recordRuntime = () => {
+  const sent: string[] = [];
+  const record = (command: string) => (id: string) =>
+    Effect.sync(() => {
+      sent.push(`${command} ${id}`);
+    });
+  const runtime: ToneRuntime = {
+    ...noopRuntime,
+    addBlock: record("addBlock"),
+    deleteBlock: record("deleteBlock"),
+    addPatch: record("addPatch"),
+    deletePatch: record("deletePatch"),
+    updateParam: record("updateParam"),
+    runLeafMethod: record("runLeafMethod"),
+  };
+  useRackStore.setState({ runtime });
+  return sent;
+};
+
+test("tells the runtime about each change to the rack", () => {
+  const sent = recordRuntime();
+
+  const synth = addSynth();
+  const volume = synth.param("volume");
+  const destination = state().addCatalogueBlock("output", "Destination");
+  const patch = state().connectJacks(`${synth.id}:out`, `${destination}:in`);
+  state().setParamValue(volume, -6);
+  const eventId = state().addAutomation(volume, {
+    method: "setValueAtTime",
+    value: -3,
+    time: "0",
+  });
+  state().removeAutomation(volume, eventId ?? "");
+  const methodId = synth.method("triggerAttackRelease");
+  state().callMethod(methodId, { note: "C4", duration: "8n" });
+  state().removePatches([patch ?? ""]);
+
+  expect(sent).toEqual([
+    `addBlock ${synth.id}`,
+    `addBlock ${destination}`,
+    `addPatch ${patch}`,
+    `updateParam ${volume}`,
+    `updateParam ${volume}`,
+    `updateParam ${volume}`,
+    `runLeafMethod ${methodId}`,
+    `deletePatch ${patch}`,
+  ]);
+});
+
+test("removing a block deletes its patches before the block", () => {
+  const synth = addSynth();
+  const destination = state().addCatalogueBlock("output", "Destination");
+  const patch = state().connectJacks(`${synth.id}:out`, `${destination}:in`);
+  const sent = recordRuntime();
+
+  state().removeBlocks([synth.id]);
+
+  expect(sent).toEqual([`deletePatch ${patch}`, `deleteBlock ${synth.id}`]);
+});
+
+test("gives the Destination only an input jack", () => {
+  const destination = state().addCatalogueBlock("output", "Destination");
+
+  expect(state().blocks[destination ?? ""]?.jackIds).toEqual([
+    `${destination}:in`,
+  ]);
 });

@@ -6,4 +6,5 @@ packages:
 onlyBuiltDependencies:
   - esbuild
 allowBuilds:
+  '@audio/speaker': false
   esbuild: true

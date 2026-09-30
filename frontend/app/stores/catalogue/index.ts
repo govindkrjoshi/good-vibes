@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { Tone } from "../../audio-renderer";
 import { type RackTemplate } from "../../types/rack";
 
 export type CatalogueEntry = {
@@ -17,7 +18,11 @@ const amOscillatorRack: RackTemplate = {
   isRoot: false,
   jackIds: [],
   params: {},
-  code: Effect.void,
+  code: () =>
+    Effect.gen(function* () {
+      const tone = yield* Tone;
+      return new tone.AMOscillator();
+    }),
 };
 
 const amSynthRack: RackTemplate = {
@@ -284,7 +289,27 @@ const amSynthRack: RackTemplate = {
       ],
     },
   },
-  code: Effect.void,
+  code: () =>
+    Effect.gen(function* () {
+      const tone = yield* Tone;
+      return new tone.AMSynth();
+    }),
+};
+
+// The speakers. Anything patched into it is sent to Tone's destination.
+const destinationRack: RackTemplate = {
+  id: "catalogue:output:Destination",
+  name: "Destination",
+  type: "leaf",
+  isRoot: false,
+  jackIds: [],
+  jacks: ["in"],
+  params: {},
+  code: () =>
+    Effect.gen(function* () {
+      const tone = yield* Tone;
+      return tone.getDestination();
+    }),
 };
 
 export const CATALOGUE: Catalogue = {
@@ -298,6 +323,12 @@ export const CATALOGUE: Catalogue = {
     AMSynth: {
       name: "AMSynth",
       rack: amSynthRack,
+    },
+  },
+  output: {
+    Destination: {
+      name: "Destination",
+      rack: destinationRack,
     },
   },
 };

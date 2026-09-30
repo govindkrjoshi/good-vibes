@@ -1,4 +1,11 @@
+import { Effect } from "effect";
 import { create } from "zustand";
+import {
+  makeToneRuntime,
+  noopRuntime,
+  Tone,
+  type ToneRuntime,
+} from "../audio-renderer";
 import {
   canPatch,
   makeBlock,
@@ -33,6 +40,9 @@ export type RackState = {
 };
 
 export type RackStore = RackState & {
+  // The live Tone.js graph. Each action below that changes the rack tells it
+  // what changed, once the store itself has been updated.
+  readonly runtime: ToneRuntime;
   readonly addBlock: (blockType: "leaf" | "tree") => string | undefined;
   readonly addCatalogueBlock: (
     category: string,
@@ -177,6 +187,12 @@ const acceptValue = (
   }
 };
 
+// A failure in the audio graph is the renderer's to report, not a reason to
+// undo the edit, so the store only logs it.
+const perform = (effect: Effect.Effect<void, { readonly message: string }>) => {
+  Effect.runPromise(effect).catch((error) => console.warn(error));
+};
+
 export const initialRackState: RackState = {
   blocks: { [rootRack.id]: rootRack },
   jacks: {},
@@ -192,6 +208,7 @@ export const initialRackState: RackState = {
 
 export const useRackStore = create<RackStore>()((set, get) => ({
   ...initialRackState,
+  runtime: noopRuntime,
 
   addBlock: (blockType) => {
     const { blocks, rootId } = get();
@@ -213,6 +230,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
         ...Object.fromEntries(jacks.map((jack) => [jack.id, jack])),
       },
     }));
+    perform(get().runtime.addBlock(block.id));
 
     return block.id;
   },
@@ -227,7 +245,10 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     }
 
     const id = crypto.randomUUID();
-    const jacks = makeDefaultJacks(id);
+    const directions = template.jacks ?? ["in", "out"];
+    const jacks = makeDefaultJacks(id).filter((jack) =>
+      directions.includes(jack.direction),
+    );
     const normalized = normalizeTemplate(template, id);
     const shared = {
       id,
@@ -265,6 +286,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
         ),
       },
     }));
+    perform(get().runtime.addBlock(block.id));
 
     return block.id;
   },
@@ -307,6 +329,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
       },
       patches: { ...state.patches, [patch.id]: patch },
     }));
+    perform(get().runtime.addPatch(patch.id));
 
     return patch.id;
   },
@@ -371,6 +394,14 @@ export const useRackStore = create<RackStore>()((set, get) => ({
       }),
       patches: without(state.patches, (id) => cut.has(id)),
     });
+    // Patches first, while both of their ends are still in the graph.
+    const { runtime } = get();
+    perform(
+      Effect.gen(function* () {
+        for (const patchId of cut) yield* runtime.deletePatch(patchId);
+        for (const blockId of doomed) yield* runtime.deleteBlock(blockId);
+      }),
+    );
   },
 
   removePatches: (patchIds) => {
@@ -393,6 +424,8 @@ export const useRackStore = create<RackStore>()((set, get) => ({
         Object.entries(state.patches).filter(([id]) => !cut.has(id)),
       ),
     });
+    const { runtime } = get();
+    perform(Effect.forEach(cut, runtime.deletePatch, { discard: true }));
   },
 
   setParamValue: (paramId, value) => {
@@ -401,6 +434,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     if (accepted === undefined) return;
 
     set((state) => ({ values: { ...state.values, [paramId]: accepted } }));
+    perform(get().runtime.updateParam(paramId));
   },
 
   addAutomation: (paramId, event) => {
@@ -420,11 +454,12 @@ export const useRackStore = create<RackStore>()((set, get) => ({
         [paramId]: [...(state.automations[paramId] ?? []), { ...event, id }],
       },
     }));
+    perform(get().runtime.updateParam(paramId));
 
     return id;
   },
 
-  removeAutomation: (paramId, eventId) =>
+  removeAutomation: (paramId, eventId) => {
     set((state) => ({
       automations: {
         ...state.automations,
@@ -432,7 +467,9 @@ export const useRackStore = create<RackStore>()((set, get) => ({
           (event) => event.id !== eventId,
         ),
       },
-    })),
+    }));
+    perform(get().runtime.updateParam(paramId));
+  },
 
   callMethod: (methodId, args) => {
     const method = get().methods[methodId];
@@ -450,13 +487,29 @@ export const useRackStore = create<RackStore>()((set, get) => ({
 
     const call: MethodCall = { id: crypto.randomUUID(), methodId, args: given };
     set((state) => ({ calls: [...state.calls, call] }));
+    perform(get().runtime.runLeafMethod(methodId, given));
 
     return call.id;
   },
 
+  // Starts audio and builds the rack's Tone.js graph, rebuilding it from
+  // scratch if it is already running. Browsers only let audio start from a
+  // user gesture, which the Run button, menu item and R shortcut all are.
   run: () => {
-    // Running a rack is not built yet: the Run button, the menu item and the
-    // R shortcut all land here so the wiring is in place, and this fills in
-    // as the interpreter arrives.
+    const start = async () => {
+      // Loaded here rather than up front so the server never imports Tone.
+      const ToneJs = await import("tone");
+      await ToneJs.start();
+
+      if (get().runtime === noopRuntime) {
+        const runtime = await Effect.runPromise(
+          makeToneRuntime(get).pipe(Effect.provideService(Tone, ToneJs)),
+        );
+        set({ runtime });
+      }
+      await Effect.runPromise(get().runtime.render);
+    };
+
+    start().catch((error) => console.warn(error));
   },
 }));
