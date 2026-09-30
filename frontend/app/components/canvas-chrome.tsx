@@ -17,14 +17,50 @@ export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
   const addBlock = useRackStore((state) => state.addBlock);
+  const removeBlocks = useRackStore((state) => state.removeBlocks);
   const run = useRackStore((state) => state.run);
-  const { zoomIn, zoomOut, zoomTo, fitView } = useReactFlow();
+  const { zoomIn, zoomOut, zoomTo, fitView, getNodes } = useReactFlow();
   const zoom = useStore((state) => state.transform[2]);
+  const hasSelection = useStore((state) =>
+    state.nodes.some((node) => node.selected === true),
+  );
+  const canDelete = !locked && hasSelection;
 
   const addNode = () => addBlock("node");
   const addGroup = () => addBlock("tree");
 
-  useShortcuts({ n: addNode, g: addGroup, r: run });
+  // The rack only models nodes and trees so far, so each typed tool adds the
+  // closest of the two until its own block type lands in the store.
+  const addSource = addNode;
+  const addInstrument = addNode;
+  const addEffect = addNode;
+  const addComponent = addGroup;
+  const addSignal = addNode;
+  const addEvent = addNode;
+
+  // Node ids are block ids, so the selection names the blocks to remove. The
+  // canvas drops their nodes once the rack no longer holds them.
+  const deleteSelection = () => {
+    if (!canDelete) return;
+    removeBlocks(
+      getNodes()
+        .filter((node) => node.selected === true)
+        .map((node) => node.id),
+    );
+  };
+
+  useShortcuts({
+    g: addGroup,
+    s: addSource,
+    i: addInstrument,
+    e: addEffect,
+    c: addComponent,
+    l: addSignal,
+    v: addEvent,
+    backspace: deleteSelection,
+    delete: deleteSelection,
+    r: run,
+  });
 
   return (
     <>
@@ -37,8 +73,15 @@ export function CanvasChrome() {
       <RackToolbar
         locked={locked}
         onToggleLock={toggleLock}
-        onAddNode={addNode}
         onAddGroup={addGroup}
+        onAddSource={addSource}
+        onAddInstrument={addInstrument}
+        onAddEffect={addEffect}
+        onAddComponent={addComponent}
+        onAddSignal={addSignal}
+        onAddEvent={addEvent}
+        canDelete={canDelete}
+        onDelete={deleteSelection}
       />
 
       <Button

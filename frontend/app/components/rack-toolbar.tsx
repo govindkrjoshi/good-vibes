@@ -1,4 +1,15 @@
-import { Box, Group, Lock, LockOpen } from "lucide-react";
+import {
+  Activity,
+  AudioWaveform,
+  Component,
+  Group,
+  Lock,
+  LockOpen,
+  Piano,
+  SlidersHorizontal,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import { cn } from "cn";
 import { Hint } from "~/components/hint";
 import {
@@ -11,8 +22,15 @@ import {
 type RackToolbarProps = {
   readonly locked: boolean;
   readonly onToggleLock: () => void;
-  readonly onAddNode: () => void;
   readonly onAddGroup: () => void;
+  readonly onAddSource: () => void;
+  readonly onAddInstrument: () => void;
+  readonly onAddEffect: () => void;
+  readonly onAddComponent: () => void;
+  readonly onAddSignal: () => void;
+  readonly onAddEvent: () => void;
+  readonly canDelete: boolean;
+  readonly onDelete: () => void;
   readonly className?: string;
 };
 
@@ -20,8 +38,15 @@ type RackToolbarProps = {
 export function RackToolbar({
   locked,
   onToggleLock,
-  onAddNode,
   onAddGroup,
+  onAddSource,
+  onAddInstrument,
+  onAddEffect,
+  onAddComponent,
+  onAddSignal,
+  onAddEvent,
+  canDelete,
+  onDelete,
   className,
 }: RackToolbarProps) {
   return (
@@ -42,16 +67,70 @@ export function RackToolbar({
       <ToolbarSeparator />
 
       <ToolbarGroup aria-label="Add blocks">
-        <Hint label="Add node">
+        <Hint label="Add source">
           <ToolbarButton
-            shortcut="N"
-            data-testid="add-node"
-            onClick={onAddNode}
+            shortcut="S"
+            data-testid="add-source"
+            onClick={onAddSource}
           >
-            <Box />
+            <AudioWaveform />
           </ToolbarButton>
         </Hint>
 
+        <Hint label="Add instrument">
+          <ToolbarButton
+            shortcut="I"
+            data-testid="add-instrument"
+            onClick={onAddInstrument}
+          >
+            <Piano />
+          </ToolbarButton>
+        </Hint>
+
+        <Hint label="Add effect">
+          <ToolbarButton
+            shortcut="E"
+            data-testid="add-effect"
+            onClick={onAddEffect}
+          >
+            <SlidersHorizontal />
+          </ToolbarButton>
+        </Hint>
+
+        <Hint label="Add component">
+          <ToolbarButton
+            shortcut="C"
+            data-testid="add-component"
+            onClick={onAddComponent}
+          >
+            <Component />
+          </ToolbarButton>
+        </Hint>
+
+        <Hint label="Add signal">
+          <ToolbarButton
+            shortcut="L"
+            data-testid="add-signal"
+            onClick={onAddSignal}
+          >
+            <Activity />
+          </ToolbarButton>
+        </Hint>
+
+        <Hint label="Add event">
+          <ToolbarButton
+            shortcut="V"
+            data-testid="add-event"
+            onClick={onAddEvent}
+          >
+            <Zap />
+          </ToolbarButton>
+        </Hint>
+      </ToolbarGroup>
+
+      <ToolbarSeparator />
+
+      <ToolbarGroup aria-label="Add group">
         <Hint label="Add group">
           <ToolbarButton
             shortcut="G"
@@ -59,6 +138,21 @@ export function RackToolbar({
             onClick={onAddGroup}
           >
             <Group />
+          </ToolbarButton>
+        </Hint>
+      </ToolbarGroup>
+
+      <ToolbarSeparator />
+
+      <ToolbarGroup aria-label="Edit">
+        <Hint label="Delete selection">
+          <ToolbarButton
+            shortcut="⌫"
+            disabled={!canDelete}
+            data-testid="delete-selection"
+            onClick={onDelete}
+          >
+            <Trash2 />
           </ToolbarButton>
         </Hint>
       </ToolbarGroup>

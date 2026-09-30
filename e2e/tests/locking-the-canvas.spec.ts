@@ -20,7 +20,7 @@ test("toggles the lock between its two states", async ({ page }) => {
 });
 
 test("keeps a locked block where it is", async ({ page }) => {
-  await page.getByTestId("add-node").click();
+  await page.getByTestId("add-source").click();
   const before = await boxOf(blocks(page).first(), "block");
 
   await page.getByTestId("toggle-lock").click();

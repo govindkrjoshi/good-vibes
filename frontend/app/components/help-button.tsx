@@ -13,8 +13,14 @@ import {
 
 /** Kept next to the shortcut handler in `useShortcuts` so the two agree. */
 const shortcuts = [
-  { keys: "N", action: "Add node" },
   { keys: "G", action: "Add group" },
+  { keys: "S", action: "Add source" },
+  { keys: "I", action: "Add instrument" },
+  { keys: "E", action: "Add effect" },
+  { keys: "C", action: "Add component" },
+  { keys: "L", action: "Add signal" },
+  { keys: "V", action: "Add event" },
+  { keys: "⌫", action: "Delete selection" },
   { keys: "R", action: "Run rack" },
 ] as const;
 

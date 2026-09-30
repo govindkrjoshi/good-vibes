@@ -77,6 +77,10 @@ export function CanvasViewport() {
       nodeTypes={nodeTypes}
       isValidConnection={isValidConnection}
       onConnect={onConnect}
+      // Deleting goes through the rack store, from the toolbar and the
+      // Backspace shortcut. React Flow's own delete key would only drop the
+      // nodes from the canvas, and the next sync would put them back.
+      deleteKeyCode={null}
       nodesDraggable={!locked}
       nodesConnectable={!locked}
       elementsSelectable={!locked}

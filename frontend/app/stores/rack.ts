@@ -35,6 +35,10 @@ export type RackStore = RackState & {
    * before it lets a drag land, so an impossible connection is refused on the
    * spot rather than silently dropped once the user lets go. */
   readonly canConnectJacks: (fromJackId: string, toJackId: string) => boolean;
+  /** Removes these blocks from under the root, along with their jacks and
+   * every patch wired to them. Ids that are not children of the root, the
+   * root included, are ignored. */
+  readonly removeBlocks: (blockIds: readonly string[]) => void;
   readonly run: () => void;
 };
 
@@ -133,6 +137,52 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     }));
 
     return patch.id;
+  },
+
+  removeBlocks: (blockIds) => {
+    const state = get();
+    const root = state.blocks[state.rootId];
+    if (root === undefined || root.type !== "tree") return;
+
+    const doomed = new Set(blockIds.filter((id) => root.children.includes(id)));
+    if (doomed.size === 0) return;
+
+    // A patch left behind would point at a jack that no longer exists.
+    const cut = new Set(
+      root.patches.filter((id) => {
+        const patch = state.patches[id];
+        return (
+          patch !== undefined &&
+          [patch.from, patch.to].some((jackId) => {
+            const owner = state.jacks[jackId]?.belongToBlockId;
+            return owner !== undefined && doomed.has(owner);
+          })
+        );
+      }),
+    );
+
+    const without = <T>(
+      record: Record<string, T>,
+      drop: (id: string, value: T) => boolean,
+    ) =>
+      Object.fromEntries(
+        Object.entries(record).filter(([id, value]) => !drop(id, value)),
+      );
+
+    set({
+      blocks: {
+        ...without(state.blocks, (id) => doomed.has(id)),
+        [root.id]: {
+          ...root,
+          children: root.children.filter((id) => !doomed.has(id)),
+          patches: root.patches.filter((id) => !cut.has(id)),
+        },
+      },
+      jacks: without(state.jacks, (_, jack) =>
+        doomed.has(jack.belongToBlockId),
+      ),
+      patches: without(state.patches, (id) => cut.has(id)),
+    });
   },
 
   run: () => {

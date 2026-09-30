@@ -204,3 +204,50 @@ test("leaves the rack alone when run is called", () => {
 
   expect(state().blocks).toBe(before);
 });
+
+test("removes a block with its jacks and the patches wired to it", () => {
+  const first = state().addBlock("node");
+  const second = state().addBlock("node");
+  const third = state().addBlock("tree");
+  if (first === undefined || second === undefined || third === undefined)
+    throw new Error("blocks not added");
+
+  const cut = state().connectJacks(`${first}:out`, `${second}:in`);
+  const kept = state().connectJacks(`${second}:out`, `${third}:in`);
+  if (cut === undefined || kept === undefined)
+    throw new Error("patches not made");
+
+  state().removeBlocks([first]);
+
+  expect(children()).toEqual([second, third]);
+  expect(state().blocks[first]).toBeUndefined();
+  expect(state().jacks[`${first}:in`]).toBeUndefined();
+  expect(state().jacks[`${first}:out`]).toBeUndefined();
+  expect(state().patches[cut]).toBeUndefined();
+  expect(state().patches[kept]).toBeDefined();
+
+  const block = root();
+  if (block.type !== "tree") throw new Error("root is not a tree");
+  expect(block.patches).toEqual([kept]);
+});
+
+test("removes several blocks at once", () => {
+  const first = state().addBlock("node");
+  const second = state().addBlock("tree");
+  if (first === undefined || second === undefined)
+    throw new Error("blocks not added");
+
+  state().removeBlocks([first, second]);
+
+  expect(children()).toEqual([]);
+  expect(state().jacks).toEqual({});
+});
+
+test("never removes the root or blocks it does not hold", () => {
+  state().addBlock("node");
+  const before = state();
+
+  state().removeBlocks([before.rootId, "no-such-block"]);
+
+  expect(state()).toBe(before);
+});
