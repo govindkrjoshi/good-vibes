@@ -31,11 +31,14 @@ function ToolbarGroup({ className, ...props }: ToolbarPrimitive.Group.Props) {
 // The toolbar owns arrow-key navigation, so its buttons only borrow the button
 // component's look, not its behaviour. `shortcut` renders the key hint tucked
 // into the corner of the icon, the way canvas tools usually label themselves.
+// Passing `active` makes the button a toggle and announces it as one; leaving it
+// off keeps the button plain, since `aria-pressed="false"` would tell a screen
+// reader that a one-shot button like "Add node" has an off state.
 function ToolbarButton({
   className,
   variant = "ghost",
   size = "icon-lg",
-  active = false,
+  active,
   shortcut,
   children,
   ...props
@@ -47,6 +50,7 @@ function ToolbarButton({
   return (
     <ToolbarPrimitive.Button
       data-slot="toolbar-button"
+      aria-pressed={active}
       data-active={active || undefined}
       className={cn(
         buttonVariants({ variant, size }),

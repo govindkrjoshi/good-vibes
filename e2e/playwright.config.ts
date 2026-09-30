@@ -11,7 +11,9 @@ export default defineConfig({
   reporter: isCI ? [["list"], ["html", { open: "never" }]] : "list",
   use: {
     baseURL,
-    trace: "on-first-retry",
+    // Locally there are no retries, so "on-first-retry" would never record
+    // anything: a failure on a dev machine is exactly when the trace is wanted.
+    trace: isCI ? "on-first-retry" : "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {

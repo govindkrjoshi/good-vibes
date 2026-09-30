@@ -65,9 +65,20 @@ test("marks the lock button active and relabels it while locked", () => {
   const { button } = render(handlers(), true);
 
   expect(button("toggle-lock").dataset.active).toBe("true");
+  expect(button("toggle-lock").getAttribute("aria-pressed")).toBe("true");
   expect(button("toggle-lock").getAttribute("aria-label")).toBe(
     "Unlock canvas",
   );
+});
+
+test("announces the lock as a toggle and the block tools as plain buttons", () => {
+  const { button } = render(handlers());
+
+  // Only a control with an on state should carry aria-pressed: on "Add node" it
+  // would promise an off state that does not exist.
+  expect(button("toggle-lock").getAttribute("aria-pressed")).toBe("false");
+  expect(button("add-node").hasAttribute("aria-pressed")).toBe(false);
+  expect(button("add-group").hasAttribute("aria-pressed")).toBe(false);
 });
 
 test("calls the matching handler once per click", () => {

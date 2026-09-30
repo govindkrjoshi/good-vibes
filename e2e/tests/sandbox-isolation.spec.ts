@@ -1,5 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
-import { openSandboxPage } from "./helpers";
+import { expect, test } from "./fixtures";
+import { type Page } from "@playwright/test";
 
 async function sandboxFrame(page: Page) {
   const handle = await page
@@ -10,8 +10,10 @@ async function sandboxFrame(page: Page) {
   return frame;
 }
 
-test("serves the sandbox document with a locked-down CSP", async ({ page }) => {
-  const response = await page.request.get("/sandbox.html");
+test("serves the sandbox document with a locked-down CSP", async ({
+  request,
+}) => {
+  const response = await request.get("/sandbox.html");
   const csp = response.headers()["content-security-policy"] ?? "";
 
   expect(response.ok()).toBe(true);
@@ -23,10 +25,17 @@ test("serves the sandbox document with a locked-down CSP", async ({ page }) => {
   expect(csp).not.toContain("worker-src");
 });
 
+test("embeds the sandbox as a hidden script-only iframe", async ({ page }) => {
+  const iframe = page.locator('iframe[title="Code sandbox"]');
+  await expect(iframe).toHaveCount(1);
+  await expect(iframe).toHaveAttribute("sandbox", "allow-scripts");
+  await expect(iframe).toHaveAttribute("src", "/sandbox.html");
+  await expect(iframe).toBeHidden();
+});
+
 test("sandbox frame runs with an opaque origin and cannot reach the parent page", async ({
   page,
 }) => {
-  await openSandboxPage(page);
   const frame = await sandboxFrame(page);
 
   const origin = await frame.evaluate(() => window.origin);
@@ -51,9 +60,27 @@ test("sandbox frame runs with an opaque origin and cannot reach the parent page"
   expect(storageAccess).toBe("blocked:SecurityError");
 });
 
-test("sandbox document refuses to run when the CSP sandbox header is missing", async ({
-  page,
+test("logs to the console once the sandbox provider mounts", async ({
+  context,
 }) => {
+  // A cold page, not the fixture's: the fixture already waits for this very log
+  // before handing the page over, which would leave nothing here to observe.
+  const page = await context.newPage();
+  const logs: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "log") logs.push(message.text());
+  });
+
+  await page.goto("/");
+
+  await expect(() => expect(logs).toContain("Sandbox loaded")).toPass();
+});
+
+test("sandbox document refuses to run when the CSP sandbox header is missing", async ({
+  context,
+}) => {
+  // Also a cold page: the route has to be in place before the first request.
+  const page = await context.newPage();
   await page.route("**/sandbox.html", async (route) => {
     const response = await route.fetch();
     const headers = { ...response.headers() };
