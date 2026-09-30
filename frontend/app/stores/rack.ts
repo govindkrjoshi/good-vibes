@@ -3,12 +3,11 @@ import {
   canPatch,
   makeBlock,
   makeDefaultJacks,
-  toTree,
+  rootRack,
   type Jack,
   type Patch,
   type Rack,
   type TreeBlock,
-  emptyRack,
 } from "~/types/rack";
 
 export type RackState = {
@@ -65,10 +64,10 @@ const resolvePatch = (
 };
 
 export const initialRackState: RackState = {
-  blocks: { [emptyRack.id]: emptyRack },
+  blocks: { [rootRack.id]: rootRack },
   jacks: {},
   patches: {},
-  rootId: emptyRack.id,
+  rootId: rootRack.id,
 };
 
 export const useRackStore = create<RackStore>()((set, get) => ({
@@ -76,15 +75,10 @@ export const useRackStore = create<RackStore>()((set, get) => ({
 
   addBlock: (blockType) => {
     const { blocks, rootId } = get();
-    const current = blocks[rootId];
+    const root = blocks[rootId];
 
-    // A leaf root has nowhere to hang children. Reparenting it is a rack
-    // operation of its own, so leave the rack alone until that exists.
-    if (current.type === "node") return undefined;
+    if (root === undefined || root.type !== "tree") return undefined;
 
-    // An empty rack is a rack with no blocks, so the first block added turns
-    // the root into the tree that holds it.
-    const root = current.type === "tree" ? current : toTree(current, [], []);
     const block = makeBlock(crypto.randomUUID(), root.id, blockType);
     const jacks = makeDefaultJacks(block.id);
 

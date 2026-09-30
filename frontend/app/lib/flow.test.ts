@@ -1,9 +1,8 @@
 import { expect, test } from "vitest";
 import { toFlowEdges, toFlowNodes } from "./flow";
 import {
-  emptyRack,
   makeBlock,
-  toTree,
+  rootRack,
   type Jack,
   type Patch,
   type Rack,
@@ -15,11 +14,11 @@ const rack = (
   children: readonly Rack[],
   patches: readonly string[] = [],
 ): Record<string, Rack> => ({
-  root: toTree(
-    emptyRack,
-    children.map((block) => block.id),
+  root: {
+    ...rootRack,
+    children: children.map((block) => block.id),
     patches,
-  ),
+  },
   ...Object.fromEntries(children.map((block) => [block.id, block])),
 });
 
@@ -38,7 +37,7 @@ const patch = (id: string, from: string, to: string): Patch => ({
 });
 
 test("renders nothing while the rack is still empty", () => {
-  const blocks = { root: emptyRack };
+  const blocks = { root: rootRack };
 
   expect(toFlowNodes(blocks, {}, "root", {}, {}, [])).toEqual([]);
 });
@@ -96,7 +95,7 @@ test("resolves a block's jacks so it can grow handles", () => {
 });
 
 test("skips a child id with no block behind it", () => {
-  const blocks = { root: toTree(emptyRack, ["ghost"], []) };
+  const blocks = { root: { ...rootRack, children: ["ghost"] } };
 
   expect(toFlowNodes(blocks, {}, "root", {}, {}, [])).toEqual([]);
 });

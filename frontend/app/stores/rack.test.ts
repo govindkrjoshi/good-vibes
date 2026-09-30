@@ -21,22 +21,14 @@ beforeEach(() => {
   useRackStore.setState(initial, true);
 });
 
-test("starts as a single empty root block", () => {
+test("starts as an empty root tree", () => {
   expect(state().rootId).toBe("root");
   expect(Object.keys(state().blocks)).toEqual(["root"]);
-  expect(root().type).toBe("empty");
+  expect(root().type).toBe("tree");
   expect(root().isRoot).toBe(true);
+  expect(children()).toEqual([]);
   expect(state().jacks).toEqual({});
   expect(state().patches).toEqual({});
-});
-
-test("turns the empty root into a tree for the first block", () => {
-  state().addBlock("node");
-
-  expect(root().type).toBe("tree");
-  expect(root().id).toBe("root");
-  expect(root().isRoot).toBe(true);
-  expect(children()).toHaveLength(1);
 });
 
 test("files each new block under the root and keeps insertion order", () => {

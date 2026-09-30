@@ -30,11 +30,6 @@ const BaseBlockFields = {
   paramIds: Schema.Array(Schema.String),
 };
 
-const EmptyRack = Schema.Struct({
-  ...BaseBlockFields,
-  type: Schema.Literal("empty"),
-});
-
 const LeafRack = Schema.Struct({
   ...BaseBlockFields,
   type: Schema.Literal("node"),
@@ -48,7 +43,7 @@ const TreeRack = Schema.Struct({
   patches: Schema.Array(Schema.String),
 });
 
-const RackSchema = Schema.Union([EmptyRack, LeafRack, TreeRack]);
+const RackSchema = Schema.Union([LeafRack, TreeRack]);
 
 export type Rack = Schema.Schema.Type<typeof RackSchema>;
 export type Jack = Schema.Schema.Type<typeof JackSchema>;
@@ -56,16 +51,18 @@ export type Param = Schema.Schema.Type<typeof ParamSchema>;
 export type Patch = Schema.Schema.Type<typeof PatchSchema>;
 export type Code = Schema.Schema.Type<typeof CodeSchema>;
 
-export const emptyRack: Rack = EmptyRack.make({
+export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
+
+export const rootRack: TreeBlock = TreeRack.make({
   id: "root",
-  name: "empty",
-  type: "empty",
+  name: "Root",
+  type: "tree",
   isRoot: true,
   jackIds: [],
   paramIds: [],
+  children: [],
+  patches: [],
 });
-
-export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
 
 /** The input and output jacks every new block starts with. */
 export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
@@ -87,16 +84,13 @@ export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
  * Whether `block` has an output jack to wire out of. Only the rack can answer
  * this: a block holds jack ids and the directions live in the jack table, so a
  * block schema on its own can do no better than match on how an id is spelled.
- * The root is exempt, having nothing above it to wire into, and so is an empty
- * rack, which is a rack with no blocks and so no jacks either.
+ * The root is exempt, having nothing above it to wire into.
  */
 export const hasOutputJack = (
   block: Rack,
   jacks: Record<string, Jack>,
 ): boolean =>
-  block.isRoot ||
-  block.type === "empty" ||
-  block.jackIds.some((id) => jacks[id]?.direction === "out");
+  block.isRoot || block.jackIds.some((id) => jacks[id]?.direction === "out");
 
 /**
  * Whether a patch may run from `from` to `to` under `root`: an output jack on
@@ -142,26 +136,3 @@ export const makeBlock = (
         code: Effect.void,
       });
 };
-
-/**
- * Rebuilds a block as a tree, keeping its identity. Adding the first block to
- * an empty rack goes through here: the root keeps its id, so `rootId` and any
- * `parentId` pointing at it stay valid.
- */
-export const toTree = (
-  block: Rack,
-  children: readonly string[],
-  patches: readonly string[],
-): TreeBlock =>
-  TreeRack.make({
-    id: block.id,
-    name: block.name,
-    type: "tree",
-    isRoot: block.isRoot,
-    // `optionalKey` rejects an explicit `undefined`, so omit the key instead.
-    ...(block.parentId === undefined ? {} : { parentId: block.parentId }),
-    jackIds: block.jackIds,
-    paramIds: block.paramIds,
-    children,
-    patches,
-  });
