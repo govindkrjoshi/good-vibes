@@ -193,6 +193,47 @@ test("updateParam replaces scheduled automation and keeps the value", async () =
   expect(node.volume.getValueAtTime(2)).toBeCloseTo(-12);
 });
 
+test.each(["1", "8n"])(
+  "schedules an earlier ramp at %s before a later set regardless of insertion order",
+  async (time) => {
+    const { synth } = buildSampleRack();
+    const volume = param(synth, "volume");
+    store().setParamValue(volume, -12);
+    const runtime = await makeRuntime();
+    await Effect.runPromise(runtime.render);
+
+    defined(
+      store().addAutomation(volume, {
+        method: "setValueAtTime",
+        value: -20,
+        time: "5",
+      }),
+      "later set",
+    );
+    defined(
+      store().addAutomation(volume, {
+        method: "rampTo",
+        value: -6,
+        time,
+        rampTime: "1",
+      }),
+      "earlier ramp",
+    );
+    const events = [...store().automations[volume]];
+    await Effect.runPromise(runtime.updateParam(volume));
+
+    const node = await nodeOf(runtime, synth);
+    expect(node.volume.getValueAtTime(3)).toBeCloseTo(-6);
+    expect(node.volume.getValueAtTime(6)).toBeCloseTo(-20);
+    expect(store().automations[volume]).toEqual(events);
+
+    await Effect.runPromise(runtime.render);
+    const rebuilt = await nodeOf(runtime, synth);
+    expect(rebuilt.volume.getValueAtTime(3)).toBeCloseTo(-6);
+    expect(rebuilt.volume.getValueAtTime(6)).toBeCloseTo(-20);
+  },
+);
+
 test("automation times count from when the param is applied", async () => {
   const { synth } = buildSampleRack();
   const volume = param(synth, "volume");

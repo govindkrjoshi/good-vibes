@@ -199,20 +199,27 @@ export const makeToneRuntime = (
       target: ToneJs.Param | ToneJs.Signal,
       event: AutomationEvent,
       now: number,
-    ): (() => void) => {
+    ): { readonly at: number; readonly schedule: () => void } => {
       const at = now + seconds(target, event.time);
       switch (event.method) {
         case "setValueAtTime":
-          return () => target.setValueAtTime(event.value, at);
+          return { at, schedule: () => target.setValueAtTime(event.value, at) };
         case "rampTo": {
           // The editor always fills in a ramp time; "0.1" matches its default.
           const over = seconds(target, event.rampTime ?? "0.1");
-          return () => target.rampTo(event.value, over, at);
+          return { at, schedule: () => target.rampTo(event.value, over, at) };
         }
         case "linearRampToValueAtTime":
-          return () => target.linearRampToValueAtTime(event.value, at);
+          return {
+            at,
+            schedule: () => target.linearRampToValueAtTime(event.value, at),
+          };
         case "exponentialRampToValueAtTime":
-          return () => target.exponentialRampToValueAtTime(event.value, at);
+          return {
+            at,
+            schedule: () =>
+              target.exponentialRampToValueAtTime(event.value, at),
+          };
       }
     };
 
@@ -236,10 +243,14 @@ export const makeToneRuntime = (
 
             if (isAudioParam(target)) {
               const now = target.now();
-              const scheduled = events.map((event) => plan(target, event, now));
+              // rampTo cancels later automation, so schedule by resolved time
+              // rather than insertion order. Equal times keep their stored order.
+              const scheduled = events
+                .map((event) => plan(target, event, now))
+                .sort((a, b) => a.at - b.at);
               target.cancelScheduledValues(0);
               target.value = value as number;
-              for (const schedule of scheduled) schedule();
+              for (const { schedule } of scheduled) schedule();
             } else {
               owner[key] = value;
             }
