@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import type * as ToneJs from "tone";
 import { create } from "zustand";
 import {
   makeToneRuntime,
@@ -114,11 +115,16 @@ const normalizeTemplate = (
   template: RackTemplate,
   blockId: string,
 ): {
+  readonly jacks: readonly Jack[];
   readonly paramIds: ParamGroup;
   readonly methodIds: readonly string[];
   readonly params: Record<string, Param>;
   readonly methods: Record<string, Method>;
 } => {
+  const directions = template.jacks ?? ["in", "out"];
+  const jacks = makeDefaultJacks(blockId).filter((jack) =>
+    directions.includes(jack.direction),
+  );
   const normalizedParams = normalizeParamGroup(blockId, template.params);
   const methods = Object.fromEntries(
     Object.entries(template.methods ?? {}).map(([key, method]) => {
@@ -128,6 +134,7 @@ const normalizeTemplate = (
   );
 
   return {
+    jacks,
     paramIds: normalizedParams.group,
     methodIds: Object.keys(methods),
     params: normalizedParams.params,
@@ -187,9 +194,24 @@ const acceptValue = (
   }
 };
 
+// Seconds, a musical length like 4n, 8t or 1m, or bars:beats:sixteenths,
+// optionally after a "+". The same shapes Tone reads as a time from now.
+const TIME =
+  /^\+?(?:(?:\d+\.?\d*|\.\d+)(?:n\.?|t|m|s|i|hz)?|\d+:\d+(?::\d+(?:\.\d+)?)?)$/;
+const isTime = (time: string) => TIME.test(time.trim());
+
+// Tone, once it has loaded. See `run` for why it is kept.
+let toneModule: typeof ToneJs | undefined;
+// Loaded on demand rather than imported, so the server never imports Tone.
+export const loadTone = async () => (toneModule ??= await import("tone"));
+
+// Each Run waits for the one before it, so two quick ones cannot both build a
+// runtime, or render over each other.
+let running: Promise<void> = Promise.resolve();
+
 // A failure in the audio graph is the renderer's to report, not a reason to
 // undo the edit, so the store only logs it.
-const perform = (effect: Effect.Effect<void, { readonly message: string }>) => {
+const perform = (effect: Effect.Effect<void, unknown>) => {
   Effect.runPromise(effect).catch((error) => console.warn(error));
 };
 
@@ -245,17 +267,13 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     }
 
     const id = crypto.randomUUID();
-    const directions = template.jacks ?? ["in", "out"];
-    const jacks = makeDefaultJacks(id).filter((jack) =>
-      directions.includes(jack.direction),
-    );
     const normalized = normalizeTemplate(template, id);
     const shared = {
       id,
       name: template.name,
       isRoot: false,
       parentId: root.id,
-      jackIds: jacks.map((jack) => jack.id),
+      jackIds: normalized.jacks.map((jack) => jack.id),
       paramIds: normalized.paramIds,
       methodIds: normalized.methodIds,
     };
@@ -272,7 +290,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
       },
       jacks: {
         ...state.jacks,
-        ...Object.fromEntries(jacks.map((jack) => [jack.id, jack])),
+        ...Object.fromEntries(normalized.jacks.map((jack) => [jack.id, jack])),
       },
       params: { ...state.params, ...normalized.params },
       methods: { ...state.methods, ...normalized.methods },
@@ -442,7 +460,9 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     if (
       param?.kind !== "number" ||
       !(param.automation?.methods ?? []).includes(event.method) ||
-      !Number.isFinite(event.value)
+      !Number.isFinite(event.value) ||
+      !isTime(event.time) ||
+      (event.rampTime !== undefined && !isTime(event.rampTime))
     ) {
       return undefined;
     }
@@ -495,21 +515,24 @@ export const useRackStore = create<RackStore>()((set, get) => ({
   // Starts audio and builds the rack's Tone.js graph, rebuilding it from
   // scratch if it is already running. Browsers only let audio start from a
   // user gesture, which the Run button, menu item and R shortcut all are.
+  // Safari counts the gesture as over once anything is awaited, so when Tone
+  // has already loaded (the canvas loads it up front) audio starts right here.
   run: () => {
-    const start = async () => {
-      // Loaded here rather than up front so the server never imports Tone.
-      const ToneJs = await import("tone");
-      await ToneJs.start();
+    const started = toneModule?.start();
 
-      if (get().runtime === noopRuntime) {
-        const runtime = await Effect.runPromise(
-          makeToneRuntime(get).pipe(Effect.provideService(Tone, ToneJs)),
-        );
-        set({ runtime });
-      }
-      await Effect.runPromise(get().runtime.render);
-    };
+    running = running
+      .then(async () => {
+        const tone = await loadTone();
+        await (started ?? tone.start());
 
-    start().catch((error) => console.warn(error));
+        if (get().runtime === noopRuntime) {
+          const runtime = await Effect.runPromise(
+            makeToneRuntime(get).pipe(Effect.provideService(Tone, tone)),
+          );
+          set({ runtime });
+        }
+        await Effect.runPromise(get().runtime.render);
+      })
+      .catch((error) => console.warn(error));
   },
 }));

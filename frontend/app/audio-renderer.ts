@@ -5,6 +5,7 @@ import type {
   AutomationEvent,
   LeafRack,
   Param,
+  ParamGroup,
   ParamValue,
 } from "./types/rack";
 
@@ -104,31 +105,30 @@ export const makeToneRuntime = (
     // node without waiting; once a leaf can wait (e.g. loading samples), a
     // command running meanwhile could leak a node, and they will need a lock.
     const ref = yield* Ref.make(empty);
-    const setBlock = (block: RenderedBlock) =>
+
+    // Copies a map with one entry set, or removed when there is no value.
+    const withEntry = <V>(
+      map: ReadonlyMap<string, V>,
+      id: string,
+      value: V | undefined,
+    ) => {
+      const next = new Map(map);
+      if (value === undefined) next.delete(id);
+      else next.set(id, value);
+      return next;
+    };
+
+    const putBlock = (blockId: string, block: RenderedBlock | undefined) =>
       Ref.update(ref, (state) => ({
         ...state,
-        blocks: new Map(state.blocks).set(block.blockId, block),
+        blocks: withEntry(state.blocks, blockId, block),
       }));
 
-    const forgetBlock = (blockId: string) =>
-      Ref.update(ref, (state) => {
-        const blocks = new Map(state.blocks);
-        blocks.delete(blockId);
-        return { ...state, blocks };
-      });
-
-    const setPatch = (patch: RenderedPatch) =>
+    const putPatch = (patchId: string, patch: RenderedPatch | undefined) =>
       Ref.update(ref, (state) => ({
         ...state,
-        patches: new Map(state.patches).set(patch.patchId, patch),
+        patches: withEntry(state.patches, patchId, patch),
       }));
-
-    const forgetPatch = (patchId: string) =>
-      Ref.update(ref, (state) => {
-        const patches = new Map(state.patches);
-        patches.delete(patchId);
-        return { ...state, patches };
-      });
 
     // The node a rendered leaf built, or the error it failed with.
     const leafNode = (blockId: string) =>
@@ -154,7 +154,13 @@ export const makeToneRuntime = (
 
     // Finds the object holding a param, e.g. `node.envelope` for the path
     // ["envelope", "attack"], so its last key can be read or written.
-    const locate = (node: ToneNode, param: Param) => {
+    const locate = (
+      node: ToneNode,
+      param: Param,
+    ): Effect.Effect<
+      { readonly owner: Record<string, unknown>; readonly key: string },
+      LeafError
+    > => {
       const owner = param.path
         .slice(0, -1)
         .reduce<unknown>(
@@ -177,32 +183,44 @@ export const makeToneRuntime = (
     ): value is ToneJs.Param | ToneJs.Signal =>
       value instanceof tone.Param || value instanceof tone.Signal;
 
-    const schedule = (
+    // Reads an automation time as seconds from now. A leading "+" is dropped
+    // because every time is already relative to when the param is applied.
+    const seconds = (target: ToneJs.Param | ToneJs.Signal, time: string) => {
+      const value = target.toSeconds(time.trim().replace(/^\+/, ""));
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`"${time}" is not a time`);
+      }
+      return value;
+    };
+
+    // Turns an automation event into a call on the param, with its times
+    // worked out up front so that a bad one fails before anything changes.
+    const plan = (
       target: ToneJs.Param | ToneJs.Signal,
       event: AutomationEvent,
-    ) => {
+      now: number,
+    ): (() => void) => {
+      const at = now + seconds(target, event.time);
       switch (event.method) {
         case "setValueAtTime":
-          return target.setValueAtTime(event.value, event.time);
-        case "rampTo":
+          return () => target.setValueAtTime(event.value, at);
+        case "rampTo": {
           // The editor always fills in a ramp time; "0.1" matches its default.
-          return target.rampTo(
-            event.value,
-            event.rampTime ?? "0.1",
-            event.time,
-          );
+          const over = seconds(target, event.rampTime ?? "0.1");
+          return () => target.rampTo(event.value, over, at);
+        }
         case "linearRampToValueAtTime":
-          return target.linearRampToValueAtTime(event.value, event.time);
+          return () => target.linearRampToValueAtTime(event.value, at);
         case "exponentialRampToValueAtTime":
-          return target.exponentialRampToValueAtTime(event.value, event.time);
+          return () => target.exponentialRampToValueAtTime(event.value, at);
       }
     };
 
     // Sets a param on the node to what the store holds. An audio param's value
     // and automation are both events on the same timeline, and clearing one
     // clears the other, so they are always applied together: clear, set the
-    // value, then schedule the automation. Tone works out when each event
-    // lands from its time.
+    // value, then schedule the automation. Automation times count from now,
+    // so applying a param again starts its automation over.
     const applyParam = (node: ToneNode, param: Param) =>
       Effect.flatMap(locate(node, param), ({ owner, key }) =>
         Effect.try({
@@ -217,9 +235,11 @@ export const makeToneRuntime = (
             if (target === undefined) return;
 
             if (isAudioParam(target)) {
+              const now = target.now();
+              const scheduled = events.map((event) => plan(target, event, now));
               target.cancelScheduledValues(0);
               target.value = value as number;
-              for (const event of events) schedule(target, event);
+              for (const schedule of scheduled) schedule();
             } else {
               owner[key] = value;
             }
@@ -231,11 +251,20 @@ export const makeToneRuntime = (
         }),
       );
 
-    const applyParams = (node: ToneNode, blockId: string) =>
+    // A block's params in the order its template lists them, so that a param
+    // that reshapes the node, like oscillator type, comes before the params
+    // that only exist on the new shape, like pulse width.
+    const blockParams = (group: ParamGroup): Param[] => [
+      ...Object.values(group.paramIds ?? {}).flatMap((paramId) => {
+        const param = getState().params[paramId];
+        return param === undefined ? [] : [param];
+      }),
+      ...Object.values(group.groups ?? {}).flatMap(blockParams),
+    ];
+
+    const applyParams = (node: ToneNode, block: LeafRack) =>
       Effect.forEach(
-        Object.values(getState().params).filter(
-          (param) => param.belongToBlockId === blockId,
-        ),
+        blockParams(block.paramIds),
         (param) => applyParam(node, param),
         { discard: true },
       );
@@ -248,7 +277,7 @@ export const makeToneRuntime = (
           .code()
           .pipe(Effect.provideService(Tone, tone));
         // A node that cannot take its params is not kept half set up.
-        yield* applyParams(node, block.id).pipe(
+        yield* applyParams(node, block).pipe(
           Effect.tapError(() => Effect.sync(() => release(node))),
         );
         return node;
@@ -263,7 +292,7 @@ export const makeToneRuntime = (
 
         if (block.type === "leaf") {
           const exit = yield* Effect.exit(buildLeaf(block));
-          yield* setBlock({
+          yield* putBlock(blockId, {
             kind: "leaf",
             blockId,
             parentId: block.parentId,
@@ -272,7 +301,11 @@ export const makeToneRuntime = (
           return;
         }
 
-        yield* setBlock({ kind: "tree", blockId, parentId: block.parentId });
+        yield* putBlock(blockId, {
+          kind: "tree",
+          blockId,
+          parentId: block.parentId,
+        });
         for (const childId of block.children) yield* renderBlock(childId);
         for (const patchId of block.patches)
           yield* renderPatch(patchId, blockId);
@@ -295,7 +328,7 @@ export const makeToneRuntime = (
           release(block.exit.value);
         }
 
-        yield* forgetBlock(blockId);
+        yield* putBlock(blockId, undefined);
       });
 
     // --- Patches ----------------------------------------------------------
@@ -320,10 +353,7 @@ export const makeToneRuntime = (
         const from = yield* patchEnd(fromBlockId);
         const to = yield* patchEnd(toBlockId);
         yield* Effect.try({
-          try: () => {
-            if (to === tone.getDestination()) from.toDestination();
-            else from.connect(to);
-          },
+          try: () => from.connect(to),
           catch: (cause) =>
             new PatchError({ message: `Could not connect: ${String(cause)}` }),
         });
@@ -334,13 +364,17 @@ export const makeToneRuntime = (
     const renderPatch = (patchId: string, treeId: string) =>
       Effect.gen(function* () {
         const exit = yield* Effect.exit(connect(patchId));
-        yield* setPatch({ patchId, treeId, exit });
+        yield* putPatch(patchId, { patchId, treeId, exit });
         return exit;
       });
 
+    const nodeOrNothing = (blockId: string) =>
+      leafNode(blockId).pipe(Effect.orElseSucceed(() => undefined));
+
     const removePatch = (patchId: string) =>
       Effect.gen(function* () {
-        const patch = (yield* Ref.get(ref)).patches.get(patchId);
+        const rendered = yield* Ref.get(ref);
+        const patch = rendered.patches.get(patchId);
         if (patch === undefined) return;
 
         if (Exit.isSuccess(patch.exit)) {
@@ -349,11 +383,23 @@ export const makeToneRuntime = (
           yield* Effect.gen(function* () {
             const from = yield* leafNode(fromBlockId);
             const to = yield* leafNode(toBlockId);
+            // Web Audio keeps one connection per pair of nodes, however many
+            // patches made it. Two patches can join the same nodes, e.g. a
+            // synth into two Destination blocks, which share Tone's output.
+            for (const other of rendered.patches.values()) {
+              if (other.patchId === patchId || !Exit.isSuccess(other.exit)) {
+                continue;
+              }
+              const ends = other.exit.value;
+              const otherFrom = yield* nodeOrNothing(ends.fromBlockId);
+              const otherTo = yield* nodeOrNothing(ends.toBlockId);
+              if (otherFrom === from && otherTo === to) return;
+            }
             yield* Effect.try(() => from.disconnect(to));
           }).pipe(Effect.ignore);
         }
 
-        yield* forgetPatch(patchId);
+        yield* putPatch(patchId, undefined);
       });
 
     // --- Commands ---------------------------------------------------------
@@ -410,7 +456,19 @@ export const makeToneRuntime = (
             return yield* new LeafError({ message: `No param ${paramId}` });
           }
           const node = yield* leafNode(param.belongToBlockId);
-          yield* applyParam(node, param);
+          const block = getState().blocks[param.belongToBlockId];
+          const target = yield* locate(node, param).pipe(
+            Effect.map(({ owner, key }) => owner[key]),
+            Effect.orElseSucceed(() => undefined),
+          );
+          // An audio param changes only itself. Setting a plain property, like
+          // oscillator type, can rebuild part of the node and reset the params
+          // under it, so the whole block is applied again.
+          if (isAudioParam(target) || block?.type !== "leaf") {
+            yield* applyParam(node, param);
+          } else {
+            yield* applyParams(node, block);
+          }
         }),
 
       runLeafMethod: (methodId, args) =>

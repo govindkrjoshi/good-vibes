@@ -444,6 +444,35 @@ test("refuses automation a param does not offer", () => {
   ).toBeUndefined();
 });
 
+test("takes automation times in the shapes Tone reads", () => {
+  const volume = addSynth().param("volume");
+  const at = (time: string, rampTime?: string) =>
+    state().addAutomation(volume, {
+      method: "rampTo",
+      value: -6,
+      time,
+      ...(rampTime === undefined ? {} : { rampTime }),
+    });
+
+  for (const time of [
+    "0",
+    "1.5",
+    ".5",
+    "+1",
+    "4n",
+    "4n.",
+    "8t",
+    "1m",
+    "1:2:0",
+  ]) {
+    expect(at(time), time).toBeDefined();
+  }
+  for (const time of ["", "soon", "-1", "now", "4x", "1:"]) {
+    expect(at(time), time).toBeUndefined();
+  }
+  expect(at("0", "later")).toBeUndefined();
+});
+
 test("queues a method call with the arguments given", () => {
   const synth = addSynth();
   const methodId = synth.method("triggerAttackRelease");

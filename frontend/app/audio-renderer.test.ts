@@ -119,16 +119,16 @@ test("a leaf whose code fails is stored as failed and the rest still render", as
 
 test("a patch into the Destination sends the source to the speakers", async () => {
   const { synth, destination, patch } = buildSampleRack();
-  const toDestination = vi.spyOn(
-    ToneJs.ToneAudioNode.prototype,
-    "toDestination",
-  );
+  const connect = vi.spyOn(ToneJs.ToneAudioNode.prototype, "connect");
   const runtime = await makeRuntime();
 
   await Effect.runPromise(runtime.render);
 
-  expect(toDestination).toHaveBeenCalledTimes(1);
-  expect(toDestination.mock.contexts[0]).toBe(await nodeOf(runtime, synth));
+  const node = await nodeOf(runtime, synth);
+  const fromSynth = connect.mock.calls.filter(
+    (_, call) => connect.mock.contexts[call] === node,
+  );
+  expect(fromSynth).toEqual([[ToneJs.getDestination()]]);
   expect((await rendered(runtime)).patches.get(patch)?.exit).toEqual(
     Exit.succeed({ fromBlockId: synth, toBlockId: destination }),
   );
@@ -193,6 +193,66 @@ test("updateParam replaces scheduled automation and keeps the value", async () =
   expect(node.volume.getValueAtTime(2)).toBeCloseTo(-12);
 });
 
+test("automation times count from when the param is applied", async () => {
+  const { synth } = buildSampleRack();
+  const volume = param(synth, "volume");
+  store().setParamValue(volume, -12);
+  defined(
+    store().addAutomation(volume, {
+      method: "setValueAtTime",
+      value: -20,
+      time: "+1",
+    }),
+    "automation",
+  );
+  // The offline clock stands still at 0, so pretend the context has run for
+  // a while, as it has by the time anyone presses Run.
+  vi.spyOn(ToneJs.Param.prototype, "now").mockReturnValue(5);
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  const node = await nodeOf(runtime, synth);
+  expect(node.volume.getValueAtTime(5.5)).toBeCloseTo(-12);
+  expect(node.volume.getValueAtTime(6.5)).toBeCloseTo(-20);
+});
+
+test("updateParam on a bad automation time leaves the param as it was", async () => {
+  const { synth } = buildSampleRack();
+  const volume = param(synth, "volume");
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const node = await nodeOf(runtime, synth);
+  // The store turns bad times away, so put one in behind its back.
+  useRackStore.setState({
+    values: { ...store().values, [volume]: -30 },
+    automations: {
+      [volume]: [
+        { id: "bad", method: "setValueAtTime", value: -20, time: "soon" },
+      ],
+    },
+  });
+
+  const exit = await Effect.runPromiseExit(runtime.updateParam(volume));
+
+  expect(Exit.isFailure(exit)).toBe(true);
+  expect(node.volume.value).toBeCloseTo(0);
+});
+
+test("changing oscillator type applies the params of the new oscillator", async () => {
+  const { synth } = buildSampleRack();
+  store().setParamValue(param(synth, "oscillator.width"), 0.7);
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+
+  store().setParamValue(param(synth, "oscillator.type"), "pulse");
+  await Effect.runPromise(runtime.updateParam(param(synth, "oscillator.type")));
+
+  const node = await nodeOf(runtime, synth);
+  expect(node.oscillator.type).toBe("pulse");
+  expect(node.oscillator.width?.value).toBeCloseTo(0.7);
+});
+
 test("deleteBlock disconnects and disposes the node", async () => {
   const { synth } = buildSampleRack();
   const runtime = await makeRuntime();
@@ -218,6 +278,26 @@ test("deletePatch disconnects the source from the target", async () => {
 
   expect(disconnect).toHaveBeenCalledWith(ToneJs.getDestination());
   expect((await rendered(runtime)).patches.has(patch)).toBe(false);
+});
+
+test("deletePatch keeps a connection another patch still uses", async () => {
+  const { synth, destination, patch } = buildSampleRack();
+  // A second Destination block is the same Tone output as the first.
+  const second = defined(
+    store().addCatalogueBlock("output", "Destination"),
+    "second Destination",
+  );
+  defined(store().connectJacks(`${synth}:out`, `${second}:in`), "second patch");
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  expect(await nodeOf(runtime, second)).toBe(
+    await nodeOf(runtime, destination),
+  );
+  const disconnect = vi.spyOn(await nodeOf(runtime, synth), "disconnect");
+
+  await Effect.runPromise(runtime.deletePatch(patch));
+
+  expect(disconnect).not.toHaveBeenCalled();
 });
 
 test("runLeafMethod calls the Tone method with the args in order", async () => {
