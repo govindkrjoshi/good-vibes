@@ -1,12 +1,16 @@
 import { Context, Data, Effect, Exit, Ref } from "effect";
 import type * as ToneJs from "tone";
 import type { RackState } from "./stores/rack";
-import type {
-  AutomationEvent,
-  LeafRack,
-  Param,
-  ParamGroup,
-  ParamValue,
+import {
+  noteArg,
+  timeArg,
+  type AutomationEvent,
+  type LeafRack,
+  type Method,
+  type Param,
+  type ParamGroup,
+  type ParamValue,
+  type RackEvent,
 } from "./types/rack";
 
 type ToneNode = ToneJs.ToneAudioNode;
@@ -58,9 +62,28 @@ export type RenderedPatch = {
   readonly exit: Exit.Exit<Connection, PatchError>;
 };
 
+// What Sequence, ToneEvent, Pattern and Part have in common, so one map can
+// hold any of them.
+export type ToneScheduled = {
+  start(time?: ToneJs.Unit.Time): unknown;
+  stop(time?: ToneJs.Unit.Time): unknown;
+  dispose(): unknown;
+  probability: number;
+  humanize: boolean | ToneJs.Unit.Time;
+  playbackRate: number;
+  mute: boolean;
+};
+
+export type RenderedEvent = {
+  readonly eventId: string;
+  readonly blockId: string;
+  readonly exit: Exit.Exit<ToneScheduled, LeafError>;
+};
+
 export type RenderedRackState = {
   readonly blocks: ReadonlyMap<string, RenderedBlock>;
   readonly patches: ReadonlyMap<string, RenderedPatch>;
+  readonly events: ReadonlyMap<string, RenderedEvent>;
 };
 
 export type ToneRuntime = {
@@ -77,9 +100,21 @@ export type ToneRuntime = {
     methodId: string,
     args: Readonly<Record<string, ParamValue>>,
   ) => Effect.Effect<void, LeafError>;
+  // Builds an event again from the store, after it is added or changed.
+  readonly updateEvent: (eventId: string) => Effect.Effect<void, LeafError>;
+  // Hands a playing sequence its new steps without rebuilding it.
+  readonly updateEventLive: (eventId: string) => Effect.Effect<void, LeafError>;
+  readonly deleteEvent: (eventId: string) => Effect.Effect<void>;
+  readonly updateTransport: Effect.Effect<void>;
+  // Stops every event and rewinds the transport to the start.
+  readonly stop: Effect.Effect<void>;
 };
 
-const empty: RenderedRackState = { blocks: new Map(), patches: new Map() };
+const empty: RenderedRackState = {
+  blocks: new Map(),
+  patches: new Map(),
+  events: new Map(),
+};
 
 // For a store with no audio attached, such as in tests of the store itself.
 export const noopRuntime: ToneRuntime = {
@@ -91,6 +126,11 @@ export const noopRuntime: ToneRuntime = {
   deletePatch: () => Effect.void,
   updateParam: () => Effect.void,
   runLeafMethod: () => Effect.void,
+  updateEvent: () => Effect.void,
+  updateEventLive: () => Effect.void,
+  deleteEvent: () => Effect.void,
+  updateTransport: Effect.void,
+  stop: Effect.void,
 };
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
@@ -128,6 +168,12 @@ export const makeToneRuntime = (
       Ref.update(ref, (state) => ({
         ...state,
         patches: withEntry(state.patches, patchId, patch),
+      }));
+
+    const putEvent = (eventId: string, event: RenderedEvent | undefined) =>
+      Ref.update(ref, (state) => ({
+        ...state,
+        events: withEntry(state.events, eventId, event),
       }));
 
     // The node a rendered leaf built, or the error it failed with.
@@ -309,6 +355,7 @@ export const makeToneRuntime = (
             parentId: block.parentId,
             exit,
           });
+          for (const eventId of block.eventIds) yield* renderEvent(eventId);
           return;
         }
 
@@ -335,8 +382,11 @@ export const makeToneRuntime = (
           for (const child of rendered.blocks.values()) {
             if (child.parentId === blockId) yield* removeBlock(child.blockId);
           }
-        } else if (Exit.isSuccess(block.exit)) {
-          release(block.exit.value);
+        } else {
+          for (const event of rendered.events.values()) {
+            if (event.blockId === blockId) yield* removeEvent(event.eventId);
+          }
+          if (Exit.isSuccess(block.exit)) release(block.exit.value);
         }
 
         yield* putBlock(blockId, undefined);
@@ -413,19 +463,199 @@ export const makeToneRuntime = (
         yield* putPatch(patchId, undefined);
       });
 
+    // --- Methods ----------------------------------------------------------
+
+    // Calls a method on a node. `time`, when given, goes in the method's time
+    // arg, as when a scheduled event fires.
+    const invoke = (
+      node: ToneNode,
+      method: Method,
+      args: Readonly<Record<string, ParamValue>>,
+      time?: number,
+    ) =>
+      Effect.gen(function* () {
+        const call = (node as unknown as Record<string, unknown>)[
+          method.method
+        ];
+        if (typeof call !== "function") {
+          return yield* new LeafError({
+            message: `Node has no method ${method.method}`,
+          });
+        }
+
+        const at = time === undefined ? undefined : timeArg(method);
+        const given = at === undefined ? args : { ...args, [at.name]: time };
+        // Arguments go in the order the method declares them; one left
+        // out falls back to its default, or to Tone's own.
+        const values = method.args.map(
+          (arg) => given[arg.name] ?? arg.defaultValue,
+        );
+        yield* Effect.try({
+          try: () => call.apply(node, values),
+          catch: (cause) =>
+            new LeafError({
+              message: `${method.name} failed: ${String(cause)}`,
+            }),
+        });
+      });
+
+    // --- Events -----------------------------------------------------------
+
+    // Tone's event classes all fire `(time, value)` and share the ToneEvent
+    // knobs, so only their construction differs.
+    const buildEvent = (event: RackEvent) =>
+      Effect.gen(function* () {
+        const node = yield* leafNode(event.belongToBlockId);
+        const method = getState().methods[event.methodId];
+        if (method === undefined) {
+          return yield* new LeafError({
+            message: `No method ${event.methodId}`,
+          });
+        }
+        const note = noteArg(method);
+
+        // A throw here would surface inside Tone's clock, out of reach, so a
+        // rest is skipped before the call and a failed call is only logged.
+        // A ToneEvent with no value fires with null, which is not a rest: a
+        // loop calls with its fixed args.
+        const callback = (time: number, value?: string | number | null) => {
+          if (value === null && event.kind !== "event") return;
+          const args =
+            note === undefined || value === undefined || value === null
+              ? event.args
+              : { ...event.args, [note.name]: value };
+          Effect.runSync(
+            invoke(node, method, args, time).pipe(
+              Effect.tapError((error) =>
+                Effect.sync(() => console.warn(error)),
+              ),
+              Effect.ignore,
+            ),
+          );
+        };
+
+        return yield* Effect.try({
+          try: (): ToneScheduled => {
+            const scheduled = construct(event, callback);
+            if (event.probability !== undefined) {
+              scheduled.probability = event.probability;
+            }
+            if (event.humanize !== undefined)
+              scheduled.humanize = event.humanize;
+            if (event.playbackRate !== undefined) {
+              scheduled.playbackRate = event.playbackRate;
+            }
+            scheduled.mute = event.mute;
+            // A ToneEvent starts where it says; the rest start with the
+            // transport and loop or play from there.
+            scheduled.start(event.kind === "event" ? event.start : 0);
+            return scheduled;
+          },
+          catch: (cause) =>
+            new LeafError({
+              message: `Could not schedule ${method.name}: ${String(cause)}`,
+            }),
+        });
+      });
+
+    const construct = (
+      event: RackEvent,
+      callback: (time: number, value?: string | number | null) => void,
+    ): ToneScheduled => {
+      switch (event.kind) {
+        case "sequence":
+          return new tone.Sequence(
+            callback,
+            [...event.steps],
+            event.subdivision,
+          );
+        case "event": {
+          const scheduled = new tone.ToneEvent(callback, event.value);
+          scheduled.loop = event.loop;
+          if (event.loopEnd !== undefined) scheduled.loopEnd = event.loopEnd;
+          return scheduled;
+        }
+        case "pattern":
+          return new tone.Pattern({
+            callback,
+            values: [...event.values],
+            pattern: event.pattern,
+            interval: event.interval,
+          });
+        case "part": {
+          const scheduled = new tone.Part(
+            callback,
+            event.steps.map((step) => [step.time, step.value]),
+          );
+          if (event.loopEnd !== undefined) {
+            scheduled.loop = true;
+            scheduled.loopEnd = event.loopEnd;
+          }
+          return scheduled;
+        }
+      }
+    };
+
+    const renderEvent = (eventId: string) =>
+      Effect.gen(function* () {
+        const event = getState().events[eventId];
+        if (event === undefined) {
+          return Exit.fail(new LeafError({ message: `No event ${eventId}` }));
+        }
+        const exit = yield* Effect.exit(buildEvent(event));
+        yield* putEvent(eventId, {
+          eventId,
+          blockId: event.belongToBlockId,
+          exit,
+        });
+        return exit;
+      });
+
+    const disposeEvent = (event: RenderedEvent) => {
+      if (!Exit.isSuccess(event.exit)) return;
+      event.exit.value.stop();
+      event.exit.value.dispose();
+    };
+
+    const removeEvent = (eventId: string) =>
+      Effect.gen(function* () {
+        const event = (yield* Ref.get(ref)).events.get(eventId);
+        if (event === undefined) return;
+        disposeEvent(event);
+        yield* putEvent(eventId, undefined);
+      });
+
     // --- Commands ---------------------------------------------------------
+
+    const transport = tone.getTransport();
+
+    const updateEvent = (eventId: string) =>
+      Effect.gen(function* () {
+        yield* removeEvent(eventId);
+        const exit = yield* renderEvent(eventId);
+        yield* exit;
+      });
 
     return {
       rendered: Ref.get(ref),
 
       render: Effect.gen(function* () {
-        for (const block of (yield* Ref.get(ref)).blocks.values()) {
+        const old = yield* Ref.get(ref);
+        for (const event of old.events.values()) disposeEvent(event);
+        for (const block of old.blocks.values()) {
           if (block.kind === "leaf" && Exit.isSuccess(block.exit)) {
             release(block.exit.value);
           }
         }
         yield* Ref.set(ref, empty);
+        // Paused rather than stopped, so a re-run carries on from where the
+        // playhead is instead of going back to the start.
+        transport.pause();
+        transport.cancel(0);
+        transport.bpm.value = getState().transport.bpm;
+        transport.loop = false;
         yield* renderBlock(getState().rootId);
+        transport.start();
       }),
 
       addBlock: (blockId) =>
@@ -490,27 +720,48 @@ export const makeToneRuntime = (
           }
 
           const node = yield* leafNode(method.belongToBlockId);
-          const call = (node as unknown as Record<string, unknown>)[
-            method.method
-          ];
-          if (typeof call !== "function") {
-            return yield* new LeafError({
-              message: `Node has no method ${method.method}`,
-            });
-          }
-
-          // Arguments go in the order the method declares them; one left
-          // out falls back to its default, or to Tone's own.
-          const values = method.args.map(
-            (arg) => args[arg.name] ?? arg.defaultValue,
-          );
-          yield* Effect.try({
-            try: () => call.apply(node, values),
-            catch: (cause) =>
-              new LeafError({
-                message: `${method.name} failed: ${String(cause)}`,
-              }),
-          });
+          yield* invoke(node, method, args);
         }),
+
+      updateEvent,
+
+      updateEventLive: (eventId) =>
+        Effect.gen(function* () {
+          const event = getState().events[eventId];
+          const rendered = (yield* Ref.get(ref)).events.get(eventId);
+          if (
+            event?.kind !== "sequence" ||
+            rendered === undefined ||
+            !Exit.isSuccess(rendered.exit) ||
+            !(rendered.exit.value instanceof tone.Sequence)
+          ) {
+            return yield* updateEvent(eventId);
+          }
+          // Tone reschedules a sequence when its events are assigned.
+          rendered.exit.value.events = [...event.steps];
+        }),
+
+      deleteEvent: removeEvent,
+
+      updateTransport: Effect.sync(() => {
+        transport.bpm.value = getState().transport.bpm;
+      }),
+
+      stop: Effect.gen(function* () {
+        const rendered = yield* Ref.get(ref);
+        for (const event of rendered.events.values()) {
+          yield* removeEvent(event.eventId);
+        }
+        transport.stop();
+        transport.cancel(0);
+        // An attack with no release yet, or whose release Stop just cancelled,
+        // would sustain for good, so every instrument is told to let go.
+        for (const block of rendered.blocks.values()) {
+          if (block.kind !== "leaf" || !Exit.isSuccess(block.exit)) continue;
+          const node = block.exit.value as unknown as Record<string, unknown>;
+          const release = node["releaseAll"] ?? node["triggerRelease"];
+          if (typeof release === "function") release.call(node);
+        }
+      }),
     };
   });

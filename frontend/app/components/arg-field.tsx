@@ -1,18 +1,7 @@
-import { useState, type FormEvent } from "react";
-import { Play } from "lucide-react";
-import { Button } from "./ui/button";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "./ui/field";
+import { Field, FieldDescription, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverHeader,
-  PopoverTitle,
-  PopoverTrigger,
-} from "./ui/popover";
 import { Switch } from "./ui/switch";
 import type { Method, MethodArg, ParamValue } from "../types/rack";
-import { useRackStore } from "../stores/rack";
 
 const placeholders: Record<MethodArg["kind"], string> = {
   note: "C4",
@@ -27,7 +16,7 @@ const hints: Partial<Record<MethodArg["kind"], string>> = {
   time: "Seconds, or a musical length like 4n or 1m.",
 };
 
-const initialArgs = (method: Method): Record<string, ParamValue> =>
+export const initialArgs = (method: Method): Record<string, ParamValue> =>
   Object.fromEntries(
     method.args.map((arg) => [
       arg.name,
@@ -35,70 +24,18 @@ const initialArgs = (method: Method): Record<string, ParamValue> =>
     ]),
   );
 
-export function MethodTrigger({ method }: { readonly method: Method }) {
-  const callMethod = useRackStore((state) => state.callMethod);
-  const [open, setOpen] = useState(false);
-  const [args, setArgs] = useState(() => initialArgs(method));
-
-  const missing = method.args.some(
-    (arg) => arg.optional !== true && args[arg.name] === "",
-  );
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const called = callMethod(method.id, toArgs(method, args));
-    if (called !== undefined) setOpen(false);
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
-        data-testid="method-trigger"
-        render={<Button variant="outline" size="sm" className="text-xs" />}
-      >
-        <Play data-icon="inline-start" />
-        {method.name}
-      </PopoverTrigger>
-      <PopoverContent side="right" align="start" className="w-64">
-        <PopoverHeader>
-          <PopoverTitle>{method.name}</PopoverTitle>
-        </PopoverHeader>
-        <form onSubmit={submit} className="flex flex-col gap-3">
-          {method.args.length === 0 ? null : (
-            <FieldGroup className="gap-3">
-              {method.args.map((arg) => (
-                <ArgField
-                  key={arg.name}
-                  id={`${method.id}:${arg.name}`}
-                  arg={arg}
-                  value={args[arg.name] ?? ""}
-                  onChange={(value) =>
-                    setArgs((held) => ({ ...held, [arg.name]: value }))
-                  }
-                />
-              ))}
-            </FieldGroup>
-          )}
-          <Button type="submit" size="sm" disabled={missing}>
-            <Play data-icon="inline-start" />
-            {method.name}
-          </Button>
-        </form>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function ArgField({
+export function ArgField({
   id,
   arg,
   value,
   onChange,
+  suffix,
 }: {
   readonly id: string;
   readonly arg: MethodArg;
   readonly value: ParamValue;
   readonly onChange: (value: ParamValue) => void;
+  readonly suffix?: string;
 }) {
   const label = arg.name.charAt(0).toUpperCase() + arg.name.slice(1);
 
@@ -127,6 +64,9 @@ function ArgField({
         {arg.optional === true ? (
           <span className="font-normal text-muted-foreground">optional</span>
         ) : null}
+        {suffix === undefined ? null : (
+          <span className="font-normal text-muted-foreground">{suffix}</span>
+        )}
       </FieldLabel>
       <Input
         id={id}
@@ -147,7 +87,7 @@ function ArgField({
 // The form holds every field as typed text; number arguments are read as
 // numbers on the way out, and one that does not parse is left out so the
 // method uses its own default.
-const toArgs = (
+export const toArgs = (
   method: Method,
   args: Record<string, ParamValue>,
 ): Record<string, ParamValue> =>

@@ -61,12 +61,8 @@ test("adds AMSynth as a panel of its params and actions", async ({ page }) => {
     );
   }
 
-  await expect(panel.getByTestId("method-trigger")).toHaveText([
-    "Trigger Attack",
-    "Trigger Release",
-    "Trigger Attack Release",
-    "Set Note",
-  ]);
+  await expect(panel.getByRole("button", { name: "Add event" })).toBeVisible();
+  await expect(panel.getByTestId("event-row")).toHaveCount(1);
 });
 
 test("gives a bounded param a slider and an open-ended one a field only", async ({
@@ -246,39 +242,6 @@ test("offers only the automation a param allows", async ({ page }) => {
   await expect(editor.getByRole("group", { name: "Change type" })).toHaveText(
     "SetRampLinear",
   );
-});
-
-test("triggers a method with the arguments entered", async ({ page }) => {
-  const panel = await addSynth(page);
-
-  await panel.getByRole("button", { name: "Trigger Attack Release" }).click();
-  const form = page.getByRole("dialog", { name: "Trigger Attack Release" });
-  const send = form.getByRole("button", { name: "Trigger Attack Release" });
-
-  await expect(form.getByRole("textbox", { name: /^Velocity/ })).toHaveValue(
-    "1",
-  );
-  await expect(send).toBeDisabled();
-
-  await form.getByRole("textbox", { name: /^Note/ }).fill("C4");
-  await expect(send).toBeDisabled();
-  await form.getByRole("textbox", { name: /^Duration/ }).fill("8n");
-  await expect(send).toBeEnabled();
-
-  await send.click();
-  await expect(form).toBeHidden();
-});
-
-test("triggers a method whose arguments are all optional", async ({ page }) => {
-  const panel = await addSynth(page);
-
-  await panel.getByRole("button", { name: "Trigger Release" }).click();
-  const form = page.getByRole("dialog", { name: "Trigger Release" });
-  const send = form.getByRole("button", { name: "Trigger Release" });
-
-  await expect(send).toBeEnabled();
-  await send.click();
-  await expect(form).toBeHidden();
 });
 
 test("drags the panel by its header but not by its controls", async ({

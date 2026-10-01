@@ -16,9 +16,15 @@ import {
 } from "./ui/collapsible";
 import { Separator } from "./ui/separator";
 import { EnvelopeCurve } from "./envelope-curve";
-import { MethodTrigger } from "./method-trigger";
+import { EventEditor, EventRow } from "./event-editor";
 import { ParamControl } from "./param-control";
-import type { Jack, Method, Param, ParamGroup } from "../types/rack";
+import {
+  timeArg,
+  type Jack,
+  type Method,
+  type Param,
+  type ParamGroup,
+} from "../types/rack";
 import { useRackStore } from "../stores/rack";
 
 export type RackNodeData = {
@@ -45,6 +51,18 @@ export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
         (id) => state.methods[id] ?? [],
       ),
     ),
+  );
+  const events = useRackStore(
+    useShallow((state) =>
+      (state.blocks[data.blockId]?.eventIds ?? []).flatMap(
+        (id) => state.events[id] ?? [],
+      ),
+    ),
+  );
+
+  // Only a method with a time arg can be scheduled.
+  const schedulable = methods.filter(
+    (method: Method) => timeArg(method) !== undefined,
   );
 
   return (
@@ -78,14 +96,17 @@ export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
         {paramIds === undefined ? null : <ParamPanel group={paramIds} />}
       </CardContent>
 
-      {methods.length === 0 ? null : (
+      {schedulable.length === 0 ? null : (
         <CardFooter className="nodrag cursor-default flex-col items-stretch gap-2 border-t-0">
-          <h3 className="text-xs text-muted-foreground">Actions</h3>
-          <div className="flex flex-wrap gap-1.5">
-            {methods.map((method: Method) => (
-              <MethodTrigger key={method.id} method={method} />
-            ))}
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs text-muted-foreground">Events</h3>
+            <EventEditor methods={schedulable} />
           </div>
+          <ul className="flex flex-col gap-2">
+            {events.map((event) => (
+              <EventRow key={event.id} event={event} />
+            ))}
+          </ul>
         </CardFooter>
       )}
     </Card>

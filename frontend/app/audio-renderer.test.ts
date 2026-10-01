@@ -440,3 +440,219 @@ test("render recurses into a nested tree", async () => {
   expect(await nodeOf(runtime, synth)).toBeInstanceOf(ToneJs.AMSynth);
   expect((await rendered(runtime)).blocks.get(synth)?.parentId).toBe(group);
 });
+
+const knobs = { mute: false } as const;
+
+const addSequence = (synth: string) =>
+  defined(
+    store().addEvent(method(synth, "triggerAttackRelease"), {
+      kind: "sequence",
+      args: { duration: "8n" },
+      ...knobs,
+      probability: 0.75,
+      steps: ["C4", null, "G4"],
+      subdivision: "8n",
+    }),
+    "sequence",
+  );
+
+const scheduledOf = async <T>(runtime: ToneRuntime, eventId: string) => {
+  const event = (await rendered(runtime)).events.get(eventId);
+  if (event === undefined || !Exit.isSuccess(event.exit)) {
+    throw new Error(`${eventId} did not render`);
+  }
+  return event.exit.value as T;
+};
+
+test("a sequence renders as a started Tone.Sequence with its knobs", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = addSequence(synth);
+  // A sequence hands its start to an inner Part, so its own state never
+  // reads as started.
+  const start = vi.spyOn(ToneJs.Sequence.prototype, "start");
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  const sequence = await scheduledOf<ToneJs.Sequence>(runtime, eventId);
+  expect(sequence).toBeInstanceOf(ToneJs.Sequence);
+  expect(sequence.subdivision).toBeCloseTo(ToneJs.Time("8n").toSeconds());
+  expect(sequence.probability).toBe(0.75);
+  expect(start).toHaveBeenCalledWith(0);
+  expect(start.mock.contexts).toContain(sequence);
+});
+
+test("a sequence step calls the method with the step and time, skipping rests", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = addSequence(synth);
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const trigger = vi.spyOn(
+    await nodeOf(runtime, synth),
+    "triggerAttackRelease",
+  );
+  const sequence = await scheduledOf<ToneJs.Sequence>(runtime, eventId);
+
+  // The offline clock never moves, so fire the steps by hand.
+  sequence.callback(1.5, "C4");
+  sequence.callback(2, null);
+
+  expect(trigger).toHaveBeenCalledTimes(1);
+  expect(trigger).toHaveBeenCalledWith("C4", "8n", 1.5, 1);
+});
+
+test("updateEventLive hands a sequence its new steps without rebuilding it", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = addSequence(synth);
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const before = await scheduledOf<ToneJs.Sequence>(runtime, eventId);
+
+  store().setEventSteps(eventId, ["A3", "B3"]);
+  await Effect.runPromise(runtime.updateEventLive(eventId));
+
+  const after = await scheduledOf<ToneJs.Sequence>(runtime, eventId);
+  expect(after).toBe(before);
+  expect(after.events).toEqual(["A3", "B3"]);
+});
+
+test("a looping event renders as a started ToneEvent", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = defined(
+    store().addEvent(method(synth, "triggerAttackRelease"), {
+      kind: "event",
+      args: { note: "C2", duration: "16n" },
+      ...knobs,
+      start: "0",
+      loop: 4,
+      loopEnd: "4n",
+    }),
+    "event",
+  );
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  const event = await scheduledOf<ToneJs.ToneEvent>(runtime, eventId);
+  expect(event).toBeInstanceOf(ToneJs.ToneEvent);
+  expect(event.loop).toBe(4);
+  expect(event.loopEnd).toBeCloseTo(ToneJs.Time("4n").toSeconds());
+  expect(event.state).toBe("started");
+});
+
+test("a loop fires its method with its fixed args", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = defined(
+    store().addEvent(method(synth, "triggerAttackRelease"), {
+      kind: "event",
+      args: { note: "C2", duration: "16n" },
+      ...knobs,
+      start: "0",
+      loop: true,
+      loopEnd: "4n",
+    }),
+    "event",
+  );
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const trigger = vi.spyOn(
+    await nodeOf(runtime, synth),
+    "triggerAttackRelease",
+  );
+
+  // Tone fires a ToneEvent that was given no value with null.
+  const event = await scheduledOf<ToneJs.ToneEvent>(runtime, eventId);
+  event.callback(1.5, null);
+
+  expect(trigger).toHaveBeenCalledWith("C2", "16n", 1.5, 1);
+});
+
+test("stop releases a note still held by an instrument", async () => {
+  const { synth } = buildSampleRack();
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const node = await nodeOf(runtime, synth);
+  const release = vi.spyOn(node, "triggerRelease");
+  node.triggerAttack("C3");
+
+  await Effect.runPromise(runtime.stop);
+
+  expect(release).toHaveBeenCalled();
+});
+
+test("deleteEvent stops and disposes the Tone event", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = addSequence(synth);
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const dispose = vi.spyOn(
+    await scheduledOf<ToneJs.Sequence>(runtime, eventId),
+    "dispose",
+  );
+
+  await Effect.runPromise(runtime.deleteEvent(eventId));
+
+  expect(dispose).toHaveBeenCalledTimes(1);
+  expect((await rendered(runtime)).events.has(eventId)).toBe(false);
+});
+
+test("an event on a failed leaf is stored as failed and the rest still render", async () => {
+  const { synth } = buildSampleRack();
+  const working = addSequence(synth);
+  const broken = addSequence(synth);
+  const block = store().blocks[synth];
+  if (block?.type !== "leaf") throw new Error("expected a leaf");
+  // Move the second event onto a blank leaf, whose code fails.
+  const blank = defined(store().addBlock("leaf"), "blank leaf");
+  useRackStore.setState({
+    blocks: {
+      ...store().blocks,
+      [synth]: { ...block, eventIds: [working] },
+      [blank]: { ...store().blocks[blank], eventIds: [broken] },
+    },
+    events: {
+      ...store().events,
+      [broken]: { ...store().events[broken], belongToBlockId: blank },
+    },
+  });
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  const { events } = await rendered(runtime);
+  expect(Exit.isFailure(defined(events.get(broken), "broken").exit)).toBe(true);
+  expect(Exit.isSuccess(defined(events.get(working), "working").exit)).toBe(
+    true,
+  );
+});
+
+test("render sets the tempo and carries on from where the playhead is", async () => {
+  buildSampleRack();
+  store().setTransport({ bpm: 90 });
+  const runtime = await makeRuntime();
+  const transport = ToneJs.getTransport();
+  await Effect.runPromise(runtime.stop);
+  transport.ticks = 960;
+
+  await Effect.runPromise(runtime.render);
+
+  expect(transport.bpm.value).toBeCloseTo(90);
+  expect(transport.state).toBe("started");
+  expect(transport.ticks).toBe(960);
+});
+
+test("stop rewinds the transport to the start", async () => {
+  const { synth } = buildSampleRack();
+  addSequence(synth);
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+  const transport = ToneJs.getTransport();
+  transport.ticks = 960;
+
+  await Effect.runPromise(runtime.stop);
+
+  expect(transport.state).toBe("stopped");
+  expect(transport.ticks).toBe(0);
+  expect(transport.seconds).toBe(0);
+  expect((await rendered(runtime)).events.size).toBe(0);
+});

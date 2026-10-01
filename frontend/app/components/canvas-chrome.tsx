@@ -1,11 +1,14 @@
-import { Play } from "lucide-react";
+import { Play, Square } from "lucide-react";
 import { useEffect } from "react";
 import { useReactFlow, useStore } from "@xyflow/react";
 import { CanvasMenu } from "./canvas-menu";
 import { HelpButton } from "./help-button";
+import { NumberField } from "./param-control";
 import { RackToolbar } from "./rack-toolbar";
 import { ViewportControls } from "./viewport-controls";
 import { Button } from "./ui/button";
+import { Island } from "./ui/island";
+import { Label } from "./ui/label";
 import { useShortcuts } from "../hooks/useShortcuts";
 import { useCanvasStore } from "../stores/canvas";
 import { loadTone, useRackStore } from "../stores/rack";
@@ -18,6 +21,9 @@ export function CanvasChrome() {
   const removeBlocks = useRackStore((state) => state.removeBlocks);
   const removePatches = useRackStore((state) => state.removePatches);
   const run = useRackStore((state) => state.run);
+  const stop = useRackStore((state) => state.stop);
+  const bpm = useRackStore((state) => state.transport.bpm);
+  const setTransport = useRackStore((state) => state.setTransport);
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
     useReactFlow();
   const zoom = useStore((state) => state.transform[2]);
@@ -98,15 +104,40 @@ export function CanvasChrome() {
         onDelete={deleteSelection}
       />
 
-      <Button
-        size="lg"
-        data-testid="run-rack"
-        className="absolute top-4 right-4 z-10 h-11 rounded-xl px-4 shadow-md"
-        onClick={run}
-      >
-        <Play />
-        Run
-      </Button>
+      {/* Drops below the centred tool island wherever the two would overlap. */}
+      <div className="absolute top-20 right-4 z-10 flex items-center gap-2 min-[1080px]:top-4">
+        <Island className="flex h-11 items-center gap-2 pr-1 pl-3">
+          <Label htmlFor="transport-bpm">BPM</Label>
+          <div className="w-14">
+            <NumberField
+              id="transport-bpm"
+              value={bpm}
+              min={1}
+              step={1}
+              onCommit={(next) => setTransport({ bpm: next })}
+            />
+          </div>
+        </Island>
+        <Button
+          size="lg"
+          data-testid="run-rack"
+          className="h-11 rounded-xl px-4 shadow-md"
+          onClick={run}
+        >
+          <Play />
+          Run
+        </Button>
+        <Button
+          size="lg"
+          variant="outline"
+          data-testid="stop-rack"
+          className="h-11 rounded-xl px-4 shadow-md"
+          onClick={stop}
+        >
+          <Square />
+          Stop
+        </Button>
+      </div>
 
       <ViewportControls
         zoom={zoom}

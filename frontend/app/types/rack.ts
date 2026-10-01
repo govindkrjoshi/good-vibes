@@ -144,6 +144,7 @@ const BaseBlockFields = {
   jackIds: Schema.Array(Schema.String),
   paramIds: ParamGroupSchema,
   methodIds: Schema.Array(Schema.String),
+  eventIds: Schema.Array(Schema.String),
 };
 
 const LeafRack = Schema.Struct({
@@ -161,6 +162,84 @@ const TreeRack = Schema.Struct({
 
 const RackSchema = Schema.Union([LeafRack, TreeRack]);
 
+const StepValueSchema = Schema.Union([Schema.String, Schema.Number]);
+
+const PatternNameSchema = Schema.Literals([
+  "up",
+  "down",
+  "upDown",
+  "downUp",
+  "alternateUp",
+  "alternateDown",
+  "random",
+  "randomOnce",
+  "randomWalk",
+]);
+
+// What every Tone event class shares: the method it calls with its fixed
+// args, and the ToneEvent knobs.
+const BaseEventFields = {
+  id: Schema.String,
+  belongToBlockId: Schema.String,
+  methodId: Schema.String,
+  args: Schema.Record(Schema.String, ParamValueSchema),
+  mute: Schema.Boolean,
+  probability: Schema.optionalKey(Schema.Number),
+  humanize: Schema.optionalKey(Schema.Union([Schema.Boolean, Schema.String])),
+  playbackRate: Schema.optionalKey(Schema.Number),
+};
+
+// A null step is a rest.
+const SequenceEventSchema = Schema.Struct({
+  ...BaseEventFields,
+  kind: Schema.Literal("sequence"),
+  steps: Schema.Array(Schema.NullOr(StepValueSchema)),
+  subdivision: Schema.String,
+});
+
+// Tone's Loop is a ToneEvent with loop on and loopEnd as its interval, so a
+// loop is this kind with no value.
+const ToneEventSchema = Schema.Struct({
+  ...BaseEventFields,
+  kind: Schema.Literal("event"),
+  value: Schema.optionalKey(StepValueSchema),
+  start: Schema.String,
+  loop: Schema.Union([Schema.Boolean, Schema.Number]),
+  loopEnd: Schema.optionalKey(Schema.String),
+});
+
+const PatternEventSchema = Schema.Struct({
+  ...BaseEventFields,
+  kind: Schema.Literal("pattern"),
+  values: Schema.Array(StepValueSchema),
+  pattern: PatternNameSchema,
+  interval: Schema.String,
+});
+
+const EventStepSchema = Schema.Struct({
+  time: Schema.String,
+  value: Schema.NullOr(StepValueSchema),
+});
+
+// Plays once, or loops when it has a loopEnd.
+const PartEventSchema = Schema.Struct({
+  ...BaseEventFields,
+  kind: Schema.Literal("part"),
+  steps: Schema.Array(EventStepSchema),
+  loopEnd: Schema.optionalKey(Schema.String),
+});
+
+const RackEventSchema = Schema.Union([
+  SequenceEventSchema,
+  ToneEventSchema,
+  PatternEventSchema,
+  PartEventSchema,
+]);
+
+export const isRackEvent = Schema.is(RackEventSchema);
+
+const TransportSchema = Schema.Struct({ bpm: Schema.Number });
+
 export type Rack = Schema.Schema.Type<typeof RackSchema>;
 export type LeafRack = Schema.Schema.Type<typeof LeafRack>;
 export type TreeRack = Schema.Schema.Type<typeof TreeRack>;
@@ -173,6 +252,9 @@ export type MethodArg = Schema.Schema.Type<typeof MethodArgSchema>;
 export type Method = Schema.Schema.Type<typeof MethodSchema>;
 export type Patch = Schema.Schema.Type<typeof PatchSchema>;
 export type Code = Schema.Schema.Type<typeof CodeSchema>;
+export type RackEvent = Schema.Schema.Type<typeof RackEventSchema>;
+export type RackEventStep = Schema.Schema.Type<typeof EventStepSchema>;
+export type Transport = Schema.Schema.Type<typeof TransportSchema>;
 
 // One scheduled change to a number param, named after the Tone.js call that
 // will make it. `time` is when it lands (or, for the two ramp-to-value calls,
@@ -186,14 +268,6 @@ export type AutomationEvent = {
   readonly rampTime?: string;
 };
 
-// A method the user has asked a block to run, waiting for the interpreter to
-// pick it up.
-export type MethodCall = {
-  readonly id: string;
-  readonly methodId: string;
-  readonly args: Readonly<Record<string, ParamValue>>;
-};
-
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
@@ -204,11 +278,24 @@ export interface ParamTemplateGroup {
   readonly groups?: Readonly<Record<string, ParamTemplateGroup>>;
 }
 
+// The method is named separately when an event is added, and stays fixed.
+export type EventSettings = DistributiveOmit<
+  RackEvent,
+  "id" | "belongToBlockId" | "methodId"
+>;
+
 export type ParamTemplate = DistributiveOmit<Param, "id" | "belongToBlockId">;
 export type MethodTemplate = Omit<Method, "id" | "belongToBlockId">;
-export type RackTemplate = DistributiveOmit<Rack, "paramIds" | "methodIds"> & {
+// `method` is the key of the method in the same template's `methods`.
+export type EventTemplate = EventSettings & { readonly method: string };
+export type RackTemplate = DistributiveOmit<
+  Rack,
+  "paramIds" | "methodIds" | "eventIds"
+> & {
   readonly params: ParamTemplateGroup;
   readonly methods?: Readonly<Record<string, MethodTemplate>>;
+  // What the block plays as soon as it is added.
+  readonly events?: Readonly<Record<string, EventTemplate>>;
   // Which of the default jacks a block made from this template gets. Most get
   // both; a sink like the destination only takes input.
   readonly jacks?: readonly Jack["direction"][];
@@ -224,9 +311,19 @@ export const rootRack: TreeBlock = TreeRack.make({
   jackIds: [],
   paramIds: {},
   methodIds: [],
+  eventIds: [],
   children: [],
   patches: [],
 });
+
+// Where a scheduled event puts the time Tone fires it. A duration comes before
+// the time it starts at, as in triggerAttackRelease, so it is the last one.
+export const timeArg = (method: Method): MethodArg | undefined =>
+  [...method.args].reverse().find((arg) => arg.kind === "time");
+
+// Where a scheduled event puts its step value.
+export const noteArg = (method: Method): MethodArg | undefined =>
+  method.args.find((arg) => arg.kind === "note");
 
 export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
   {
@@ -268,6 +365,7 @@ export const makeBlock = (
     jackIds: makeDefaultJacks(id).map((jack) => jack.id),
     paramIds: {},
     methodIds: [],
+    eventIds: [],
   };
 
   return blockType === "tree"

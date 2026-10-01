@@ -291,6 +291,18 @@ const amSynthRack: RackTemplate = {
       ],
     },
   },
+  // A synth that is silent until scheduled is hard to tell from one that is
+  // broken, so it arrives playing a riff, with rests so the hits stand apart.
+  events: {
+    riff: {
+      method: "triggerAttackRelease",
+      kind: "sequence",
+      steps: ["C3", null, "E3", null, "G3", null, "C4", null],
+      subdivision: "8n",
+      args: { duration: "16n" },
+      mute: false,
+    },
+  },
   code: () =>
     Effect.gen(function* () {
       const tone = yield* Tone;

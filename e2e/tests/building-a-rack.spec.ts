@@ -14,7 +14,7 @@ test("renders each added block on the canvas", async ({ page }) => {
 
   await page.getByTestId("add-source").click();
   await expect(blocks(page)).toHaveCount(1);
-  await expect(blocks(page).first()).toHaveText("Node");
+  await expect(blocks(page).first()).toHaveText("Leaf");
 
   await page.getByTestId("add-group").click();
   await expect(blocks(page)).toHaveCount(2);

@@ -9,20 +9,25 @@ import {
 } from "../audio-renderer";
 import {
   canPatch,
+  isRackEvent,
   makeBlock,
   makeDefaultJacks,
+  noteArg,
   rootRack,
+  timeArg,
   type AutomationEvent,
+  type EventSettings,
   type Jack,
   type Method,
-  type MethodCall,
   type Param,
   type ParamGroup,
   type ParamTemplateGroup,
   type ParamValue,
   type Patch,
   type Rack,
+  type RackEvent,
   type RackTemplate,
+  type Transport,
   type TreeBlock,
 } from "../types/rack";
 import { CATALOGUE, type Catalogue, type CatalogueEntry } from "./catalogue";
@@ -34,8 +39,9 @@ export type RackState = {
   readonly methods: Record<string, Method>;
   readonly values: Record<string, ParamValue>;
   readonly automations: Record<string, readonly AutomationEvent[]>;
-  readonly calls: readonly MethodCall[];
   readonly patches: Record<string, Patch>;
+  readonly events: Record<string, RackEvent>;
+  readonly transport: Transport;
   readonly rootId: string;
   readonly catalogue: Catalogue;
 };
@@ -62,10 +68,22 @@ export type RackStore = RackState & {
     event: Omit<AutomationEvent, "id">,
   ) => string | undefined;
   readonly removeAutomation: (paramId: string, eventId: string) => void;
-  readonly callMethod: (
+  readonly playEvent: (eventId: string) => void;
+  readonly addEvent: (
     methodId: string,
-    args: Readonly<Record<string, ParamValue>>,
+    settings: EventSettings,
   ) => string | undefined;
+  readonly setEventSteps: (
+    eventId: string,
+    steps: readonly (string | number | null)[],
+  ) => void;
+  readonly updateEvent: (
+    eventId: string,
+    settings: Partial<EventSettings>,
+  ) => void;
+  readonly removeEvent: (eventId: string) => void;
+  readonly setTransport: (transport: Transport) => void;
+  readonly stop: () => void;
   readonly run: () => void;
   readonly categories: () => string[];
   readonly subCategories: (category: string) => CatalogueEntry[];
@@ -118,8 +136,10 @@ const normalizeTemplate = (
   readonly jacks: readonly Jack[];
   readonly paramIds: ParamGroup;
   readonly methodIds: readonly string[];
+  readonly eventIds: readonly string[];
   readonly params: Record<string, Param>;
   readonly methods: Record<string, Method>;
+  readonly events: Record<string, RackEvent>;
 } => {
   const directions = template.jacks ?? ["in", "out"];
   const jacks = makeDefaultJacks(blockId).filter((jack) =>
@@ -133,12 +153,25 @@ const normalizeTemplate = (
     }),
   );
 
+  const events = Object.fromEntries(
+    Object.entries(template.events ?? {}).map(([key, { method, ...event }]) => {
+      const id = `${blockId}:event:${key}`;
+      const methodId = `${blockId}:method:${method}`;
+      return [
+        id,
+        { ...event, id, methodId, belongToBlockId: blockId },
+      ] as const;
+    }),
+  );
+
   return {
     jacks,
     paramIds: normalizedParams.group,
     methodIds: Object.keys(methods),
+    eventIds: Object.keys(events),
     params: normalizedParams.params,
     methods,
+    events,
   };
 };
 
@@ -200,6 +233,67 @@ const TIME =
   /^\+?(?:(?:\d+\.?\d*|\.\d+)(?:n\.?|t|m|s|i|hz)?|\d+:\d+(?::\d+(?:\.\d+)?)?)$/;
 const isTime = (time: string) => TIME.test(time.trim());
 
+// An event is only kept when its method can take the time Tone fires it at,
+// and, for the kinds that step through values, a note to put each value in.
+// Every time is checked here because a bad one would only throw once Tone
+// fires it, inside a transport callback, where nothing can catch it.
+const acceptEvent = (
+  method: Method | undefined,
+  event: RackEvent,
+): RackEvent | undefined => {
+  if (
+    method === undefined ||
+    !isRackEvent(event) ||
+    timeArg(method) === undefined ||
+    (event.kind !== "event" && noteArg(method) === undefined)
+  ) {
+    return undefined;
+  }
+
+  // The time, and the note when the event has values, are filled in when it
+  // fires; every other required argument has to be fixed up front, as a
+  // method call would need it. A loop has no value, so its note is fixed.
+  const fixedNote = event.kind === "event" && event.value === undefined;
+  const missing = method.args.some(
+    (arg) =>
+      arg.optional !== true &&
+      arg !== timeArg(method) &&
+      (fixedNote || arg !== noteArg(method)) &&
+      event.args[arg.name] === undefined,
+  );
+  const knobsFit =
+    (event.probability === undefined ||
+      (event.probability >= 0 && event.probability <= 1)) &&
+    (typeof event.humanize !== "string" || isTime(event.humanize));
+  if (missing || !knobsFit) return undefined;
+
+  switch (event.kind) {
+    case "sequence":
+      return event.steps.length > 0 && isTime(event.subdivision)
+        ? event
+        : undefined;
+    case "event": {
+      const loopFits =
+        event.loop === false ||
+        (event.loopEnd !== undefined &&
+          isTime(event.loopEnd) &&
+          (event.loop === true ||
+            (Number.isInteger(event.loop) && event.loop > 0)));
+      return isTime(event.start) && loopFits ? event : undefined;
+    }
+    case "pattern":
+      return event.values.length > 0 && isTime(event.interval)
+        ? event
+        : undefined;
+    case "part":
+      return event.steps.length > 0 &&
+        event.steps.every((step) => isTime(step.time)) &&
+        (event.loopEnd === undefined || isTime(event.loopEnd))
+        ? event
+        : undefined;
+  }
+};
+
 // Tone, once it has loaded. See `run` for why it is kept.
 let toneModule: typeof ToneJs | undefined;
 // Loaded on demand rather than imported, so the server never imports Tone.
@@ -222,8 +316,9 @@ export const initialRackState: RackState = {
   methods: {},
   values: {},
   automations: {},
-  calls: [],
   patches: {},
+  events: {},
+  transport: { bpm: 120 },
   rootId: rootRack.id,
   catalogue: CATALOGUE,
 };
@@ -276,6 +371,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
       jackIds: normalized.jacks.map((jack) => jack.id),
       paramIds: normalized.paramIds,
       methodIds: normalized.methodIds,
+      eventIds: normalized.eventIds,
     };
     const block: Rack =
       template.type === "tree"
@@ -294,6 +390,7 @@ export const useRackStore = create<RackStore>()((set, get) => ({
       },
       params: { ...state.params, ...normalized.params },
       methods: { ...state.methods, ...normalized.methods },
+      events: { ...state.events, ...normalized.events },
       values: {
         ...state.values,
         ...Object.fromEntries(
@@ -406,17 +503,21 @@ export const useRackStore = create<RackStore>()((set, get) => ({
       ),
       values: without(state.values, (id) => doomedParam(id)),
       automations: without(state.automations, (id) => doomedParam(id)),
-      calls: state.calls.filter((call) => {
-        const owner = state.methods[call.methodId]?.belongToBlockId;
-        return owner === undefined || !doomed.has(owner);
-      }),
       patches: without(state.patches, (id) => cut.has(id)),
+      events: without(state.events, (_, event) =>
+        doomed.has(event.belongToBlockId),
+      ),
     });
-    // Patches first, while both of their ends are still in the graph.
+    // Patches and events first, while the nodes they use are still in the
+    // graph.
     const { runtime } = get();
+    const dropped = Object.values(state.events).filter((event) =>
+      doomed.has(event.belongToBlockId),
+    );
     perform(
       Effect.gen(function* () {
         for (const patchId of cut) yield* runtime.deletePatch(patchId);
+        for (const event of dropped) yield* runtime.deleteEvent(event.id);
         for (const blockId of doomed) yield* runtime.deleteBlock(blockId);
       }),
     );
@@ -491,25 +592,127 @@ export const useRackStore = create<RackStore>()((set, get) => ({
     perform(get().runtime.updateParam(paramId));
   },
 
-  callMethod: (methodId, args) => {
+  // Fires an event's method once, now: its fixed args, plus its first value
+  // as the note when it does not fix one. The time arg is left out.
+  playEvent: (eventId) => {
+    const { events, methods, runtime } = get();
+    const event = events[eventId];
+    const method = event === undefined ? undefined : methods[event.methodId];
+    if (event === undefined || method === undefined) return;
+
+    const note = noteArg(method);
+    const first =
+      event.kind === "sequence"
+        ? event.steps.find((step) => step !== null)
+        : event.kind === "pattern"
+          ? event.values[0]
+          : event.kind === "part"
+            ? event.steps.find((step) => step.value !== null)?.value
+            : event.value;
+    const args =
+      note === undefined ||
+      event.args[note.name] !== undefined ||
+      first === undefined ||
+      first === null
+        ? event.args
+        : { ...event.args, [note.name]: first };
+    const missing = method.args.some(
+      (arg) => arg.optional !== true && args[arg.name] === undefined,
+    );
+    if (missing) return;
+
+    perform(runtime.runLeafMethod(method.id, args));
+  },
+
+  addEvent: (methodId, settings) => {
     const method = get().methods[methodId];
     if (method === undefined) return undefined;
 
-    // An argument left blank is dropped rather than sent as an empty string,
-    // so the method falls back to its own default for it.
-    const given = Object.fromEntries(
-      Object.entries(args).filter(([, value]) => value !== ""),
-    );
-    const missing = method.args.some(
-      (arg) => arg.optional !== true && given[arg.name] === undefined,
-    );
-    if (missing) return undefined;
+    const id = crypto.randomUUID();
+    const event = acceptEvent(method, {
+      ...settings,
+      methodId,
+      id,
+      belongToBlockId: method.belongToBlockId,
+    });
+    const block = get().blocks[method.belongToBlockId];
+    if (event === undefined || block === undefined) return undefined;
 
-    const call: MethodCall = { id: crypto.randomUUID(), methodId, args: given };
-    set((state) => ({ calls: [...state.calls, call] }));
-    perform(get().runtime.runLeafMethod(methodId, given));
+    set((state) => ({
+      blocks: {
+        ...state.blocks,
+        [block.id]: { ...block, eventIds: [...block.eventIds, id] },
+      },
+      events: { ...state.events, [id]: event },
+    }));
+    perform(get().runtime.updateEvent(id));
 
-    return call.id;
+    return id;
+  },
+
+  // Changes a sequence's steps while it plays, without rebuilding it.
+  setEventSteps: (eventId, steps) => {
+    const event = get().events[eventId];
+    if (event?.kind !== "sequence" || steps.length === 0) return;
+
+    set((state) => ({
+      events: { ...state.events, [eventId]: { ...event, steps } },
+    }));
+    perform(get().runtime.updateEventLive(eventId));
+  },
+
+  updateEvent: (eventId, settings) => {
+    const { events, methods } = get();
+    const held = events[eventId];
+    if (held === undefined) return;
+
+    const event = acceptEvent(methods[held.methodId], {
+      ...held,
+      ...settings,
+    } as RackEvent);
+    if (event === undefined) return;
+
+    set((state) => ({ events: { ...state.events, [eventId]: event } }));
+    perform(get().runtime.updateEvent(eventId));
+  },
+
+  removeEvent: (eventId) => {
+    const { blocks, events } = get();
+    const event = events[eventId];
+    if (event === undefined) return;
+    const block = blocks[event.belongToBlockId];
+
+    set((state) => ({
+      blocks:
+        block === undefined
+          ? state.blocks
+          : {
+              ...state.blocks,
+              [block.id]: {
+                ...block,
+                eventIds: block.eventIds.filter((id) => id !== eventId),
+              },
+            },
+      events: Object.fromEntries(
+        Object.entries(state.events).filter(([id]) => id !== eventId),
+      ),
+    }));
+    perform(get().runtime.deleteEvent(eventId));
+  },
+
+  setTransport: ({ bpm }) => {
+    if (!Number.isFinite(bpm) || bpm <= 0) return;
+
+    set({ transport: { bpm } });
+    perform(get().runtime.updateTransport);
+  },
+
+  // Queued behind any Run still loading Tone or building the runtime, so a
+  // Stop clicked straight after Run cannot be overtaken by it.
+  stop: () => {
+    running = running
+      .then(() => Effect.runPromise(get().runtime.stop))
+      .catch((error) => console.warn(error));
   },
 
   // Starts audio and builds the rack's Tone.js graph, rebuilding it from

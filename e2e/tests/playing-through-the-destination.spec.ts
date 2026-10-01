@@ -2,17 +2,29 @@ import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
 import { blocks, connect } from "./helpers";
 
-// A test cannot listen, so it counts what making a sound takes instead: every
-// oscillator Tone starts goes through the browser's `start`.
+// A test cannot listen, so it counts what a note takes instead: every attack
+// and release moves an envelope with one of the browser's ramps. Building the
+// graph only sets values, so the count moves only while something plays.
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    const counted = window as unknown as { sourcesStarted: number };
-    counted.sourcesStarted = 0;
-    const start = AudioScheduledSourceNode.prototype.start;
-    AudioScheduledSourceNode.prototype.start = function (...args) {
-      counted.sourcesStarted += 1;
-      return start.apply(this, args);
-    };
+    const counted = window as unknown as { rampsScheduled: number };
+    counted.rampsScheduled = 0;
+    const ramps = AudioParam.prototype as unknown as Record<
+      string,
+      (this: AudioParam, ...args: unknown[]) => AudioParam
+    >;
+    for (const name of [
+      "setTargetAtTime",
+      "linearRampToValueAtTime",
+      "exponentialRampToValueAtTime",
+    ]) {
+      const ramp = ramps[name];
+      if (ramp === undefined) continue;
+      ramps[name] = function (...args) {
+        counted.rampsScheduled += 1;
+        return ramp.apply(this, args);
+      };
+    }
   });
   // The fixture already loaded the page, before the counter was in place.
   const hydrated = page.waitForEvent(
@@ -34,7 +46,7 @@ test("adds a destination that only takes input", async ({ page }) => {
   await expect(destination.locator("[data-handleid$=':out']")).toHaveCount(0);
 });
 
-test("plays a note from a synth patched into the destination", async ({
+test("plays its riff from a synth patched into the destination", async ({
   page,
 }) => {
   const warnings: string[] = [];
@@ -43,9 +55,9 @@ test("plays a note from a synth patched into the destination", async ({
       warnings.push(message.text());
     }
   });
-  const sourcesStarted = () =>
+  const rampsScheduled = () =>
     page.evaluate(
-      () => (window as unknown as { sourcesStarted: number }).sourcesStarted,
+      () => (window as unknown as { rampsScheduled: number }).rampsScheduled,
     );
 
   await page.keyboard.press("i");
@@ -60,21 +72,13 @@ test("plays a note from a synth patched into the destination", async ({
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
 
   await page.getByTestId("run-rack").click();
-  const beforeNote = await sourcesStarted();
 
-  // Run starts audio in the background, so a note triggered straight away can
-  // land before the graph is built; keep triggering until one is heard.
+  // Run starts audio in the background, so the riff takes a moment to begin;
+  // once it has, its envelopes keep moving for as long as the rack runs.
   await expect(async () => {
-    await synth(page)
-      .getByTestId("method-trigger")
-      .filter({ hasText: "Trigger Attack Release" })
-      .click();
-    const form = page.getByRole("dialog", { name: "Trigger Attack Release" });
-    await form.getByRole("textbox", { name: "Note" }).fill("C4");
-    await form.getByRole("textbox", { name: "Duration" }).fill("8n");
-    await form.getByRole("button", { name: "Trigger Attack Release" }).click();
-
-    expect(await sourcesStarted()).toBeGreaterThan(beforeNote);
+    const before = await rampsScheduled();
+    await page.waitForTimeout(400);
+    expect(await rampsScheduled()).toBeGreaterThan(before);
   }).toPass();
   expect(warnings).toEqual([]);
 });

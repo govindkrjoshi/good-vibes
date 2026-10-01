@@ -90,6 +90,21 @@ test("gives every non-root block an output jack to wire out of", () => {
   );
 });
 
+test("adds AMSynth with its default riff scheduled", () => {
+  const id = state().addCatalogueBlock("instruments", "AMSynth");
+  const block = state().blocks[id ?? ""];
+  const eventId = block?.eventIds[0];
+  if (eventId === undefined) throw new Error("expected a default event");
+
+  expect(block?.eventIds).toEqual([`${id}:event:riff`]);
+  expect(state().events[eventId]).toMatchObject({
+    kind: "sequence",
+    belongToBlockId: id,
+    methodId: `${id}:method:triggerAttackRelease`,
+    subdivision: "8n",
+  });
+});
+
 test("adds AMSynth from the instrument catalogue", () => {
   const id = state().addCatalogueBlock("instruments", "AMSynth");
   if (id === undefined) throw new Error("expected AMSynth to be added");
@@ -372,7 +387,9 @@ const addSynth = () => {
     if (methodId === undefined) throw new Error(`missing method ${name}`);
     return methodId;
   };
-  return { id, param, method };
+  // The riff the synth arrives playing.
+  const riff = `${id}:event:riff`;
+  return { id, param, method, riff };
 };
 
 test("starts every catalogue param at its default value", () => {
@@ -473,36 +490,7 @@ test("takes automation times in the shapes Tone reads", () => {
   expect(at("0", "later")).toBeUndefined();
 });
 
-test("queues a method call with the arguments given", () => {
-  const synth = addSynth();
-  const methodId = synth.method("triggerAttackRelease");
-
-  const callId = state().callMethod(methodId, {
-    note: "C4",
-    duration: "8n",
-    time: "",
-    velocity: 0.5,
-  });
-
-  expect(state().calls).toEqual([
-    {
-      id: callId,
-      methodId,
-      args: { note: "C4", duration: "8n", velocity: 0.5 },
-    },
-  ]);
-});
-
-test("refuses a method call missing a required argument", () => {
-  const synth = addSynth();
-
-  expect(
-    state().callMethod(synth.method("triggerAttack"), { note: "" }),
-  ).toBeUndefined();
-  expect(state().calls).toEqual([]);
-});
-
-test("removes a block with its values, automation and queued calls", () => {
+test("removes a block with its values and automation", () => {
   const synth = addSynth();
   const volume = synth.param("volume");
   state().addAutomation(volume, {
@@ -510,13 +498,208 @@ test("removes a block with its values, automation and queued calls", () => {
     value: -3,
     time: "0",
   });
-  state().callMethod(synth.method("triggerRelease"), {});
 
   state().removeBlocks([synth.id]);
 
   expect(state().values[volume]).toBeUndefined();
   expect(state().automations[volume]).toBeUndefined();
-  expect(state().calls).toEqual([]);
+});
+
+const knobs = { mute: false } as const;
+
+const sequence = {
+  kind: "sequence",
+  args: { duration: "8n" },
+  ...knobs,
+  steps: ["C4", null, "G4"],
+  subdivision: "8n",
+} as const;
+
+test("adds a sequence to the block its method belongs to", () => {
+  const synth = addSynth();
+  const methodId = synth.method("triggerAttackRelease");
+
+  const id = state().addEvent(methodId, sequence);
+  if (id === undefined) throw new Error("expected an event");
+
+  expect(state().events[id]).toEqual({
+    ...sequence,
+    id,
+    methodId,
+    belongToBlockId: synth.id,
+  });
+  expect(state().blocks[synth.id].eventIds).toEqual([synth.riff, id]);
+});
+
+test("adds a looping event, which is how Tone builds a Loop", () => {
+  const methodId = addSynth().method("triggerAttackRelease");
+
+  const settings = {
+    kind: "event",
+    args: { note: "C2", duration: "16n" },
+    ...knobs,
+    probability: 0.5,
+    start: "0",
+    loop: true,
+    loopEnd: "4n",
+  } as const;
+
+  expect(state().addEvent(methodId, settings)).toBeDefined();
+  expect(state().addEvent(methodId, { ...settings, loop: 4 })).toBeDefined();
+  // A loop needs its length, and a count has to be a whole number of times.
+  const { loopEnd: _, ...noEnd } = settings;
+  expect(state().addEvent(methodId, noEnd)).toBeUndefined();
+  expect(
+    state().addEvent(methodId, { ...settings, loop: 1.5 }),
+  ).toBeUndefined();
+  // With no value to fire, the note has to be fixed.
+  expect(
+    state().addEvent(methodId, { ...settings, args: { duration: "16n" } }),
+  ).toBeUndefined();
+});
+
+test("adds a pattern", () => {
+  const methodId = addSynth().method("triggerAttackRelease");
+
+  const id = state().addEvent(methodId, {
+    kind: "pattern",
+    args: { duration: "16n" },
+    ...knobs,
+    values: ["C4", "E4", "G4"],
+    pattern: "upDown",
+    interval: "16n",
+  });
+
+  expect(id).toBeDefined();
+  expect(
+    state().addEvent(methodId, {
+      kind: "pattern",
+      args: { duration: "16n" },
+      ...knobs,
+      values: [],
+      pattern: "up",
+      interval: "16n",
+    }),
+  ).toBeUndefined();
+});
+
+test("adds a part", () => {
+  const methodId = addSynth().method("triggerAttack");
+
+  const id = state().addEvent(methodId, {
+    kind: "part",
+    args: {},
+    ...knobs,
+    steps: [
+      { time: "0", value: "C4" },
+      { time: "0:1", value: null },
+    ],
+    loopEnd: "1m",
+  });
+
+  expect(id).toBeDefined();
+});
+
+test("refuses an event on a method that takes no time", () => {
+  const synth = addSynth();
+  const block = state().blocks[synth.id];
+  const methodId = "untimed";
+  useRackStore.setState({
+    methods: {
+      ...state().methods,
+      [methodId]: {
+        id: methodId,
+        name: "Untimed",
+        belongToBlockId: synth.id,
+        method: "triggerAttack",
+        args: [{ name: "note", kind: "note" }],
+      },
+    },
+    blocks: {
+      ...state().blocks,
+      [synth.id]: { ...block, methodIds: [...block.methodIds, methodId] },
+    },
+  });
+
+  expect(state().addEvent(methodId, { ...sequence, args: {} })).toBeUndefined();
+  expect(Object.keys(state().events)).toEqual([synth.riff]);
+});
+
+test("refuses an event with a time Tone cannot read", () => {
+  const synth = addSynth();
+  const methodId = synth.method("triggerAttackRelease");
+
+  expect(
+    state().addEvent(methodId, { ...sequence, subdivision: "soon" }),
+  ).toBeUndefined();
+  expect(
+    state().addEvent(methodId, { ...sequence, humanize: "a bit" }),
+  ).toBeUndefined();
+  expect(
+    state().addEvent(methodId, {
+      kind: "part",
+      args: { duration: "8n" },
+      ...knobs,
+      steps: [{ time: "later", value: "C4" }],
+    }),
+  ).toBeUndefined();
+  expect(Object.keys(state().events)).toEqual([synth.riff]);
+});
+
+test("sets a sequence's steps", () => {
+  const id = state().addEvent(
+    addSynth().method("triggerAttackRelease"),
+    sequence,
+  );
+  if (id === undefined) throw new Error("expected an event");
+
+  state().setEventSteps(id, ["A3", "B3"]);
+
+  expect(state().events[id]).toMatchObject({ steps: ["A3", "B3"] });
+});
+
+test("updates an event only to settings it would accept", () => {
+  const id = state().addEvent(
+    addSynth().method("triggerAttackRelease"),
+    sequence,
+  );
+  if (id === undefined) throw new Error("expected an event");
+
+  state().updateEvent(id, { subdivision: "4n", mute: true });
+  state().updateEvent(id, { subdivision: "never" });
+
+  expect(state().events[id]).toMatchObject({ subdivision: "4n", mute: true });
+});
+
+test("removes an event from the rack and its block", () => {
+  const synth = addSynth();
+  const id = state().addEvent(synth.method("triggerAttackRelease"), sequence);
+  if (id === undefined) throw new Error("expected an event");
+
+  state().removeEvent(id);
+
+  expect(Object.keys(state().events)).toEqual([synth.riff]);
+  expect(state().blocks[synth.id].eventIds).toEqual([synth.riff]);
+});
+
+test("removes a block with its events", () => {
+  const synth = addSynth();
+  const other = addSynth();
+  state().addEvent(synth.method("triggerAttackRelease"), sequence);
+  const kept = state().addEvent(other.method("triggerAttackRelease"), sequence);
+
+  state().removeBlocks([synth.id]);
+
+  expect(Object.keys(state().events)).toEqual([other.riff, kept]);
+  expect(state().blocks[other.id].eventIds).toEqual([other.riff, kept]);
+});
+
+test("sets the tempo only to a positive number", () => {
+  state().setTransport({ bpm: 90 });
+  state().setTransport({ bpm: 0 });
+  state().setTransport({ bpm: Number.NaN });
+
+  expect(state().transport).toEqual({ bpm: 90 });
 });
 
 // A runtime that only writes down which commands it was sent, so these tests
@@ -535,12 +718,17 @@ const recordRuntime = () => {
     deletePatch: record("deletePatch"),
     updateParam: record("updateParam"),
     runLeafMethod: record("runLeafMethod"),
+    updateEvent: record("updateEvent"),
+    updateEventLive: record("updateEventLive"),
+    deleteEvent: record("deleteEvent"),
+    updateTransport: record("updateTransport")("bpm"),
+    stop: record("stop")("transport"),
   };
   useRackStore.setState({ runtime });
   return sent;
 };
 
-test("tells the runtime about each change to the rack", () => {
+test("tells the runtime about each change to the rack", async () => {
   const sent = recordRuntime();
 
   const synth = addSynth();
@@ -555,8 +743,16 @@ test("tells the runtime about each change to the rack", () => {
   });
   state().removeAutomation(volume, eventId ?? "");
   const methodId = synth.method("triggerAttackRelease");
-  state().callMethod(methodId, { note: "C4", duration: "8n" });
+  const event = state().addEvent(methodId, sequence);
+  state().playEvent(event ?? "");
   state().removePatches([patch ?? ""]);
+  state().setEventSteps(event ?? "", ["E4"]);
+  state().updateEvent(event ?? "", { subdivision: "4n" });
+  state().removeEvent(event ?? "");
+  state().setTransport({ bpm: 90 });
+  state().stop();
+  // Stop is queued behind Run, so it lands a tick later.
+  await new Promise((resolve) => setTimeout(resolve));
 
   expect(sent).toEqual([
     `addBlock ${synth.id}`,
@@ -565,20 +761,58 @@ test("tells the runtime about each change to the rack", () => {
     `updateParam ${volume}`,
     `updateParam ${volume}`,
     `updateParam ${volume}`,
+    `updateEvent ${event}`,
     `runLeafMethod ${methodId}`,
     `deletePatch ${patch}`,
+    `updateEventLive ${event}`,
+    `updateEvent ${event}`,
+    `deleteEvent ${event}`,
+    "updateTransport bpm",
+    "stop transport",
   ]);
 });
 
-test("removing a block deletes its patches before the block", () => {
+test("plays an event now with its method and first step as the note", () => {
+  const synth = addSynth();
+  const methodId = synth.method("triggerAttackRelease");
+  const event = state().addEvent(methodId, {
+    ...sequence,
+    steps: [null, "E4", "G4"],
+  });
+  const sent: unknown[] = [];
+  useRackStore.setState({
+    runtime: {
+      ...noopRuntime,
+      runLeafMethod: (id, args) =>
+        Effect.sync(() => {
+          sent.push([id, args]);
+        }),
+    },
+  });
+
+  state().playEvent(event ?? "");
+
+  expect(sent).toEqual([[methodId, { duration: "8n", note: "E4" }]]);
+});
+
+test("removing a block deletes its patches and events before the block", () => {
   const synth = addSynth();
   const destination = state().addCatalogueBlock("output", "Destination");
   const patch = state().connectJacks(`${synth.id}:out`, `${destination}:in`);
+  const event = state().addEvent(
+    synth.method("triggerAttackRelease"),
+    sequence,
+  );
   const sent = recordRuntime();
 
   state().removeBlocks([synth.id]);
 
-  expect(sent).toEqual([`deletePatch ${patch}`, `deleteBlock ${synth.id}`]);
+  expect(sent).toEqual([
+    `deletePatch ${patch}`,
+    `deleteEvent ${synth.riff}`,
+    `deleteEvent ${event}`,
+    `deleteBlock ${synth.id}`,
+  ]);
 });
 
 test("gives the Destination only an input jack", () => {
