@@ -7,6 +7,7 @@ import {
   LockOpen,
   Piano,
   SlidersHorizontal,
+  Speaker,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -29,6 +30,7 @@ type RackToolbarProps = {
   readonly onAddComponent: () => void;
   readonly onAddSignal: () => void;
   readonly onAddEvent: () => void;
+  readonly onAddDestination: () => void;
   readonly canDelete: boolean;
   readonly onDelete: () => void;
   readonly className?: string;
@@ -44,6 +46,7 @@ export function RackToolbar({
   onAddComponent,
   onAddSignal,
   onAddEvent,
+  onAddDestination,
   canDelete,
   onDelete,
   className,
@@ -123,6 +126,16 @@ export function RackToolbar({
             onClick={onAddEvent}
           >
             <Zap />
+          </ToolbarButton>
+        </Hint>
+
+        <Hint label="Add destination">
+          <ToolbarButton
+            shortcut="D"
+            data-testid="add-destination"
+            onClick={onAddDestination}
+          >
+            <Speaker />
           </ToolbarButton>
         </Hint>
       </ToolbarGroup>

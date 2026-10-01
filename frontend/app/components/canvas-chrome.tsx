@@ -38,6 +38,7 @@ export function CanvasChrome() {
   const addComponent = addGroup;
   const addSignal = addLeaf;
   const addEvent = addLeaf;
+  const addDestination = () => addCatalogueBlock("output", "Destination");
 
   const deleteSelection = () => {
     if (!canDelete) return;
@@ -61,6 +62,7 @@ export function CanvasChrome() {
     c: addComponent,
     l: addSignal,
     v: addEvent,
+    d: addDestination,
     backspace: deleteSelection,
     delete: deleteSelection,
     r: run,
@@ -84,6 +86,7 @@ export function CanvasChrome() {
         onAddComponent={addComponent}
         onAddSignal={addSignal}
         onAddEvent={addEvent}
+        onAddDestination={addDestination}
         canDelete={canDelete}
         onDelete={deleteSelection}
       />

@@ -17,6 +17,7 @@ const handlers = () => ({
   onAddComponent: vi.fn(),
   onAddSignal: vi.fn(),
   onAddEvent: vi.fn(),
+  onAddDestination: vi.fn(),
   onDelete: vi.fn(),
 });
 
@@ -52,6 +53,12 @@ const typedTools = [
     handler: "onAddSignal",
   },
   { testId: "add-event", label: "Add event", key: "V", handler: "onAddEvent" },
+  {
+    testId: "add-destination",
+    label: "Add destination",
+    key: "D",
+    handler: "onAddDestination",
+  },
 ] as const;
 
 function render(
