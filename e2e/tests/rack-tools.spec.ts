@@ -13,6 +13,7 @@ test("names and groups every rack tool", async ({ page }) => {
         - button "Add component"
         - button "Add signal"
         - button "Add event"
+        - button "Add destination"
       - separator
       - group "Add group":
         - button "Add group"

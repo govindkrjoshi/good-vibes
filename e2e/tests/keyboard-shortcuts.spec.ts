@@ -11,13 +11,13 @@ test("adds a block from the keyboard", async ({ page }) => {
 test("moves focus across the tool island with the arrow keys", async ({
   page,
 }) => {
-  const addEvent = page.getByTestId("add-event");
+  const addDestination = page.getByTestId("add-destination");
 
-  await addEvent.focus();
+  await addDestination.focus();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByTestId("add-group")).toBeFocused();
   await page.keyboard.press("ArrowLeft");
-  await expect(addEvent).toBeFocused();
+  await expect(addDestination).toBeFocused();
 });
 
 test("lists every shortcut behind the help button", async ({ page }) => {
@@ -40,6 +40,8 @@ test("lists every shortcut behind the help button", async ({ page }) => {
       - definition: L
       - term: Add event
       - definition: V
+      - term: Add destination
+      - definition: D
       - term: Delete selection
       - definition: ⌫
       - term: Run rack
