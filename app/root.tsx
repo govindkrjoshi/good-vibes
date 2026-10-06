@@ -13,7 +13,9 @@ import { SandboxProvider } from "./hooks/useSandbox";
 import "@xyflow/react/dist/style.css";
 import "./app.css";
 
-export const links: Route.LinksFunction = () => [];
+export const links: Route.LinksFunction = () => [
+  { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+];
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
