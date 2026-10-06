@@ -9,7 +9,7 @@ import {
   makeToneRuntime,
   Tone,
   type ToneRuntime,
-} from "shared/audio-renderer";
+} from "./audio-renderer";
 import { useRackStore } from "./stores/rack";
 
 // An offline context renders into a buffer instead of the speakers, and its

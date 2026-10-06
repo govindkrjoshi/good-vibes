@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { LeafError, type LeafCode } from "./audio-renderer";
+import { LeafError, type LeafCode } from "../audio-renderer";
 
 const JackSchema = Schema.Struct({
   id: Schema.String,
@@ -255,21 +255,6 @@ export type Code = Schema.Schema.Type<typeof CodeSchema>;
 export type RackEvent = Schema.Schema.Type<typeof RackEventSchema>;
 export type RackEventStep = Schema.Schema.Type<typeof EventStepSchema>;
 export type Transport = Schema.Schema.Type<typeof TransportSchema>;
-
-// The rack as a whole, flattened into lookup tables keyed by id. The frontend
-// store holds one of these, and the audio renderer reads from it.
-export type RackState = {
-  readonly blocks: Record<string, Rack>;
-  readonly jacks: Record<string, Jack>;
-  readonly params: Record<string, Param>;
-  readonly methods: Record<string, Method>;
-  readonly values: Record<string, ParamValue>;
-  readonly automations: Record<string, readonly AutomationEvent[]>;
-  readonly patches: Record<string, Patch>;
-  readonly events: Record<string, RackEvent>;
-  readonly transport: Transport;
-  readonly rootId: string;
-};
 
 // One scheduled change to a number param, named after the Tone.js call that
 // will make it. `time` is when it lands (or, for the two ramp-to-value calls,

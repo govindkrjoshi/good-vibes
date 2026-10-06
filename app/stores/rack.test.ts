@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { beforeEach, expect, test } from "vitest";
-import { noopRuntime, type ToneRuntime } from "shared/audio-renderer";
+import { noopRuntime, type ToneRuntime } from "../audio-renderer";
 import { useRackStore } from "./rack";
-import { hasOutputJack } from "shared/rack";
+import { hasOutputJack } from "../types/rack";
 
 const initial = useRackStore.getState();
 

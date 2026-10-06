@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { Tone } from "shared/audio-renderer";
-import { type RackTemplate } from "shared/rack";
+import { Tone } from "../../audio-renderer";
+import { type RackTemplate } from "../../types/rack";
 
 export type CatalogueEntry = {
   readonly name: string;

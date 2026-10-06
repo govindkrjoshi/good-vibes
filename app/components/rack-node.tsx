@@ -24,7 +24,7 @@ import {
   type Method,
   type Param,
   type ParamGroup,
-} from "shared/rack";
+} from "../types/rack";
 import { useRackStore } from "../stores/rack";
 
 export type RackNodeData = {

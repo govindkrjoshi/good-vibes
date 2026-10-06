@@ -11,7 +11,7 @@ import {
 import dagre from "@dagrejs/dagre";
 import { BlockNode, type BlockNodeType } from "./block-node";
 import { RackNode, rackNodeWidth, type RackNodeType } from "./rack-node";
-import { canPatch, type Jack, type Patch, type Rack } from "shared/rack";
+import { canPatch, type Jack, type Patch, type Rack } from "../types/rack";
 import { useCanvasStore } from "../stores/canvas";
 import { useRackStore } from "../stores/rack";
 

@@ -18,7 +18,7 @@ import {
 import { Slider } from "./ui/slider";
 import { Switch } from "./ui/switch";
 import { AutomationEditor } from "./automation-editor";
-import type { Param, ParamValue } from "shared/rack";
+import type { Param, ParamValue } from "../types/rack";
 import { useRackStore } from "../stores/rack";
 
 type NumberParam = Extract<Param, { kind: "number" }>;

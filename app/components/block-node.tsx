@@ -2,7 +2,7 @@ import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Box, Group } from "lucide-react";
 import { cn } from "cn";
 import { Card, CardHeader, CardTitle } from "./ui/card";
-import type { Jack } from "shared/rack";
+import type { Jack } from "../types/rack";
 
 export type BlockNodeData = {
   readonly name: string;

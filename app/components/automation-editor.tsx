@@ -16,7 +16,7 @@ import { Separator } from "./ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 import { Hint } from "./hint";
 import { NumberField, unitLabel } from "./param-control";
-import type { AutomationEvent, Param, RampMethod } from "shared/rack";
+import type { AutomationEvent, Param, RampMethod } from "../types/rack";
 import { useRackStore } from "../stores/rack";
 
 type NumberParam = Extract<Param, { kind: "number" }>;

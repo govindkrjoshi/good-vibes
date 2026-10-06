@@ -13,7 +13,7 @@ import {
   type Jack,
   type Patch,
   type Rack,
-} from "shared/rack";
+} from "../types/rack";
 
 const rack = (
   children: readonly Rack[],
