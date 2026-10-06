@@ -1,9 +1,19 @@
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig({
+export default defineConfig(({ command, mode }) => ({
   plugins: [tailwindcss(), reactRouter()],
+  define: {
+    // The dev server hands its OpenRouter key (from the shell or a .env file)
+    // to the browser for testing. Builds never embed one; users enter their
+    // own. See app/agent-key.ts.
+    __DEV_OPENROUTER_API_KEY__: JSON.stringify(
+      command === "serve"
+        ? (loadEnv(mode, process.cwd(), "OPENROUTER_").OPENROUTER_API_KEY ?? "")
+        : "",
+    ),
+  },
   // Pre-bundle these at startup instead of letting Vite discover them on the
   // first page load. Late discovery triggers a second optimize pass, which
   // bumps the dep `?v=` hash and 504s any module URL the browser already
@@ -25,6 +35,9 @@ export default defineConfig({
       "@base-ui/react/toolbar",
       "@base-ui/react/tooltip",
       "@dagrejs/dagre",
+      "@earendil-works/pi-agent-core",
+      "@earendil-works/pi-ai",
+      "@earendil-works/pi-ai/providers/openrouter",
       "@xyflow/react",
       "class-variance-authority",
       "cn",
@@ -35,4 +48,4 @@ export default defineConfig({
       "zustand/react/shallow",
     ],
   },
-});
+}));

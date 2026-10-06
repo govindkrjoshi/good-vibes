@@ -15,6 +15,25 @@ pnpm typecheck
 pnpm lint
 ```
 
+## Agent
+
+The home page asks an agent (`app/agent.ts`, built on
+`@earendil-works/pi-agent-core`) to greet the user and logs the reply to the
+browser console. The agent runs in the browser and calls OpenRouter directly,
+using the first key it finds:
+
+1. **Dev server only:** `OPENROUTER_API_KEY` from the shell or a `.env` file.
+   `pnpm dev` hands it to the browser for testing.
+2. A key the user saved earlier, in local storage.
+3. Otherwise it asks the user for one and saves it to local storage.
+
+```sh
+OPENROUTER_API_KEY=sk-or-... pnpm dev
+```
+
+Production builds never embed a key, even when `OPENROUTER_API_KEY` is set
+while building, so users always bring their own.
+
 ## End-to-end tests
 
 Playwright runs against the dev server, which it starts on port 5173 (or reuses if already running).

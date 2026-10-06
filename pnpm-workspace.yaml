@@ -2,4 +2,6 @@ onlyBuiltDependencies:
   - esbuild
 allowBuilds:
   '@audio/speaker': false
+  '@google/genai': false
   esbuild: true
+  protobufjs: false

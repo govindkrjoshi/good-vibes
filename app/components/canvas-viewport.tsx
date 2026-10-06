@@ -14,6 +14,7 @@ import { RackNode, rackNodeWidth, type RackNodeType } from "./rack-node";
 import { canPatch, type Jack, type Patch, type Rack } from "../types/rack";
 import { useCanvasStore } from "../stores/canvas";
 import { useRackStore } from "../stores/rack";
+import { useAgentGreeting } from "../hooks/useGoodVibesAgent";
 
 // React Flow re-registers every node type when this object changes identity,
 // so it has to be built once, outside the component.
@@ -41,6 +42,8 @@ export function CanvasViewport() {
   const locked = useCanvasStore((state) => state.locked);
   const connectJacks = useRackStore((state) => state.connectJacks);
   const canConnectJacks = useRackStore((state) => state.canConnectJacks);
+
+  useAgentGreeting();
 
   const isValidConnection = useCallback(
     (connection: Connection | Edge) => {
