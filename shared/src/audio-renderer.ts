@@ -1,6 +1,5 @@
 import { Context, Data, Effect, Exit, Ref } from "effect";
 import type * as ToneJs from "tone";
-import type { RackState } from "./stores/rack";
 import {
   noteArg,
   timeArg,
@@ -11,7 +10,8 @@ import {
   type ParamGroup,
   type ParamValue,
   type RackEvent,
-} from "./types/rack";
+  type RackState,
+} from "./rack";
 
 type ToneNode = ToneJs.ToneAudioNode;
 

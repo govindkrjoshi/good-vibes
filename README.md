@@ -1,9 +1,10 @@
 # good-vibes
 
-PNPM monorepo with three workspace packages:
+PNPM monorepo with four workspace packages:
 
 - `backend`
 - `frontend`
+- `shared` (library code imported by both `backend` and `frontend`)
 - `e2e` (Playwright end-to-end tests)
 
 ## Commands

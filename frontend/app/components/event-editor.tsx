@@ -35,7 +35,7 @@ import {
   type Method,
   type ParamValue,
   type RackEvent,
-} from "../types/rack";
+} from "shared/rack";
 import { useRackStore } from "../stores/rack";
 
 type When = "sequence" | "loop" | "pattern" | "part";

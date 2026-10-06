@@ -1,7 +1,7 @@
 import { Field, FieldDescription, FieldLabel } from "./ui/field";
 import { Input } from "./ui/input";
 import { Switch } from "./ui/switch";
-import type { Method, MethodArg, ParamValue } from "../types/rack";
+import type { Method, MethodArg, ParamValue } from "shared/rack";
 
 const placeholders: Record<MethodArg["kind"], string> = {
   note: "C4",

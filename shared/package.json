@@ -1,0 +1,23 @@
+{
+  "name": "shared",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./rack": "./src/rack.ts",
+    "./audio-renderer": "./src/audio-renderer.ts"
+  },
+  "scripts": {
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc",
+    "format": "prettier --write src package.json tsconfig.json README.md --ignore-unknown --no-error-on-unmatched-pattern",
+    "lint": "oxlint src"
+  },
+  "dependencies": {
+    "effect": "4.0.0-rc.117",
+    "tone": "^15.1.22"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.2"
+  }
+}

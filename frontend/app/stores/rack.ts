@@ -6,7 +6,7 @@ import {
   noopRuntime,
   Tone,
   type ToneRuntime,
-} from "../audio-renderer";
+} from "shared/audio-renderer";
 import {
   canPatch,
   isRackEvent,
@@ -26,23 +26,14 @@ import {
   type Patch,
   type Rack,
   type RackEvent,
+  type RackState as SharedRackState,
   type RackTemplate,
   type Transport,
   type TreeBlock,
-} from "../types/rack";
+} from "shared/rack";
 import { CATALOGUE, type Catalogue, type CatalogueEntry } from "./catalogue";
 
-export type RackState = {
-  readonly blocks: Record<string, Rack>;
-  readonly jacks: Record<string, Jack>;
-  readonly params: Record<string, Param>;
-  readonly methods: Record<string, Method>;
-  readonly values: Record<string, ParamValue>;
-  readonly automations: Record<string, readonly AutomationEvent[]>;
-  readonly patches: Record<string, Patch>;
-  readonly events: Record<string, RackEvent>;
-  readonly transport: Transport;
-  readonly rootId: string;
+export type RackState = SharedRackState & {
   readonly catalogue: Catalogue;
 };
 
