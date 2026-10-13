@@ -13,6 +13,7 @@ app/
   catalogue/    templates for the blocks a user can add
   canvas/       rack → React Flow graph projection and layout
   agent/        the chat session, its key handling, and the agent itself
+  actions/      applies the changes the agent asks for to the rack
   sandbox/      the sandboxed page and its CSP
   pages/        one directory per route; composition only
   components/   React components, grouped by the module they front
@@ -21,7 +22,8 @@ app/
 
 Modules hold logic only: no React, no JSX, no DOM, and no imports from
 `components`, `hooks` or `pages`. Modules import each other in one direction:
-`catalogue` and `canvas` use `rack`; `agent` and `sandbox` stand alone.
+`catalogue` and `canvas` use `rack`; `actions` uses `agent`, `rack` and
+`catalogue`; `agent` and `sandbox` stand alone.
 Components import modules, `components/ui` and `hooks`. Pages import anything;
 nothing imports from `pages`. `.oxlintrc.json` enforces these boundaries, so
 `pnpm lint` fails on a crossing.
@@ -55,6 +57,19 @@ OPENROUTER_API_KEY=sk-or-... pnpm dev
 
 Production builds never embed a key, even when `OPENROUTER_API_KEY` is set
 while building, so users always bring their own.
+
+The agent can change the rack, but never touches it directly. Its one tool
+takes a list of `RackAction`s (the schema in `app/agent/rack-action.ts` is
+the source of truth). Each action goes out on the agent's message stream and
+waits; the session, which listens to that stream, hands it to `app/actions/`,
+which makes the change on the rack store and answers with an `ActionResult`.
+A refused action stops the rest of the list. The same action messages are
+what the chat shows as the agent works.
+
+The model chooses the id of each block it adds, so one list can add a block
+and then patch it or set its params (`<block id>:param:<name>`) by that id.
+Audio can only start from a user gesture, so the agent cannot run the rack:
+it asks the user to press Run.
 
 ## End-to-end tests
 

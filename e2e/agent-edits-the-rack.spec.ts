@@ -1,0 +1,107 @@
+import { type Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
+
+const chat = (page: Page) => page.getByTestId("chat-panel");
+const actions = (page: Page) => page.getByTestId("chat-action");
+const nodes = (page: Page) => page.locator(".react-flow__node");
+
+const ask = async (page: Page, text: string) => {
+  await page.getByTestId("chat-input").fill(text);
+  await page.getByTestId("chat-input").press("Enter");
+};
+
+test.describe("building a rack in one go", () => {
+  test.use({
+    openRouterReplies: [
+      {
+        tool: "rack_actions",
+        args: {
+          actions: [
+            {
+              kind: "add_block",
+              id: "synth-1",
+              category: "instruments",
+              entry: "AMSynth",
+            },
+            {
+              kind: "add_block",
+              id: "speakers",
+              category: "output",
+              entry: "Destination",
+            },
+            {
+              kind: "connect_blocks",
+              fromBlockId: "synth-1",
+              toBlockId: "speakers",
+            },
+            { kind: "set_param", paramId: "synth-1:param:volume", value: -6 },
+          ],
+        },
+      },
+      "Added a synth you can hear once you press Run.",
+    ],
+  });
+
+  test("puts the blocks on the canvas and shows each step in the chat", async ({
+    page,
+  }) => {
+    await expect(nodes(page)).toHaveCount(0);
+
+    await ask(page, "add a synth I can hear");
+
+    await expect(nodes(page)).toHaveCount(2);
+    await expect(page.locator(".react-flow__edge")).toHaveCount(1);
+    await expect(page.getByRole("textbox", { name: "Volume" })).toHaveValue(
+      "-6",
+    );
+    await expect(actions(page)).toHaveCount(4);
+    for (const row of await actions(page).all())
+      await expect(row).toHaveAttribute("data-status", "done");
+    await expect(actions(page).first()).toContainText(
+      "Added AMSynth as synth-1.",
+    );
+    await expect(actions(page).last()).toContainText(
+      "Set AMSynth Volume to -6 dB.",
+    );
+    await expect(chat(page)).toContainText(
+      "Added a synth you can hear once you press Run.",
+    );
+  });
+});
+
+test.describe("a change the rack refuses", () => {
+  test.use({
+    openRouterReplies: [
+      {
+        tool: "rack_actions",
+        args: {
+          actions: [
+            { kind: "add_block", id: "fx-1", category: "fx", entry: "Reverb" },
+            {
+              kind: "add_block",
+              id: "speakers",
+              category: "output",
+              entry: "Destination",
+            },
+          ],
+        },
+      },
+      "There is no reverb yet.",
+    ],
+  });
+
+  test("shows why, and goes no further down the list", async ({ page }) => {
+    await ask(page, "add a reverb");
+
+    await expect(actions(page)).toHaveCount(1);
+    await expect(actions(page).first()).toHaveAttribute(
+      "data-status",
+      "failed",
+    );
+    await expect(actions(page).first()).toContainText(
+      "There is no fx/Reverb in the catalogue.",
+    );
+    await expect(chat(page)).toContainText("There is no reverb yet.");
+    await expect(nodes(page)).toHaveCount(0);
+  });
+});

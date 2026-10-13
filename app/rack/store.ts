@@ -35,8 +35,12 @@ export type RackStore = RackState & {
   // what changed, once the store itself has been updated.
   readonly runtime: ToneRuntime;
   readonly addBlock: (blockType: "leaf" | "tree") => string | undefined;
-  // Adds a block built from a template, such as a catalogue entry.
-  readonly addTemplate: (template: RackTemplate) => string | undefined;
+  // Adds a block built from a template, such as a catalogue entry, under the
+  // given id or a fresh one. Refused when the id is taken.
+  readonly addTemplate: (
+    template: RackTemplate,
+    id?: string,
+  ) => string | undefined;
   readonly connectJacks: (
     fromJackId: string,
     toJackId: string,
@@ -44,7 +48,8 @@ export type RackStore = RackState & {
   readonly canConnectJacks: (fromJackId: string, toJackId: string) => boolean;
   readonly removeBlocks: (blockIds: readonly string[]) => void;
   readonly removePatches: (patchIds: readonly string[]) => void;
-  readonly setParamValue: (paramId: string, value: ParamValue) => void;
+  // True when the value was kept; see acceptValue for what is refused.
+  readonly setParamValue: (paramId: string, value: ParamValue) => boolean;
   readonly addAutomation: (
     paramId: string,
     event: Omit<AutomationEvent, "id">,
@@ -64,7 +69,7 @@ export type RackStore = RackState & {
     settings: Partial<EventSettings>,
   ) => void;
   readonly removeEvent: (eventId: string) => void;
-  readonly setTransport: (transport: Transport) => void;
+  readonly setTransport: (transport: Transport) => boolean;
   readonly stop: () => void;
   readonly run: () => void;
 };
@@ -333,13 +338,13 @@ export const rackStore = createStore<RackStore>()((set, get) => ({
     return block.id;
   },
 
-  addTemplate: (template) => {
+  addTemplate: (template, id = crypto.randomUUID()) => {
     const { blocks, rootId } = get();
     const root = blocks[rootId];
 
     if (root === undefined || root.type !== "tree") return undefined;
+    if (id === "" || id in blocks) return undefined;
 
-    const id = crypto.randomUUID();
     const normalized = normalizeTemplate(template, id);
     const shared = {
       id,
@@ -524,10 +529,11 @@ export const rackStore = createStore<RackStore>()((set, get) => ({
   setParamValue: (paramId, value) => {
     const param = get().params[paramId];
     const accepted = acceptValue(param, value);
-    if (accepted === undefined) return;
+    if (accepted === undefined) return false;
 
     set((state) => ({ values: { ...state.values, [paramId]: accepted } }));
     perform(get().runtime.updateParam(paramId));
+    return true;
   },
 
   addAutomation: (paramId, event) => {
@@ -675,10 +681,11 @@ export const rackStore = createStore<RackStore>()((set, get) => ({
   },
 
   setTransport: ({ bpm }) => {
-    if (!Number.isFinite(bpm) || bpm <= 0) return;
+    if (!Number.isFinite(bpm) || bpm <= 0) return false;
 
     set({ transport: { bpm } });
     perform(get().runtime.updateTransport);
+    return true;
   },
 
   // Queued behind any Run still loading Tone or building the runtime, so a

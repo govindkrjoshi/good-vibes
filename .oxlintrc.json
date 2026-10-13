@@ -5,6 +5,7 @@
       "files": [
         "app/rack/**",
         "app/catalogue/**",
+        "app/actions/**",
         "app/canvas/**",
         "app/agent/**",
         "app/sandbox/**"

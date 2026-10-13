@@ -1,5 +1,11 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp, CircleAlert, MessageCircle, Square } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  CircleAlert,
+  MessageCircle,
+  Square,
+} from "lucide-react";
 import { cn } from "cn";
 import { Bubble, BubbleContent } from "../ui/bubble";
 import {
@@ -25,14 +31,50 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "../ui/message-scroller";
+import { Spinner } from "../ui/spinner";
 import { useGoodVibesAgent, type ChatMessage } from "./agent-provider";
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "The message could not be sent";
 
+// A change the agent asked for: what it is doing while it waits, then what
+// came of it.
+function ActionRow({ message }: { readonly message: ChatMessage }) {
+  const status = message.status ?? "done";
+  return (
+    <Message
+      align="start"
+      data-role={message.role}
+      data-testid="chat-action"
+      data-status={status}
+    >
+      <MessageContent>
+        <Marker>
+          <MarkerIcon>
+            {status === "requested" ? (
+              <Spinner />
+            ) : status === "done" ? (
+              <Check />
+            ) : (
+              <CircleAlert />
+            )}
+          </MarkerIcon>
+          <MarkerContent>{message.text}</MarkerContent>
+        </Marker>
+        {message.error !== undefined && (
+          <Marker className="pl-6">
+            <MarkerContent>{message.error}</MarkerContent>
+          </Marker>
+        )}
+      </MessageContent>
+    </Message>
+  );
+}
+
 // The agent's words sit on the panel itself; only the user's own messages get
 // a bubble, so the conversation reads as the instrument talking back.
 function ChatRow({ message }: { readonly message: ChatMessage }) {
+  if (message.kind === "action") return <ActionRow message={message} />;
   const fromUser = message.role === "user";
   return (
     <Message align={fromUser ? "end" : "start"} data-role={message.role}>
@@ -67,9 +109,15 @@ export function ChatPanel({ className }: { readonly className?: string }) {
   const inputId = useId();
 
   const last = messages.at(-1);
-  // Until the reply's first words arrive there is nothing else to show.
+  // Until the reply's first words arrive there is nothing else to show. A
+  // settled action is one of those gaps: the agent is working out what to say
+  // or do next.
   const thinking =
-    busy && (last === undefined || last.role === "user" || last.text === "");
+    busy &&
+    (last === undefined ||
+      last.role === "user" ||
+      last.text === "" ||
+      (last.kind === "action" && last.status !== "requested"));
 
   const send = (event?: FormEvent) => {
     event?.preventDefault();

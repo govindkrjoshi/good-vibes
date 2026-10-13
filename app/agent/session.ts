@@ -1,16 +1,47 @@
 import { Effect, Exit, Scope, Stream } from "effect";
 import { knownApiKey, storeApiKey } from "./key";
-import type { ApiKey, GoodVibesMessage } from "./types";
+import type {
+  ActionResult,
+  ActionStatus,
+  ApiKey,
+  GoodVibesMessage,
+  RackAction,
+} from "./types";
 import type { GoodVibesAgent } from "./agent";
 
 // What the chat shows of one message: who said it and the text so far. The
-// agent's thoughts are its reasoning, shown apart from what it says.
+// agent's thoughts are its reasoning, shown apart from what it says. An
+// action is a change the agent asked for: its text says what it is doing
+// until it is done, then what came of it.
 export type ChatMessage = {
   readonly id: string;
   readonly role: "user" | "assistant";
-  readonly kind: "message" | "thought";
+  readonly kind: "message" | "thought" | "action";
   readonly text: string;
   readonly error?: string;
+  readonly status?: ActionStatus;
+};
+
+// What the chat shows of an action until it has been applied.
+export const actionLabel = (action: RackAction): string => {
+  switch (action.kind) {
+    case "describe":
+      return "Looking at the rack";
+    case "add_block":
+      return `Adding ${action.entry} as ${action.id}`;
+    case "remove_blocks":
+      return action.blockIds.length === 1
+        ? "Removing a block"
+        : `Removing ${action.blockIds.length} blocks`;
+    case "connect_blocks":
+      return "Connecting blocks";
+    case "disconnect":
+      return "Disconnecting";
+    case "set_param":
+      return "Setting a param";
+    case "set_transport":
+      return `Setting the tempo to ${action.bpm} bpm`;
+  }
 };
 
 export type SessionState = {
@@ -39,6 +70,10 @@ export type SessionOptions = {
   // Called when a prompt needs a key and none is known. Rejecting fails the
   // prompt; the next prompt asks again.
   readonly askForKey: () => Promise<string>;
+  // Makes the change the agent asked for and says what came of it. The
+  // session is the only listener on the agent, so this is what makes the
+  // agent's actions real; the agent itself never touches the rack.
+  readonly applyAction: (action: RackAction) => ActionResult;
   // How the agent is made. By default the agent module is loaded on first
   // use, so the model runtime stays out of the initial bundle.
   readonly createAgent?: CreateAgent;
@@ -57,6 +92,7 @@ const loadAgent: CreateAgent = (apiKey) =>
 // storage, and failing both the session asks for one.
 export const createSession = ({
   askForKey,
+  applyAction,
   createAgent = loadAgent,
 }: SessionOptions): Session => {
   let state: SessionState = { messages: [], busy: false };
@@ -102,20 +138,72 @@ export const createSession = ({
     return pendingKey;
   };
 
-  // The agent sends a message again as it grows, so an id already shown is
-  // updated in place.
-  const onMessage = (said: GoodVibesMessage) => {
-    const id = `agent-${said.id}`;
+  // The agent sends a message again as it grows or settles, so an id already
+  // shown is replaced in place.
+  const upsert = (message: ChatMessage) =>
     setMessages((list) =>
-      list.some((message) => message.id === id)
-        ? list.map((message) =>
-            message.id === id ? { ...message, text: said.text } : message,
-          )
-        : [
-            ...list,
-            { id, role: "assistant", kind: said.type, text: said.text },
-          ],
+      list.some((held) => held.id === message.id)
+        ? list.map((held) => (held.id === message.id ? message : held))
+        : [...list, message],
     );
+
+  // A failure in applying is the action's to show, not a reason to drop the
+  // reply, so the agent is told rather than left waiting.
+  const apply = (action: RackAction): ActionResult => {
+    try {
+      return applyAction(action);
+    } catch (error) {
+      return {
+        ok: false,
+        text:
+          error instanceof Error
+            ? error.message
+            : "The change could not be made",
+      };
+    }
+  };
+
+  const actionRow = (
+    said: GoodVibesMessage & { type: "action" },
+  ): ChatMessage => {
+    const shared = {
+      id: `agent-${said.id}`,
+      role: "assistant",
+      kind: "action",
+    } as const;
+    const label = actionLabel(said.action);
+    switch (said.status) {
+      case "requested":
+        return { ...shared, text: label, status: "requested" };
+      case "done":
+        return { ...shared, text: said.result?.text ?? label, status: "done" };
+      case "failed":
+        return {
+          ...shared,
+          text: label,
+          status: "failed",
+          error: said.result?.text ?? "The change could not be made",
+        };
+    }
+  };
+
+  const onMessage = (
+    said: GoodVibesMessage,
+    settle: GoodVibesAgent["settle"],
+  ) => {
+    if (said.type === "action") {
+      upsert(actionRow(said));
+      // Shown as requested first, so the chat has the row even if applying
+      // takes a moment or throws.
+      if (said.status === "requested") settle(said.id, apply(said.action));
+      return;
+    }
+    upsert({
+      id: `agent-${said.id}`,
+      role: "assistant",
+      kind: said.type,
+      text: said.text,
+    });
   };
 
   // Shown on the reply that failed, or on its own when nothing arrived.
@@ -147,7 +235,7 @@ export const createSession = ({
         Effect.gen(function* () {
           const made = yield* createAgent(() => currentKey() ?? "");
           yield* Stream.runForEach(made.messages, (said) =>
-            Effect.sync(() => onMessage(said)),
+            Effect.sync(() => onMessage(said, made.settle)),
           ).pipe(Effect.forkScoped({ startImmediately: true }));
           return made;
         }).pipe(Scope.provide(scope)),

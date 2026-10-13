@@ -378,6 +378,24 @@ const addSynth = () => {
   return { id, param, method, riff };
 };
 
+test("adds a template under a given id, unless it is taken", () => {
+  expect(
+    state().addTemplate(template("instruments", "AMSynth"), "synth-1"),
+  ).toBe("synth-1");
+  expect(state().blocks["synth-1"]?.name).toBe("AMSynth");
+  expect(state().jacks["synth-1:out"]).toBeDefined();
+  expect(state().params["synth-1:param:volume"]).toBeDefined();
+
+  expect(
+    state().addTemplate(template("output", "Destination"), "synth-1"),
+  ).toBeUndefined();
+  expect(
+    state().addTemplate(template("output", "Destination"), ""),
+  ).toBeUndefined();
+  expect(state().blocks["synth-1"]?.name).toBe("AMSynth");
+  expect(children()).toEqual(["synth-1"]);
+});
+
 test("starts every catalogue param at its default value", () => {
   const synth = addSynth();
 
@@ -389,10 +407,10 @@ test("sets a param value, clamped into its range", () => {
   const synth = addSynth();
   const volume = synth.param("volume");
 
-  state().setParamValue(volume, -12);
+  expect(state().setParamValue(volume, -12)).toBe(true);
   expect(state().values[volume]).toBe(-12);
 
-  state().setParamValue(volume, 100);
+  expect(state().setParamValue(volume, 100)).toBe(true);
   expect(state().values[volume]).toBe(12);
 });
 
@@ -401,8 +419,8 @@ test("refuses a value that does not fit the param", () => {
   const type = synth.param("type", "oscillator");
   const volume = synth.param("volume");
 
-  state().setParamValue(type, "banjo");
-  state().setParamValue(volume, "loud");
+  expect(state().setParamValue(type, "banjo")).toBe(false);
+  expect(state().setParamValue(volume, "loud")).toBe(false);
 
   expect(state().values[type]).toBe("sine");
   expect(state().values[volume]).toBe(0);
@@ -681,9 +699,9 @@ test("removes a block with its events", () => {
 });
 
 test("sets the tempo only to a positive number", () => {
-  state().setTransport({ bpm: 90 });
-  state().setTransport({ bpm: 0 });
-  state().setTransport({ bpm: Number.NaN });
+  expect(state().setTransport({ bpm: 90 })).toBe(true);
+  expect(state().setTransport({ bpm: 0 })).toBe(false);
+  expect(state().setTransport({ bpm: Number.NaN })).toBe(false);
 
   expect(state().transport).toEqual({ bpm: 90 });
 });

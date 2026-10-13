@@ -133,3 +133,70 @@ test("explains a message that could not be sent", async () => {
     "No OpenRouter API key was given",
   );
 });
+
+test("shows what the agent is doing, then what came of it", () => {
+  agent.messages = [
+    { id: "a", role: "user", kind: "message", text: "add a synth" },
+    {
+      id: "b",
+      role: "assistant",
+      kind: "action",
+      text: "Adding AMSynth",
+      status: "requested",
+    },
+    {
+      id: "c",
+      role: "assistant",
+      kind: "action",
+      text: "Added Destination.",
+      status: "done",
+    },
+    {
+      id: "d",
+      role: "assistant",
+      kind: "action",
+      text: "Connecting blocks",
+      status: "failed",
+      error: "Destination has no output to patch from.",
+    },
+  ];
+  render();
+
+  const rows = [...container.querySelectorAll('[data-testid="chat-action"]')];
+  expect(rows.map((row) => row.getAttribute("data-status"))).toEqual([
+    "requested",
+    "done",
+    "failed",
+  ]);
+  expect(rows[0]?.querySelector('[data-slot="spinner"]')).not.toBeNull();
+  expect(rows[0]?.textContent).toContain("Adding AMSynth");
+  expect(rows[1]?.querySelector('[data-slot="spinner"]')).toBeNull();
+  expect(rows[1]?.textContent).toContain("Added Destination.");
+  expect(rows[2]?.textContent).toContain(
+    "Destination has no output to patch from.",
+  );
+  expect(container.querySelectorAll('[data-slot="bubble"]')).toHaveLength(1);
+});
+
+test("thinks again once an action has settled", () => {
+  agent.busy = true;
+  agent.messages = [
+    { id: "a", role: "user", kind: "message", text: "add a synth" },
+    {
+      id: "b",
+      role: "assistant",
+      kind: "action",
+      text: "Adding AMSynth",
+      status: "requested",
+    },
+  ];
+  render();
+  expect(container.textContent).not.toContain("Thinking…");
+
+  agent.messages = [
+    ...agent.messages.slice(0, 1),
+    { ...agent.messages[1]!, text: "Added AMSynth.", status: "done" },
+  ];
+  act(() => root.render(<ChatPanel />));
+  expect(container.textContent).toContain("Thinking…");
+});

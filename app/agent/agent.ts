@@ -2,17 +2,30 @@ import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { Effect, PubSub, Stream, type Scope } from "effect";
-import { PromptError, type ApiKey, type GoodVibesMessage } from "./types";
+import { actionRequests, rackActionsTool } from "./tools";
+import {
+  PromptError,
+  type ActionResult,
+  type ApiKey,
+  type GoodVibesMessage,
+} from "./types";
 
-// Cheap and quick; the agent only chats for now. It has to be a model pi-ai
-// reaches over OpenRouter's chat-completions API: Anthropic models go through
-// its Anthropic-style endpoint, whose headers OpenRouter's CORS rejects, so
-// the browser cannot call them.
+// Cheap and quick, and it calls tools. It has to be a model pi-ai reaches
+// over OpenRouter's chat-completions API: Anthropic models go through its
+// Anthropic-style endpoint, whose headers OpenRouter's CORS rejects, so the
+// browser cannot call them.
 export const goodVibesModelId = "openai/gpt-5.4-mini";
 
 const systemPrompt = `You are the assistant inside Good Vibes, a browser-based modular \
-synthesizer where people wire blocks together on a canvas to make sound. Be warm, \
-brief, and plain-spoken. Reply in one or two short sentences.`;
+synthesizer where people wire blocks together on a canvas to make sound. Your one \
+tool takes a list of actions on the rack. Look at the rack with a describe action \
+before changing it: the other actions take their ids from what it says, and it lists \
+what the catalogue can add. Put a whole change in one list where you can: add a \
+block under an id you choose, then patch it and set its params by that id in the \
+same list. A rack is only heard through a Destination block, and only once the user \
+presses Run; you cannot start audio yourself. Be warm, brief, and plain-spoken. \
+After acting, say what changed in a sentence; otherwise reply in one or two short \
+sentences.`;
 
 const models = createModels();
 models.setProvider(openrouterProvider());
@@ -29,6 +42,10 @@ export type GoodVibesAgent = {
   readonly messages: Stream.Stream<GoodVibesMessage>;
   // Stops the running reply; `prompt` then finishes with the text so far.
   readonly abort: Effect.Effect<void>;
+  // Answers an action the agent asked for, by the id of its message. The
+  // agent waits on this before it carries on, so whoever listens to
+  // `messages` has to settle every requested action.
+  readonly settle: (id: string, result: ActionResult) => void;
 };
 
 // The parts of one assistant reply as our messages. `reply` numbers the
@@ -61,18 +78,25 @@ export const createGoodVibesAgent = (
       );
     }
 
-    // Read per request, see ApiKey.
-    const agent = new Agent({
-      initialState: { systemPrompt, model, tools: [] },
-      streamFn: models.streamSimple.bind(models),
-      getApiKey: (provider) =>
-        provider === "openrouter" ? apiKey() : undefined,
-    });
-
     const said = yield* Effect.acquireRelease(
       PubSub.unbounded<GoodVibesMessage>(),
       PubSub.shutdown,
     );
+    const { request, settle } = actionRequests((message) =>
+      PubSub.publishUnsafe(said, message),
+    );
+
+    // Read per request, see ApiKey.
+    const agent = new Agent({
+      initialState: {
+        systemPrompt,
+        model,
+        tools: [rackActionsTool(request)],
+      },
+      streamFn: models.streamSimple.bind(models),
+      getApiKey: (provider) =>
+        provider === "openrouter" ? apiKey() : undefined,
+    });
 
     let reply = 0;
     const unsubscribe = agent.subscribe((event) => {
@@ -115,5 +139,5 @@ export const createGoodVibesAgent = (
         Effect.onInterrupt(() => abort),
       );
 
-    return { prompt, messages: Stream.fromPubSub(said), abort };
+    return { prompt, messages: Stream.fromPubSub(said), abort, settle };
   });

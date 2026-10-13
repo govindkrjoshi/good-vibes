@@ -2,22 +2,48 @@ import { Effect, PubSub, Stream } from "effect";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GoodVibesAgent } from "./agent";
 import { createSession, type CreateAgent, type Session } from "./session";
-import { PromptError, type GoodVibesMessage } from "./types";
+import {
+  PromptError,
+  type ActionResult,
+  type GoodVibesMessage,
+  type RackAction,
+} from "./types";
 
 // Stands in for the agent: a prompt says its reply a word at a time, then
-// settles however `outcome` says.
+// settles however `outcome` says. `ask` sends an action out and gives back
+// what the session settles it with.
 const fakeAgent = () => {
   const said = Effect.runSync(PubSub.unbounded<GoodVibesMessage>());
   const say = (message: GoodVibesMessage) =>
     PubSub.publishUnsafe(said, message);
   let reply = 0;
+  let asked = 0;
   const aborted = vi.fn();
+  const settled = new Map<string, (result: ActionResult) => void>();
   let outcome: Effect.Effect<void, PromptError> = Effect.void;
   const agent = {
     set outcome(value: Effect.Effect<void, PromptError>) {
       outcome = value;
     },
     say,
+    ask: (action: RackAction) =>
+      new Promise<ActionResult>((resolve) => {
+        const id = `action-${asked++}`;
+        settled.set(id, (result) => {
+          say({
+            type: "action",
+            id,
+            action,
+            status: result.ok ? "done" : "failed",
+            result,
+          });
+          resolve(result);
+        });
+        say({ type: "action", id, action, status: "requested" });
+      }),
+    settle: vi.fn((id: string, result: ActionResult) =>
+      settled.get(id)?.(result),
+    ),
     prompt: vi.fn((text: string) =>
       Effect.suspend(() => {
         void text;
@@ -37,8 +63,10 @@ const fakeAgent = () => {
 let agent: ReturnType<typeof fakeAgent>;
 const createAgent = vi.fn<CreateAgent>();
 const askForKey = vi.fn<() => Promise<string>>();
+const applyAction = vi.fn<(action: RackAction) => ActionResult>();
 
-const session = (): Session => createSession({ askForKey, createAgent });
+const session = (): Session =>
+  createSession({ askForKey, applyAction, createAgent });
 
 // The key the agent would send with its next request.
 const agentKey = () => createAgent.mock.calls[0]?.[0]();
@@ -50,11 +78,13 @@ beforeEach(() => {
   agent = fakeAgent();
   createAgent.mockImplementation(() => Effect.succeed(agent as GoodVibesAgent));
   askForKey.mockResolvedValue("sk-or-typed");
+  applyAction.mockReturnValue({ ok: true, text: "Added AMSynth." });
 });
 
 afterEach(() => {
   createAgent.mockReset();
   askForKey.mockReset();
+  applyAction.mockReset();
 });
 
 test("asks for a key when none is known, then uses it", async () => {
@@ -222,4 +252,87 @@ test("stops listening once closed", async () => {
   await flush();
 
   expect(chat.getState().messages).toHaveLength(2);
+});
+
+const addSynth: RackAction = {
+  kind: "add_block",
+  id: "synth-1",
+  category: "instruments",
+  entry: "AMSynth",
+};
+
+test("applies what the agent asks for and settles it with the result", async () => {
+  const chat = session();
+  const seen: (string | undefined)[] = [];
+  chat.subscribe(() => seen.push(chat.getState().messages.at(-1)?.status));
+  let result: ActionResult | undefined;
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.promise(async () => {
+      result = await agent.ask(addSynth);
+      agent.say({ type: "message", id: "1-1", text: "Done" });
+    }),
+  );
+
+  await chat.prompt("add a synth");
+
+  expect(applyAction).toHaveBeenCalledWith(addSynth);
+  expect(agent.settle).toHaveBeenCalledWith("action-0", {
+    ok: true,
+    text: "Added AMSynth.",
+  });
+  expect(result).toEqual({ ok: true, text: "Added AMSynth." });
+  expect(seen).toContain("requested");
+  expect(chat.getState().messages.slice(1)).toEqual([
+    {
+      id: "agent-action-0",
+      role: "assistant",
+      kind: "action",
+      text: "Added AMSynth.",
+      status: "done",
+    },
+    { id: "agent-1-1", role: "assistant", kind: "message", text: "Done" },
+  ]);
+});
+
+test("shows a refused action with why", async () => {
+  applyAction.mockReturnValue({ ok: false, text: "No such block." });
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.promise(async () => {
+      await agent.ask({ kind: "remove_blocks", blockIds: ["nope"] });
+    }),
+  );
+  const chat = session();
+
+  await chat.prompt("remove it");
+
+  expect(chat.getState().messages.at(-1)).toEqual({
+    id: "agent-action-0",
+    role: "assistant",
+    kind: "action",
+    text: "Removing a block",
+    status: "failed",
+    error: "No such block.",
+  });
+});
+
+test("tells the agent when applying throws, instead of leaving it waiting", async () => {
+  applyAction.mockImplementation(() => {
+    throw new Error("Store is gone");
+  });
+  let result: ActionResult | undefined;
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.promise(async () => {
+      result = await agent.ask({ kind: "describe" });
+    }),
+  );
+  const chat = session();
+
+  await chat.prompt("what is there?");
+
+  expect(result).toEqual({ ok: false, text: "Store is gone" });
+  expect(chat.getState().messages.at(-1)).toMatchObject({
+    kind: "action",
+    status: "failed",
+    error: "Store is gone",
+  });
 });

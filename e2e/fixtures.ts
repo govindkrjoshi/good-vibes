@@ -9,17 +9,49 @@ const apiKeyStorageKey = "good-vibes:openrouter-api-key";
 
 const fallbackReply = "Hello from Good Vibes.";
 
+// What the fake model says in reply to one request: words, or a call to one
+// of the agent's tools.
+export type Reply =
+  | string
+  | { readonly tool: string; readonly args: Readonly<Record<string, unknown>> };
+
 // OpenRouter's chat-completions stream, cut down to what pi-ai reads.
-const completion = (text: string) =>
-  [
-    { choices: [{ index: 0, delta: { role: "assistant", content: text } }] },
-    {
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-    },
-  ]
-    .map((chunk) => `data: ${JSON.stringify({ id: "gen", ...chunk })}\n\n`)
-    .join("") + "data: [DONE]\n\n";
+const completion = (reply: Reply) => {
+  const delta =
+    typeof reply === "string"
+      ? { role: "assistant", content: reply }
+      : {
+          role: "assistant",
+          tool_calls: [
+            {
+              index: 0,
+              id: "call",
+              type: "function",
+              function: {
+                name: reply.tool,
+                arguments: JSON.stringify(reply.args),
+              },
+            },
+          ],
+        };
+  return (
+    [
+      { choices: [{ index: 0, delta }] },
+      {
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: typeof reply === "string" ? "stop" : "tool_calls",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      },
+    ]
+      .map((chunk) => `data: ${JSON.stringify({ id: "gen", ...chunk })}\n\n`)
+      .join("") + "data: [DONE]\n\n"
+  );
+};
 
 export async function openSandboxPage(page: Page) {
   // The toolbar is server-rendered, so it shows up before hydration and cannot
@@ -38,7 +70,7 @@ export async function openSandboxPage(page: Page) {
 type Options = {
   // What the fake OpenRouter says, one reply per request in order; once they
   // run out it keeps giving the fallback.
-  readonly openRouterReplies: readonly string[];
+  readonly openRouterReplies: readonly Reply[];
 };
 
 export const test = base.extend<Options>({

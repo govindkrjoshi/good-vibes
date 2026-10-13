@@ -7,7 +7,9 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
+import { applyAction } from "../../actions";
 import { createSession, type ChatMessage } from "../../agent";
+import { rackStore } from "../../rack";
 import { ApiKeyDialog } from "./api-key-dialog";
 
 export type { ChatMessage } from "../../agent";
@@ -42,7 +44,8 @@ const keyRequest = (): KeyRequest => {
 };
 
 // Runs one agent session in the browser for as long as the provider is
-// mounted, and shows the key dialog whenever the session asks for one.
+// mounted, shows the key dialog whenever the session asks for one, and makes
+// the changes the agent asks for on the rack store.
 export function GoodVibesAgentProvider({
   children,
 }: {
@@ -59,6 +62,7 @@ export function GoodVibesAgentProvider({
         setRequest(asked);
         return asked.promise;
       },
+      applyAction: (action) => applyAction(rackStore, action),
     }),
   );
   const state = useSyncExternalStore(
