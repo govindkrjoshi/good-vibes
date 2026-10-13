@@ -21,10 +21,12 @@ export default defineConfig(({ command, mode }) => ({
   // which made the e2e suite flaky on a cold cache.
   optimizeDeps: {
     include: [
+      "@base-ui/react/avatar",
       "@base-ui/react/button",
       "@base-ui/react/collapsible",
       "@base-ui/react/input",
       "@base-ui/react/menu",
+      "@base-ui/react/merge-props",
       "@base-ui/react/popover",
       "@base-ui/react/select",
       "@base-ui/react/separator",
@@ -34,10 +36,12 @@ export default defineConfig(({ command, mode }) => ({
       "@base-ui/react/toggle-group",
       "@base-ui/react/toolbar",
       "@base-ui/react/tooltip",
+      "@base-ui/react/use-render",
       "@dagrejs/dagre",
       "@earendil-works/pi-agent-core",
       "@earendil-works/pi-ai",
       "@earendil-works/pi-ai/providers/openrouter",
+      "@shadcn/react/message-scroller",
       "@xyflow/react",
       "class-variance-authority",
       "cn",
