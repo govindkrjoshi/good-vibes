@@ -9,7 +9,7 @@ import {
 
 import type { Route } from "./+types/root";
 import { TooltipProvider } from "./components/ui/tooltip";
-import { SandboxProvider } from "./hooks/useSandbox";
+import { SandboxProvider } from "./components/sandbox/sandbox-provider";
 import "@xyflow/react/dist/style.css";
 import "./app.css";
 

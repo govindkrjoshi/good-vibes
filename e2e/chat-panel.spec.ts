@@ -4,7 +4,7 @@ import { boxOf, canvas } from "./helpers";
 
 const chat = (page: Page) => page.getByTestId("chat-panel");
 
-test.use({ openRouterReplies: ["Hello from the rack.", "Try a reverb."] });
+test.use({ openRouterReplies: ["Try a reverb."] });
 
 test("docks the chat to the left of the canvas", async ({ page }) => {
   const panel = await boxOf(chat(page), "chat panel");
@@ -14,8 +14,9 @@ test("docks the chat to the left of the canvas", async ({ page }) => {
   expect(panel.x + panel.width).toBeLessThanOrEqual(pane.x + 1);
 });
 
-test("shows the greeting, then a conversation", async ({ page }) => {
-  await expect(chat(page)).toContainText("Hello from the rack.");
+test("starts empty, then holds a conversation", async ({ page }) => {
+  await expect(chat(page)).toContainText("Talk to the agent");
+  await expect(chat(page).locator("[data-role]")).toHaveCount(0);
 
   await page.getByTestId("chat-input").fill("How do I add space?");
   await page.getByTestId("chat-input").press("Enter");

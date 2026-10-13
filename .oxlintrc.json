@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "overrides": [
+    {
+      "files": [
+        "app/rack/**",
+        "app/catalogue/**",
+        "app/canvas/**",
+        "app/agent/**",
+        "app/sandbox/**"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "react", "message": "Modules are headless: no React." },
+              { "name": "react-dom", "message": "Modules are headless: no React." },
+              { "name": "zustand/react/shallow", "message": "Modules are headless: bind to stores from hooks/." }
+            ],
+            "patterns": [
+              {
+                "group": ["react-dom/*", "react/*"],
+                "message": "Modules are headless: no React."
+              },
+              {
+                "group": ["**/components/**", "**/components", "**/hooks/**", "**/hooks", "**/pages/**", "**/pages"],
+                "message": "Modules are headless: they import only other modules."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["app/components/**", "app/hooks/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/pages/**", "**/pages"],
+                "message": "Nothing imports from pages; pages compose components."
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

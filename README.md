@@ -3,6 +3,29 @@
 React Router frontend for Good Vibes. A single pnpm package: app code lives in
 `app/`, Playwright end-to-end tests in `e2e/`.
 
+## Layout
+
+`app/` is split into headless modules and the UI that fronts them.
+
+```
+app/
+  rack/         the rack model, its store, and the Tone.js renderer
+  catalogue/    templates for the blocks a user can add
+  canvas/       rack → React Flow graph projection and layout
+  agent/        the chat session, its key handling, and the agent itself
+  sandbox/      the sandboxed page and its CSP
+  pages/        one directory per route; composition only
+  components/   React components, grouped by the module they front
+  hooks/        thin React bindings, such as useRack over the rack store
+```
+
+Modules hold logic only: no React, no JSX, no DOM, and no imports from
+`components`, `hooks` or `pages`. Modules import each other in one direction:
+`catalogue` and `canvas` use `rack`; `agent` and `sandbox` stand alone.
+Components import modules, `components/ui` and `hooks`. Pages import anything;
+nothing imports from `pages`. `.oxlintrc.json` enforces these boundaries, so
+`pnpm lint` fails on a crossing.
+
 ## Commands
 
 ```sh
@@ -17,10 +40,9 @@ pnpm lint
 
 ## Agent
 
-The home page asks an agent (`app/agent.ts`, built on
-`@earendil-works/pi-agent-core`) to greet the user and logs the reply to the
-browser console. The agent runs in the browser and calls OpenRouter directly,
-using the first key it finds:
+The chat panel on the home page talks to an agent (`app/agent/`, built on
+`@earendil-works/pi-agent-core`). The agent runs in the browser and calls
+OpenRouter directly, using the first key it finds:
 
 1. **Dev server only:** `OPENROUTER_API_KEY` from the shell or a `.env` file.
    `pnpm dev` hands it to the browser for testing.
