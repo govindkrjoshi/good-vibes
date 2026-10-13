@@ -4,9 +4,10 @@
 export {
   createSession,
   type ChatMessage,
+  type CreateAgent,
   type Session,
   type SessionOptions,
   type SessionState,
 } from "./session";
 export { apiKeyStorageKey, knownApiKey, storeApiKey } from "./key";
-export type { ApiKey } from "./types";
+export { PromptError, type ApiKey, type GoodVibesMessage } from "./types";

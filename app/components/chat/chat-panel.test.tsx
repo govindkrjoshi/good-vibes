@@ -99,8 +99,8 @@ test("does not send an empty message", () => {
 
 test("bubbles only the user's messages", () => {
   agent.messages = [
-    { id: "a", role: "user", text: "hello" },
-    { id: "b", role: "assistant", text: "Hi there" },
+    { id: "a", role: "user", kind: "message", text: "hello" },
+    { id: "b", role: "assistant", kind: "message", text: "Hi there" },
   ];
   render();
 
@@ -114,7 +114,7 @@ test("bubbles only the user's messages", () => {
 
 test("offers Stop while the agent is replying", () => {
   agent.busy = true;
-  agent.messages = [{ id: "a", role: "user", text: "hello" }];
+  agent.messages = [{ id: "a", role: "user", kind: "message", text: "hello" }];
   render();
 
   expect(container.textContent).toContain("Thinking…");

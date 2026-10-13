@@ -1,45 +1,38 @@
 // @vitest-environment happy-dom
 
-import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import { Effect, PubSub, Stream } from "effect";
 import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { apiKeyStorageKey } from "../../agent/key";
+import { PromptError, type GoodVibesMessage } from "../../agent/types";
 import { GoodVibesAgentProvider, useGoodVibesAgent } from "./agent-provider";
 
-type Listener = (event: AgentEvent) => void;
-
-const assistant = (text: string, extra: object = {}) => ({
-  role: "assistant",
-  content: text === "" ? [] : [{ type: "text", text }],
-  stopReason: "stop",
-  ...extra,
-});
-
-const reply = assistant("Hi there");
-
-// Stands in for pi-agent-core's Agent: a prompt streams the user's message,
-// then the agent's reply a word at a time.
+// Stands in for the agent: a prompt says its reply a word at a time, then
+// settles however `outcome` says.
 const fakeAgent = () => {
-  const listeners: Listener[] = [];
-  const emit = (event: object) => {
-    for (const listener of listeners) listener(event as AgentEvent);
-  };
+  const said = Effect.runSync(PubSub.unbounded<GoodVibesMessage>());
+  const say = (message: GoodVibesMessage) =>
+    PubSub.publishUnsafe(said, message);
+  let reply = 0;
+  const aborted = vi.fn();
+  let outcome: Effect.Effect<void, PromptError> = Effect.void;
   const agent = {
-    final: reply as object,
-    subscribe: vi.fn((listener: Listener) => {
-      listeners.push(listener);
-      return () => {};
-    }),
-    prompt: vi.fn(async (text: string) => {
-      const user = { role: "user", content: text };
-      emit({ type: "message_start", message: user });
-      emit({ type: "message_end", message: user });
-      emit({ type: "message_start", message: assistant("") });
-      emit({ type: "message_update", message: assistant("Hi") });
-      emit({ type: "message_end", message: agent.final });
-    }),
-    abort: vi.fn(),
+    set outcome(value: Effect.Effect<void, PromptError>) {
+      outcome = value;
+    },
+    prompt: vi.fn((text: string) =>
+      Effect.suspend(() => {
+        void text;
+        reply += 1;
+        say({ type: "message", id: `${reply}-0`, text: "Hi" });
+        say({ type: "message", id: `${reply}-0`, text: "Hi there" });
+        return outcome;
+      }),
+    ),
+    messages: Stream.fromPubSub(said),
+    abort: Effect.sync(() => aborted()),
+    aborted,
   };
   return agent;
 };
@@ -104,7 +97,7 @@ function enterKey(key: string) {
 beforeEach(() => {
   current = undefined;
   agent = fakeAgent();
-  createGoodVibesAgent.mockReturnValue(agent);
+  createGoodVibesAgent.mockReturnValue(Effect.succeed(agent));
   // happy-dom's dialog does not implement the modal API.
   HTMLDialogElement.prototype.showModal ??= function (this: HTMLDialogElement) {
     this.open = true;
@@ -177,7 +170,6 @@ test("keeps one agent across prompts", async () => {
   await current?.prompt("two");
 
   expect(createGoodVibesAgent).toHaveBeenCalledTimes(1);
-  expect(agent.subscribe).toHaveBeenCalledTimes(1);
   expect(agent.prompt).toHaveBeenCalledTimes(2);
 });
 
@@ -207,8 +199,8 @@ test("keeps the conversation as it streams in", async () => {
   await act(() => current?.prompt("hello"));
 
   expect(current?.messages).toEqual([
-    { id: "message-0", role: "user", text: "hello" },
-    { id: "message-1", role: "assistant", text: "Hi there" },
+    { id: "user-0", role: "user", kind: "message", text: "hello" },
+    { id: "agent-1-0", role: "assistant", kind: "message", text: "Hi there" },
   ]);
 });
 
@@ -216,8 +208,8 @@ test("is busy from sending until the reply ends", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
   let finish!: () => void;
   render(<Probe />);
-  agent.prompt.mockImplementationOnce(
-    () => new Promise<void>((resolve) => (finish = resolve)),
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.promise(() => new Promise<void>((resolve) => (finish = resolve))),
   );
 
   let done: Promise<void> | undefined;
@@ -236,10 +228,9 @@ test("is busy from sending until the reply ends", async () => {
 
 test("shows why a reply failed", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
-  agent.final = assistant("", {
-    stopReason: "error",
-    errorMessage: "401 Unauthorized",
-  });
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.fail(new PromptError({ message: "401 Unauthorized" })),
+  );
   render(<Probe />);
 
   await act(() => current?.prompt("hello"));
@@ -259,7 +250,7 @@ test("stops the running reply", async () => {
   act(() => current?.abort());
   await flush();
 
-  expect(agent.abort).toHaveBeenCalledTimes(1);
+  expect(agent.aborted).toHaveBeenCalledTimes(1);
 });
 
 test("uses a key changed in settings for the running agent", async () => {

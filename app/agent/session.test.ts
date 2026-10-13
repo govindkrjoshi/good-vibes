@@ -1,58 +1,54 @@
-import type { Agent, AgentEvent } from "@earendil-works/pi-agent-core";
+import { Effect, PubSub, Stream } from "effect";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { createSession, type Session } from "./session";
+import type { GoodVibesAgent } from "./agent";
+import { createSession, type CreateAgent, type Session } from "./session";
+import { PromptError, type GoodVibesMessage } from "./types";
 
-type Listener = (event: AgentEvent) => void;
-
-const assistant = (text: string, extra: object = {}) => ({
-  role: "assistant",
-  content: text === "" ? [] : [{ type: "text", text }],
-  stopReason: "stop",
-  ...extra,
-});
-
-// Stands in for pi-agent-core's Agent: a prompt streams the user's message,
-// then the agent's reply a word at a time.
+// Stands in for the agent: a prompt says its reply a word at a time, then
+// settles however `outcome` says.
 const fakeAgent = () => {
-  const listeners: Listener[] = [];
-  const emit = (event: object) => {
-    for (const listener of listeners) listener(event as AgentEvent);
-  };
+  const said = Effect.runSync(PubSub.unbounded<GoodVibesMessage>());
+  const say = (message: GoodVibesMessage) =>
+    PubSub.publishUnsafe(said, message);
+  let reply = 0;
+  const aborted = vi.fn();
+  let outcome: Effect.Effect<void, PromptError> = Effect.void;
   const agent = {
-    final: assistant("Hi there") as object,
-    subscribe: vi.fn((listener: Listener) => {
-      listeners.push(listener);
-      return () => {};
-    }),
-    prompt: vi.fn(async (text: string) => {
-      const user = { role: "user", content: text };
-      emit({ type: "message_start", message: user });
-      emit({ type: "message_end", message: user });
-      emit({ type: "message_start", message: assistant("") });
-      emit({ type: "message_update", message: assistant("Hi") });
-      emit({ type: "message_end", message: agent.final });
-    }),
-    abort: vi.fn(),
+    set outcome(value: Effect.Effect<void, PromptError>) {
+      outcome = value;
+    },
+    say,
+    prompt: vi.fn((text: string) =>
+      Effect.suspend(() => {
+        void text;
+        reply += 1;
+        say({ type: "message", id: `${reply}-0`, text: "Hi" });
+        say({ type: "message", id: `${reply}-0`, text: "Hi there" });
+        return outcome;
+      }),
+    ),
+    messages: Stream.fromPubSub(said),
+    abort: Effect.sync(() => aborted()),
+    aborted,
   };
   return agent;
 };
 
 let agent: ReturnType<typeof fakeAgent>;
-const createAgent = vi.fn();
+const createAgent = vi.fn<CreateAgent>();
 const askForKey = vi.fn<() => Promise<string>>();
 
 const session = (): Session => createSession({ askForKey, createAgent });
 
 // The key the agent would send with its next request.
-const agentKey = () =>
-  (createAgent.mock.calls[0]?.[0] as (() => string) | undefined)?.();
+const agentKey = () => createAgent.mock.calls[0]?.[0]();
 
 // Lets pending promises settle.
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   agent = fakeAgent();
-  createAgent.mockImplementation(async () => agent as unknown as Agent);
+  createAgent.mockImplementation(() => Effect.succeed(agent as GoodVibesAgent));
   askForKey.mockResolvedValue("sk-or-typed");
 });
 
@@ -88,7 +84,6 @@ test("keeps one agent across prompts", async () => {
   await chat.prompt("two");
 
   expect(createAgent).toHaveBeenCalledTimes(1);
-  expect(agent.subscribe).toHaveBeenCalledTimes(1);
   expect(agent.prompt).toHaveBeenCalledTimes(2);
 });
 
@@ -100,6 +95,7 @@ test("fails the prompt when no key is given, and asks again next time", async ()
     "No OpenRouter API key was given",
   );
   expect(createAgent).not.toHaveBeenCalled();
+  expect(chat.getState().messages).toEqual([]);
 
   await chat.prompt("hello");
   expect(askForKey).toHaveBeenCalledTimes(2);
@@ -108,23 +104,47 @@ test("fails the prompt when no key is given, and asks again next time", async ()
 
 test("keeps the conversation as it streams in", async () => {
   const chat = session();
-  const seen: number[] = [];
-  chat.subscribe(() => seen.push(chat.getState().messages.length));
+  const seen: string[][] = [];
+  chat.subscribe(() =>
+    seen.push(chat.getState().messages.map((message) => message.text)),
+  );
 
   await chat.prompt("hello");
 
   expect(chat.getState().messages).toEqual([
-    { id: "message-0", role: "user", text: "hello" },
-    { id: "message-1", role: "assistant", text: "Hi there" },
+    { id: "user-0", role: "user", kind: "message", text: "hello" },
+    { id: "agent-1-0", role: "assistant", kind: "message", text: "Hi there" },
   ]);
-  expect(seen).toContain(1);
+  expect(seen).toContainEqual(["hello", "Hi"]);
+});
+
+test("shows the agent's thoughts apart from what it says", async () => {
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.sync(() => {
+      agent.say({ type: "thought", id: "1-0", text: "They said hello." });
+      agent.say({ type: "message", id: "1-1", text: "Hi there" });
+    }),
+  );
+  const chat = session();
+
+  await chat.prompt("hello");
+
+  expect(chat.getState().messages.slice(1)).toEqual([
+    {
+      id: "agent-1-0",
+      role: "assistant",
+      kind: "thought",
+      text: "They said hello.",
+    },
+    { id: "agent-1-1", role: "assistant", kind: "message", text: "Hi there" },
+  ]);
 });
 
 test("is busy from sending until the reply ends", async () => {
   const chat = session();
   let finish!: () => void;
-  agent.prompt.mockImplementationOnce(
-    () => new Promise<void>((resolve) => (finish = resolve)),
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.promise(() => new Promise<void>((resolve) => (finish = resolve))),
   );
 
   const done = chat.prompt("hello");
@@ -137,10 +157,9 @@ test("is busy from sending until the reply ends", async () => {
 });
 
 test("shows why a reply failed", async () => {
-  agent.final = assistant("", {
-    stopReason: "error",
-    errorMessage: "401 Unauthorized",
-  });
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.fail(new PromptError({ message: "401 Unauthorized" })),
+  );
   const chat = session();
 
   await chat.prompt("hello");
@@ -152,6 +171,19 @@ test("shows why a reply failed", async () => {
   });
 });
 
+test("shows a failure on the reply it cut short", async () => {
+  agent.outcome = Effect.fail(new PromptError({ message: "Connection lost" }));
+  const chat = session();
+
+  await chat.prompt("hello");
+
+  expect(chat.getState().messages.at(-1)).toMatchObject({
+    role: "assistant",
+    text: "Hi there",
+    error: "Connection lost",
+  });
+});
+
 test("stops the running reply", async () => {
   const chat = session();
   await chat.prompt("hello");
@@ -159,7 +191,7 @@ test("stops the running reply", async () => {
   chat.abort();
   await flush();
 
-  expect(agent.abort).toHaveBeenCalledTimes(1);
+  expect(agent.aborted).toHaveBeenCalledTimes(1);
 });
 
 test("does nothing on abort before any agent exists", async () => {
@@ -179,4 +211,15 @@ test("uses a key changed later for the running agent", async () => {
 
   expect(agentKey()).toBe("sk-or-new");
   expect(createAgent).toHaveBeenCalledTimes(1);
+});
+
+test("stops listening once closed", async () => {
+  const chat = session();
+  await chat.prompt("hello");
+
+  await chat.close();
+  agent.say({ type: "message", id: "9-0", text: "Still here?" });
+  await flush();
+
+  expect(chat.getState().messages).toHaveLength(2);
 });
