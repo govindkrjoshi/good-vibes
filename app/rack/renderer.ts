@@ -6,6 +6,8 @@ import {
   timeArg,
   Tone,
   type AutomationEvent,
+  type LeafCode,
+  type LeafEffect,
   type LeafRack,
   type Method,
   type Param,
@@ -75,8 +77,9 @@ export type RenderedRackState = {
   readonly events: ReadonlyMap<string, RenderedEvent>;
 };
 
-export type ToneRuntime = {
-  readonly rendered: Effect.Effect<RenderedRackState>;
+// The commands that change the live graph. Each names what changed by id and
+// reads the rest from the rack state, so they can be sent to another frame.
+export type RackRuntime = {
   // Throws away the whole graph and builds it again from the store.
   readonly render: Effect.Effect<void>;
   readonly addBlock: (blockId: string) => Effect.Effect<void, LeafError>;
@@ -98,6 +101,36 @@ export type ToneRuntime = {
   // Stops every event and rewinds the transport to the start.
   readonly stop: Effect.Effect<void>;
 };
+
+// The runtime as the frame that owns the Tone.js graph sees it, with the
+// nodes it built, which cannot leave that frame.
+export type ToneRuntime = RackRuntime & {
+  readonly rendered: Effect.Effect<RenderedRackState>;
+};
+
+// Turns a leaf's source into the Effect it describes. Only the sandbox frame
+// renders, so this only ever runs there (and in tests).
+export const evaluateLeafCode = (
+  code: LeafCode,
+): Effect.Effect<LeafEffect, LeafError> =>
+  Effect.try({
+    try: () => {
+      // oxlint-disable-next-line no-new-func
+      const make = new Function(
+        "Effect",
+        "Tone",
+        "LeafError",
+        `"use strict";\nreturn (\n${code}\n);`,
+      ) as (...scope: unknown[]) => unknown;
+      const effect = make(Effect, Tone, LeafError);
+      if (!Effect.isEffect(effect)) throw new Error("it is not an Effect");
+      return effect as LeafEffect;
+    },
+    catch: (cause) =>
+      new LeafError({
+        message: `Leaf code failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      }),
+  });
 
 const empty: RenderedRackState = {
   blocks: new Map(),
@@ -319,9 +352,24 @@ export const makeToneRuntime = (
 
     const buildLeaf = (block: LeafRack) =>
       Effect.gen(function* () {
-        const node = yield* block
-          .code()
-          .pipe(Effect.provideService(Tone, tone));
+        const code = yield* evaluateLeafCode(block.code);
+        const node = yield* code.pipe(
+          Effect.provideService(Tone, tone),
+          // Leaf code is untrusted, so a throw or a defect inside it is the
+          // leaf failing, not the render.
+          Effect.catchDefect((cause) =>
+            Effect.fail(
+              new LeafError({
+                message: `Leaf code failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+              }),
+            ),
+          ),
+        );
+        if (!(node instanceof tone.ToneAudioNode)) {
+          return yield* new LeafError({
+            message: "Leaf code did not build a Tone.js node",
+          });
+        }
         // A node that cannot take its params is not kept half set up.
         yield* applyParams(node, block).pipe(
           Effect.tapError(() => Effect.sync(() => release(node))),

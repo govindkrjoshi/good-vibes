@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import { Tone, type RackTemplate } from "../rack/model";
+import { type RackTemplate } from "../rack/model";
 
 export type CatalogueEntry = {
   readonly name: string;
@@ -17,13 +16,12 @@ const amOscillatorRack: RackTemplate = {
   isRoot: false,
   jackIds: [],
   params: {},
-  code: () =>
-    Effect.gen(function* () {
-      const tone = yield* Tone;
-      // An oscillator makes no sound until started, and has no trigger
-      // method to start it later, so it runs from the moment it is built.
-      return new tone.AMOscillator().start();
-    }),
+  // An oscillator makes no sound until started, and has no trigger method to
+  // start it later, so it runs from the moment it is built.
+  code: `Effect.gen(function* () {
+  const tone = yield* Tone;
+  return new tone.AMOscillator().start();
+})`,
 };
 
 const amSynthRack: RackTemplate = {
@@ -302,11 +300,10 @@ const amSynthRack: RackTemplate = {
       mute: false,
     },
   },
-  code: () =>
-    Effect.gen(function* () {
-      const tone = yield* Tone;
-      return new tone.AMSynth();
-    }),
+  code: `Effect.gen(function* () {
+  const tone = yield* Tone;
+  return new tone.AMSynth();
+})`,
 };
 
 // The speakers. Anything patched into it is sent to Tone's destination.
@@ -318,11 +315,10 @@ const destinationRack: RackTemplate = {
   jackIds: [],
   jacks: ["in"],
   params: {},
-  code: () =>
-    Effect.gen(function* () {
-      const tone = yield* Tone;
-      return tone.getDestination();
-    }),
+  code: `Effect.gen(function* () {
+  const tone = yield* Tone;
+  return tone.getDestination();
+})`,
 };
 
 export const CATALOGUE: Catalogue = {

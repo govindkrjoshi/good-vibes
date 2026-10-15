@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useReactFlow, useStore } from "@xyflow/react";
 import { CanvasMenu } from "./menu";
 import { HelpButton } from "./help-button";
@@ -8,7 +7,6 @@ import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./lock-store";
 import { catalogueTemplate } from "../../catalogue";
 import { useRack } from "../../hooks/useRack";
-import { loadTone } from "../../rack";
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
@@ -27,12 +25,6 @@ export function CanvasChrome() {
       state.edges.some((edge) => edge.selected === true),
   );
   const canDelete = !locked && hasSelection;
-
-  // Ready before the first Run, so audio can start inside its click. A load
-  // that fails here is tried again by Run.
-  useEffect(() => {
-    loadTone().catch(() => undefined);
-  }, []);
 
   const addLeaf = () => addBlock("leaf");
   const addGroup = () => addBlock("tree");

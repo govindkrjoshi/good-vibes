@@ -1,9 +1,10 @@
 import { reactRouter } from "@react-router/dev/vite";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
+import { sandboxBundle } from "./sandbox-bundle.ts";
 
 export default defineConfig(({ command, mode }) => ({
-  plugins: [tailwindcss(), reactRouter()],
+  plugins: [tailwindcss(), reactRouter(), sandboxBundle()],
   define: {
     // The dev server hands its OpenRouter key (from the shell or a .env file)
     // to the browser for testing. Builds never embed one; users enter their

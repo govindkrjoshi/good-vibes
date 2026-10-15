@@ -1,10 +1,12 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { blocks, connect } from "./helpers";
+import { blocks, connect, sandboxFrame } from "./helpers";
 
 // A test cannot listen, so it counts what a note takes instead: every attack
 // and release moves an envelope with one of the browser's ramps. Building the
 // graph only sets values, so the count moves only while something plays.
+// Audio runs in the sandbox frame, and the script runs in every frame, so the
+// count that moves is the frame's.
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const counted = window as unknown as { rampsScheduled: number };
@@ -55,7 +57,12 @@ test("plays its riff from a synth patched into the destination", async ({
       warnings.push(message.text());
     }
   });
+  const frame = await sandboxFrame(page);
   const rampsScheduled = () =>
+    frame.evaluate(
+      () => (window as unknown as { rampsScheduled: number }).rampsScheduled,
+    );
+  const appRamps = () =>
     page.evaluate(
       () => (window as unknown as { rampsScheduled: number }).rampsScheduled,
     );
@@ -81,4 +88,6 @@ test("plays its riff from a synth patched into the destination", async ({
     expect(await rampsScheduled()).toBeGreaterThan(before);
   }).toPass();
   expect(warnings).toEqual([]);
+  // The app itself builds no audio.
+  expect(await appRamps()).toBe(0);
 });

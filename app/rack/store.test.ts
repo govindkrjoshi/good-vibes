@@ -55,12 +55,13 @@ test("points every added block back at its parent", () => {
   expect(block.isRoot).toBe(false);
 });
 
-test("gives a leaf block code that returns an Effect", () => {
+test("gives a leaf block code as source, so it can be sent to the sandbox", () => {
   state().addBlock("leaf");
 
   const block = state().blocks[children()[0]];
   if (block.type !== "leaf") throw new Error("expected a leaf block");
-  expect(Effect.isEffect(block.code())).toBe(true);
+  expect(block.code).toContain("Leaf has no code");
+  expect(structuredClone(block)).toEqual(block);
 });
 
 test("gives a group block its own empty children and patches", () => {

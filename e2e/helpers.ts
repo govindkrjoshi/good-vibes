@@ -1,4 +1,4 @@
-import { type Locator, type Page } from "@playwright/test";
+import { type Frame, type Locator, type Page } from "@playwright/test";
 
 export const toolbar = (page: Page) =>
   page.getByRole("toolbar", { name: "Rack tools" });
@@ -58,4 +58,14 @@ export async function connect(page: Page, from: Locator, to: Locator) {
   await page.mouse.up();
 
   return valid;
+}
+
+// The frame the rack's audio runs in.
+export async function sandboxFrame(page: Page): Promise<Frame> {
+  const handle = await page
+    .locator('iframe[title="Code sandbox"]')
+    .elementHandle();
+  const frame = await handle?.contentFrame();
+  if (!frame) throw new Error("sandbox frame not found");
+  return frame;
 }

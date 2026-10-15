@@ -3,6 +3,7 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { noopRuntime, rackStore } from "../../rack";
 import { SandboxProvider, useSandbox } from "./sandbox-provider";
 
 type SandboxApi = ReturnType<typeof useSandbox>;
@@ -35,6 +36,13 @@ function render(children: ReactNode = <Probe />) {
   return { iframe };
 }
 
+// What the frame would say as it loads, from its own window or another.
+const ready = (source: Window | null, boot = "one") =>
+  new MessageEvent("message", {
+    data: { channel: "good-vibes:sandbox", type: "ready", boot },
+    source,
+  });
+
 beforeEach(() => {
   current = undefined;
 });
@@ -45,12 +53,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-test("renders the iframe as an opaque-origin script-only sandbox", () => {
+test("renders the iframe as a hidden opaque-origin script-only sandbox", () => {
   const { iframe } = render();
 
   expect(iframe.getAttribute("src")).toBe("about:blank");
   expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
   expect(iframe.getAttribute("sandbox")).not.toContain("allow-same-origin");
+  expect(iframe.getAttribute("allow")).toBe("autoplay");
   expect(iframe.className).toContain("hidden");
 });
 
@@ -59,24 +68,58 @@ test("logs to the console once on mount", () => {
   render();
 
   expect(log).toHaveBeenCalledWith("Sandbox loaded");
-
-  act(() => current?.setCount(3));
   expect(log).toHaveBeenCalledTimes(1);
 });
 
-test("starts the counter at zero and updates it through the hook", () => {
+test("plugs the frame's runtime into the rack store while mounted", () => {
   render();
 
-  expect(current?.count).toBe(0);
+  expect(rackStore.getState().runtime).not.toBe(noopRuntime);
 
-  act(() => current?.setCount((count) => count + 1));
-  expect(current?.count).toBe(1);
+  act(() => root.unmount());
+  expect(rackStore.getState().runtime).toBe(noopRuntime);
+  render();
+});
 
-  act(() => current?.setCount(7));
-  expect(current?.count).toBe(7);
+test("hands a port to its own frame once per load, and to no other window", () => {
+  const { iframe } = render();
+  const frame = iframe.contentWindow;
+  if (frame === null) throw new Error("no frame window");
+  const post = vi.spyOn(frame, "postMessage");
 
-  act(() => current?.setCount(0));
-  expect(current?.count).toBe(0);
+  act(() => {
+    window.dispatchEvent(ready(window));
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: { channel: "good-vibes:sandbox", type: "nope" },
+        source: frame,
+      }),
+    );
+  });
+  expect(post).not.toHaveBeenCalled();
+
+  act(() => {
+    window.dispatchEvent(ready(frame));
+    window.dispatchEvent(ready(frame));
+  });
+  expect(post).toHaveBeenCalledTimes(1);
+  const [message, , transfer] = post.mock.calls[0] as unknown as [
+    unknown,
+    string,
+    MessagePort[],
+  ];
+  expect(message).toEqual({ channel: "good-vibes:sandbox", type: "connect" });
+  expect(transfer).toHaveLength(1);
+
+  // A frame that loaded again is connected again.
+  act(() => window.dispatchEvent(ready(frame, "two")));
+  expect(post).toHaveBeenCalledTimes(2);
+});
+
+test("starts with no audio state", () => {
+  render();
+
+  expect(current?.audio).toBeUndefined();
 });
 
 test("throws when used outside the provider", () => {

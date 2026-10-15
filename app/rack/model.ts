@@ -1,4 +1,5 @@
-import { Context, Data, Effect, Schema } from "effect";
+import { Context, Data, Schema } from "effect";
+import type { Effect } from "effect";
 import type * as ToneJs from "tone";
 
 type ToneNode = ToneJs.ToneAudioNode;
@@ -12,9 +13,20 @@ export class LeafError extends Data.TaggedError("LeafError")<{
   readonly message: string;
 }> {}
 
-// What a leaf block runs to make its Tone.js node. Param values are applied
-// by the renderer afterwards, so the code only has to construct the node.
-export type LeafCode = () => Effect.Effect<ToneNode, LeafError, Tone>;
+// What a leaf block runs to make its Tone.js node: the source of a JavaScript
+// expression that evaluates to an Effect needing Tone, such as
+//
+//   Effect.gen(function* () {
+//     const tone = yield* Tone;
+//     return new tone.AMSynth();
+//   })
+//
+// It is kept as source rather than a function so the rack can be handed to the
+// sandbox frame, which is the only place it is ever evaluated. There `Effect`,
+// `Tone` and `LeafError` are in scope. Param values are applied by the renderer
+// afterwards, so the code only has to construct the node.
+export type LeafCode = string;
+export type LeafEffect = Effect.Effect<ToneNode, LeafError, Tone>;
 
 const JackSchema = Schema.Struct({
   id: Schema.String,
@@ -117,14 +129,11 @@ const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
   ),
 });
 
-const CodeSchema = Schema.declare(
-  (input): input is LeafCode => typeof input === "function",
-  {
-    title: "Code",
-    description:
-      "A function returning the Effect that builds a leaf's Tone.js node",
-  },
-);
+const CodeSchema = Schema.String.annotate({
+  title: "Code",
+  description:
+    "Source of an expression evaluating to the Effect that builds a leaf's Tone.js node",
+});
 
 const MethodArgKindSchema = Schema.Literals([
   "boolean",
@@ -275,13 +284,15 @@ export type Transport = Schema.Schema.Type<typeof TransportSchema>;
 // will make it. `time` is when it lands (or, for the two ramp-to-value calls,
 // when the ramp ends); `rampTime` is only read by `rampTo`, which ramps over a
 // duration starting at `time`.
-export type AutomationEvent = {
-  readonly id: string;
-  readonly method: RampMethod;
-  readonly value: number;
-  readonly time: string;
-  readonly rampTime?: string;
-};
+const AutomationEventSchema = Schema.Struct({
+  id: Schema.String,
+  method: RampMethodSchema,
+  value: Schema.Number,
+  time: Schema.String,
+  rampTime: Schema.optionalKey(Schema.String),
+});
+
+export type AutomationEvent = Schema.Schema.Type<typeof AutomationEventSchema>;
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
@@ -397,21 +408,31 @@ export const makeBlock = (
         type: "leaf",
         // A new leaf has no Tone.js node until the editor gives it code, so
         // rendering it fails rather than silently producing nothing.
-        code: () => Effect.fail(new LeafError({ message: "Leaf has no code" })),
+        code: 'Effect.fail(new LeafError({ message: "Leaf has no code" }))',
       });
 };
 
 // Everything the rack holds, keyed by id. The store keeps one of these and
-// the renderer reads it to build the audio graph.
-export type RackState = {
-  readonly blocks: Record<string, Rack>;
-  readonly jacks: Record<string, Jack>;
-  readonly params: Record<string, Param>;
-  readonly methods: Record<string, Method>;
-  readonly values: Record<string, ParamValue>;
-  readonly automations: Record<string, readonly AutomationEvent[]>;
-  readonly patches: Record<string, Patch>;
-  readonly events: Record<string, RackEvent>;
-  readonly transport: Transport;
-  readonly rootId: string;
-};
+// the renderer reads it to build the audio graph. It is plain data, so it can
+// be cloned into the sandbox frame, which checks it against this schema.
+export const RackStateSchema = Schema.Struct({
+  blocks: Schema.Record(Schema.String, RackSchema),
+  jacks: Schema.Record(Schema.String, JackSchema),
+  params: Schema.Record(Schema.String, ParamSchema),
+  methods: Schema.Record(Schema.String, MethodSchema),
+  values: Schema.Record(Schema.String, ParamValueSchema),
+  automations: Schema.Record(
+    Schema.String,
+    Schema.Array(AutomationEventSchema),
+  ),
+  patches: Schema.Record(Schema.String, PatchSchema),
+  events: Schema.Record(Schema.String, RackEventSchema),
+  transport: TransportSchema,
+  rootId: Schema.String,
+});
+
+export type RackState = Schema.Schema.Type<typeof RackStateSchema>;
+
+export const rackStateKeys = Object.keys(
+  RackStateSchema.fields,
+) as readonly (keyof RackState)[];

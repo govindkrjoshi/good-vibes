@@ -1,10 +1,8 @@
 import { Effect } from "effect";
-import type * as ToneJs from "tone";
 import { createStore } from "zustand";
-import { makeToneRuntime, noopRuntime, type ToneRuntime } from "./renderer";
+import { noopRuntime, type RackRuntime } from "./renderer";
 import {
   canPatch,
-  Tone,
   isRackEvent,
   makeBlock,
   makeDefaultJacks,
@@ -31,9 +29,11 @@ import {
 export type { RackState };
 
 export type RackStore = RackState & {
-  // The live Tone.js graph. Each action below that changes the rack tells it
-  // what changed, once the store itself has been updated.
-  readonly runtime: ToneRuntime;
+  // The live Tone.js graph, which lives in the sandbox frame; the sandbox
+  // provider plugs in its end once the frame is up. Each action below that
+  // changes the rack tells it what changed, once the store itself has been
+  // updated.
+  readonly runtime: RackRuntime;
   readonly addBlock: (blockType: "leaf" | "tree") => string | undefined;
   // Adds a block built from a template, such as a catalogue entry, under the
   // given id or a fresh one. Refused when the id is taken.
@@ -279,13 +279,8 @@ const acceptEvent = (
   }
 };
 
-// Tone, once it has loaded. See `run` for why it is kept.
-let toneModule: typeof ToneJs | undefined;
-// Loaded on demand rather than imported, so the server never imports Tone.
-export const loadTone = async () => (toneModule ??= await import("tone"));
-
-// Each Run waits for the one before it, so two quick ones cannot both build a
-// runtime, or render over each other.
+// Each Run waits for the one before it, so two quick ones cannot render over
+// each other.
 let running: Promise<void> = Promise.resolve();
 
 // A failure in the audio graph is the renderer's to report, not a reason to
@@ -688,8 +683,8 @@ export const rackStore = createStore<RackStore>()((set, get) => ({
     return true;
   },
 
-  // Queued behind any Run still loading Tone or building the runtime, so a
-  // Stop clicked straight after Run cannot be overtaken by it.
+  // Queued behind any Run still rendering, so a Stop clicked straight after
+  // Run cannot be overtaken by it.
   stop: () => {
     running = running
       .then(() => Effect.runPromise(get().runtime.stop))
@@ -697,26 +692,11 @@ export const rackStore = createStore<RackStore>()((set, get) => ({
   },
 
   // Starts audio and builds the rack's Tone.js graph, rebuilding it from
-  // scratch if it is already running. Browsers only let audio start from a
-  // user gesture, which the Run button, menu item and R shortcut all are.
-  // Safari counts the gesture as over once anything is awaited, so when Tone
-  // has already loaded (the canvas loads it up front) audio starts right here.
+  // scratch if it is already running. Audio starts in the sandbox frame, which
+  // asks for a click of its own when the browser will not let it start.
   run: () => {
-    const started = toneModule?.start();
-
     running = running
-      .then(async () => {
-        const tone = await loadTone();
-        await (started ?? tone.start());
-
-        if (get().runtime === noopRuntime) {
-          const runtime = await Effect.runPromise(
-            makeToneRuntime(get).pipe(Effect.provideService(Tone, tone)),
-          );
-          set({ runtime });
-        }
-        await Effect.runPromise(get().runtime.render);
-      })
+      .then(() => Effect.runPromise(get().runtime.render))
       .catch((error) => console.warn(error));
   },
 }));

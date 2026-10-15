@@ -15,7 +15,7 @@
     "e2e:report": "playwright show-report",
     "typecheck": "react-router typegen && tsc",
     "format": "prettier --write app e2e *.ts package.json tsconfig.json README.md --ignore-unknown --no-error-on-unmatched-pattern",
-    "lint": "oxlint app e2e react-router.config.ts vite.config.ts vitest.config.ts playwright.config.ts",
+    "lint": "oxlint app e2e react-router.config.ts vite.config.ts vitest.config.ts playwright.config.ts sandbox-bundle.ts",
     "precommit": "pnpm format && pnpm lint",
     "prepare": "husky"
   },

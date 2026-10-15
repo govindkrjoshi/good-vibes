@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { makeToneRuntime, type ToneRuntime } from "./renderer";
 import { CATALOGUE } from "../catalogue";
 import { rackStore } from "./store";
-import { LeafError, Tone, type RackTemplate } from "./model";
+import { Tone, type RackTemplate } from "./model";
 
 const template = (category: string, entry: string): RackTemplate => {
   const found = CATALOGUE[category]?.[entry]?.rack;
@@ -378,14 +378,83 @@ test("runLeafMethod fails with a LeafError for an unknown method", async () => {
   );
 });
 
+// Swaps a leaf's code for other source, as an edited leaf would have.
+const withCode = (blockId: string, code: string) => {
+  const block = store().blocks[blockId];
+  if (block?.type !== "leaf") throw new Error("expected a leaf");
+  rackStore.setState({
+    blocks: { ...store().blocks, [blockId]: { ...block, code } },
+  });
+};
+
+const leafFailure = async (runtime: ToneRuntime, blockId: string) => {
+  const block = (await rendered(runtime)).blocks.get(blockId);
+  if (block?.kind !== "leaf" || !Exit.isFailure(block.exit)) {
+    throw new Error(`${blockId} did not fail`);
+  }
+  return block.exit;
+};
+
+test.each([
+  ["does not parse", "Effect.gen(function* () {", "Leaf code failed"],
+  ["throws as it is read", "(() => { throw new Error('boom') })()", "boom"],
+  ["is not an Effect", "42", "it is not an Effect"],
+  [
+    "throws inside its Effect",
+    "Effect.sync(() => { throw new Error('inside') })",
+    "inside",
+  ],
+  [
+    "builds something else",
+    "Effect.succeed({})",
+    "did not build a Tone.js node",
+  ],
+])(
+  "a leaf whose code %s fails and the rest still render",
+  async (_, code, message) => {
+    const { synth, destination } = buildSampleRack();
+    withCode(synth, code);
+    const runtime = await makeRuntime();
+
+    await Effect.runPromise(runtime.render);
+
+    expect(await leafFailure(runtime, synth)).toEqual(
+      Exit.fail(
+        expect.objectContaining({
+          _tag: "LeafError",
+          message: expect.stringContaining(message),
+        }),
+      ),
+    );
+    expect(await nodeOf(runtime, destination)).toBe(ToneJs.getDestination());
+  },
+);
+
+test("leaf code sees Effect, Tone and LeafError, and nothing of the module", async () => {
+  const { synth } = buildSampleRack();
+  withCode(
+    synth,
+    `Effect.gen(function* () {
+      if (typeof makeToneRuntime !== "undefined") throw new Error("leaked");
+      const tone = yield* Tone;
+      return new tone.AMSynth();
+    })`,
+  );
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  expect(await nodeOf(runtime, synth)).toBeInstanceOf(ToneJs.AMSynth);
+});
+
 test("runLeafMethod on a failed leaf fails with that leaf's error", async () => {
   const { synth } = buildSampleRack();
   // Swap the synth's code for one that fails, as a broken leaf would.
   const block = store().blocks[synth];
   if (block?.type !== "leaf") throw new Error("expected a leaf");
-  const failing = Effect.fail(new LeafError({ message: "broken synth" }));
+  const failing = 'Effect.fail(new LeafError({ message: "broken synth" }))';
   rackStore.setState({
-    blocks: { ...store().blocks, [synth]: { ...block, code: () => failing } },
+    blocks: { ...store().blocks, [synth]: { ...block, code: failing } },
   });
   const runtime = await makeRuntime();
   await Effect.runPromise(runtime.render);

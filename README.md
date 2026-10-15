@@ -14,7 +14,7 @@ app/
   canvas/       rack → React Flow graph projection and layout
   agent/        the chat session, its key handling, and the agent itself
   actions/      applies the changes the agent asks for to the rack
-  sandbox/      the sandboxed page and its CSP
+  sandbox/      the sandboxed frame the audio runs in, and how the app talks to it
   pages/        one directory per route; composition only
   components/   React components, grouped by the module they front
   hooks/        thin React bindings, such as useRack over the rack store
@@ -23,7 +23,7 @@ app/
 Modules hold logic only: no React, no JSX, no DOM, and no imports from
 `components`, `hooks` or `pages`. Modules import each other in one direction:
 `catalogue` and `canvas` use `rack`; `actions` uses `agent`, `rack` and
-`catalogue`; `agent` and `sandbox` stand alone.
+`catalogue`; `sandbox` uses `rack`; `agent` stands alone.
 Components import modules, `components/ui` and `hooks`. Pages import anything;
 nothing imports from `pages`. `.oxlintrc.json` enforces these boundaries, so
 `pnpm lint` fails on a crossing.
@@ -70,6 +70,36 @@ The model chooses the id of each block it adds, so one list can add a block
 and then patch it or set its params (`<block id>:param:<name>`) by that id.
 Audio can only start from a user gesture, so the agent cannot run the rack:
 it asks the user to press Run.
+
+## Sandbox
+
+All audio runs in a sandboxed iframe (`/sandbox.html`), never in the app.
+Leaf code (the Effect that builds a block's Tone.js node) is source text in the
+rack, and the frame is the only place it is evaluated. The frame has an opaque
+origin (`sandbox="allow-scripts"`, no `allow-same-origin`) and a CSP that
+reaches no network. It may run inline scripts and `eval`, plus the blobs Tone.js
+makes for itself: its clock's worker and the AudioWorklet modules some nodes
+need.
+
+- **The app** owns the rack: the store in `app/rack/store.ts` holds it, and its
+  runtime is the client in `app/sandbox/client.ts`, plugged in by
+  `SandboxProvider`. Each command it sends carries whatever parts of the rack
+  changed since the last one.
+- **The frame** owns the AudioContext and every Tone.js object.
+  `app/sandbox/frame.ts` is its script; `app/sandbox/host.ts` keeps a copy of
+  the rack and runs each command through the renderer (`app/rack/renderer.ts`).
+- **Between them** (`app/sandbox/protocol.ts`): the frame says it is ready, the
+  app hands it one end of a `MessageChannel`, and they only talk over that port
+  from then on. Every message is checked against a schema on arrival, in both
+  directions.
+
+The frame's script is bundled, with Tone.js, into one classic script by the
+Vite plugin in `sandbox-bundle.ts`, and inlined into the page.
+
+Audio can only start from a user gesture, and a Run in the app is not one in the
+frame. Chromium lets the app delegate it (`allow="autoplay"`), so Run starts
+audio there. Where the browser will not, the frame shows itself with a
+"Click to start audio" button, since a click inside the frame does count.
 
 ## End-to-end tests
 
