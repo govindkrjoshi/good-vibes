@@ -297,6 +297,29 @@ test("changing oscillator type applies the params of the new oscillator", async 
   expect(node.oscillator.width?.value).toBeCloseTo(0.7);
 });
 
+test("an FMSynth renders with a value applied in each of its sections", async () => {
+  const synth = defined(
+    store().addTemplate(template("instruments", "FMSynth")),
+    "FMSynth",
+  );
+  store().setParamValue(param(synth, "modulationIndex"), 4);
+  store().setParamValue(param(synth, "oscillator.type"), "triangle");
+  store().setParamValue(param(synth, "envelope.decay"), 0.3);
+  store().setParamValue(param(synth, "modulation.type"), "sine");
+  store().setParamValue(param(synth, "modulationEnvelope.sustain"), 0.4);
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  const node = await nodeOf<ToneJs.FMSynth>(runtime, synth);
+  expect(node).toBeInstanceOf(ToneJs.FMSynth);
+  expect(node.modulationIndex.value).toBeCloseTo(4);
+  expect(node.oscillator.type).toBe("triangle");
+  expect(node.envelope.decay).toBe(0.3);
+  expect(node.modulation.type).toBe("sine");
+  expect(node.modulationEnvelope.sustain).toBe(0.4);
+});
+
 test("deleteBlock disconnects and disposes the node", async () => {
   const { synth } = buildSampleRack();
   const runtime = await makeRuntime();

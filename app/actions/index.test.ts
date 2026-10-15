@@ -41,6 +41,11 @@ test("describes an empty rack and what can be added", () => {
         entry: "AMSynth",
         params: expect.arrayContaining(["volume", "oscillator.type"]),
       },
+      {
+        category: "instruments",
+        entry: "FMSynth",
+        params: expect.arrayContaining(["modulationIndex", "envelope.attack"]),
+      },
       { category: "output", entry: "Destination", params: [] },
     ],
     transport: { bpm: 120 },
