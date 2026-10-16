@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { CircleAlert, RotateCcw } from "lucide-react";
 import { Button } from "../ui/button";
+import { useDispatch } from "../../hooks/useDispatch";
 import { useRack } from "../../hooks/useRack";
 import { useSandboxStatus } from "../../hooks/useSandboxStatus";
-import { rackEnvelope } from "../../rack";
+import { edits } from "../../rack";
 import type { ErrorEntry } from "../../sandbox";
 
 // What each kind of failure means to someone playing the rack.
@@ -20,12 +21,17 @@ const lead: Record<ErrorEntry["kind"], string> = {
 // are. A param or a play is tried again by changing or playing it.
 const retryable = (
   entry: ErrorEntry,
-): { readonly entity: "block" | "event"; readonly id: string } | undefined =>
-  entry.kind === "build"
-    ? { entity: "block", id: entry.id }
-    : entry.kind === "schedule" || entry.kind === "playback"
-      ? { entity: "event", id: entry.id }
-      : undefined;
+): { readonly entity: "block" | "event"; readonly id: string } | undefined => {
+  switch (entry.kind) {
+    case "build":
+      return { entity: "block", id: entry.id };
+    case "schedule":
+    case "playback":
+      return { entity: "event", id: entry.id };
+    default:
+      return undefined;
+  }
+};
 
 // The sandbox's failures for a block: its own build, and those of its params
 // and events, each with what to do about it.
@@ -33,7 +39,7 @@ export function BlockErrors({ blockId }: { readonly blockId: string }) {
   const errors = useSandboxStatus((status) => status.errors);
   const params = useRack((state) => state.params);
   const events = useRack((state) => state.events);
-  const dispatch = useRack((state) => state.dispatch);
+  const dispatch = useDispatch();
 
   const mine = useMemo(
     () =>
@@ -88,15 +94,7 @@ export function BlockErrors({ blockId }: { readonly blockId: string }) {
                 aria-label="Retry"
                 data-testid="retry-block"
                 className="nodrag shrink-0"
-                onClick={() =>
-                  dispatch(
-                    rackEnvelope({
-                      _tag: "Retry",
-                      entity: retry.entity,
-                      entityId: retry.id,
-                    }),
-                  )
-                }
+                onClick={() => dispatch(edits.retry(retry.entity, retry.id))}
               >
                 <RotateCcw />
               </Button>

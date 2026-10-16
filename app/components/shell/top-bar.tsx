@@ -28,6 +28,7 @@ import { useGoodVibesAgent } from "../chat/agent-provider";
 import { useRack } from "../../hooks/useRack";
 import { useDispatch } from "../../hooks/useDispatch";
 import { edits } from "../../rack";
+import type { SandboxStatus } from "../../sandbox";
 import { useSandboxStatus } from "../../hooks/useSandboxStatus";
 
 // The app's fixed chrome: the chat toggle and name on the left, the transport
@@ -46,7 +47,6 @@ export function TopBar({
   const run = () => dispatch(edits.run());
   const stop = () => dispatch(edits.stop());
   const bpm = useRack((state) => state.transport.bpm);
-
   const { changeKey } = useGoodVibesAgent();
 
   return (
@@ -167,17 +167,19 @@ export function TopBar({
   );
 }
 
+const sandboxNotice = (status: SandboxStatus): string | undefined => {
+  if (status.syncBlocked !== undefined)
+    return "Can't send the rack to the audio engine";
+  if (status.connection._tag === "Lost")
+    return "Audio engine stopped responding. Reconnecting…";
+  return undefined;
+};
+
 // Says so when the audio engine in the sandbox frame stops answering, or the
 // rack cannot be sent to it. Edits are kept either way, and sent once it can
 // take them.
 function SandboxNotice() {
-  const notice = useSandboxStatus((status) =>
-    status.syncBlocked !== undefined
-      ? "Can't send the rack to the audio engine"
-      : status.connection._tag === "Lost"
-        ? "Audio engine stopped responding. Reconnecting…"
-        : undefined,
-  );
+  const notice = useSandboxStatus(sandboxNotice);
   if (notice === undefined) return null;
 
   return (

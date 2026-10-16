@@ -93,12 +93,6 @@ export type RackEnvelope = {
   readonly msg: RackMsg;
 };
 
-export const isTrigger = (msg: RackMsg): msg is RackTrigger =>
-  msg._tag === "Run" ||
-  msg._tag === "Stop" ||
-  msg._tag === "PlayEvent" ||
-  msg._tag === "Retry";
-
 // Wraps a message for dispatch under a fresh id.
 export const rackEnvelope = (
   msg: RackMsg,

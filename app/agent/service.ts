@@ -183,8 +183,17 @@ export const makeAgentService = ({
     );
 
     // One turn: whether it ended normally.
-    const runTurn = (turn: Turn, text: string): Effect.Effect<boolean> =>
-      Effect.gen(function* () {
+    const runTurn = (turn: Turn, text: string): Effect.Effect<boolean> => {
+      const replyFailed = (error: { readonly message: string }) =>
+        Effect.sync(() => {
+          emit({
+            _tag: "ReplyFailed",
+            turnId: turn.turnId,
+            error: error.message,
+          });
+          return false;
+        });
+      return Effect.gen(function* () {
         onDebug?.({
           _tag: "TurnStarted",
           turn,
@@ -195,26 +204,7 @@ export const makeAgentService = ({
         yield* ready.prompt(text);
         return true;
       }).pipe(
-        Effect.catchTags({
-          NoKey: (error) =>
-            Effect.sync(() => {
-              emit({
-                _tag: "ReplyFailed",
-                turnId: turn.turnId,
-                error: error.message,
-              });
-              return false;
-            }),
-          PromptError: (error) =>
-            Effect.sync(() => {
-              emit({
-                _tag: "ReplyFailed",
-                turnId: turn.turnId,
-                error: error.message,
-              });
-              return false;
-            }),
-        }),
+        Effect.catchTags({ NoKey: replyFailed, PromptError: replyFailed }),
         Effect.tap((ok) =>
           Effect.sync(() => onDebug?.({ _tag: "TurnEnded", turn, ok })),
         ),
@@ -224,6 +214,7 @@ export const makeAgentService = ({
           }),
         ),
       );
+    };
 
     const check = (): Effect.Effect<FixupCheck | undefined> =>
       checkAfterTurn === undefined
@@ -249,38 +240,27 @@ export const makeAgentService = ({
           if (found !== undefined)
             onDebug?.({ _tag: "Checked", chainId, round, found });
           if (found === undefined || found._tag === "Clean") return;
-          const notice = `notice-${chainId}-${round}`;
+          const notice = (text: string) =>
+            emit({ _tag: "Noticed", id: `notice-${chainId}-${round}`, text });
           if (found._tag === "Unchecked") {
-            emit({
-              _tag: "Noticed",
-              id: notice,
-              text: `Could not check the rack for errors: ${found.text}`,
-            });
+            notice(`Could not check the rack for errors: ${found.text}`);
             return;
           }
           const errors = `${found.count} ${found.count === 1 ? "error" : "errors"}`;
           if (found.fingerprint === previous) {
-            emit({
-              _tag: "Noticed",
-              id: notice,
-              text: `The last fix changed nothing about the ${errors}, so the agent has stopped trying.`,
-            });
+            notice(
+              `The last fix changed nothing about the ${errors}, so the agent has stopped trying.`,
+            );
             return;
           }
           if (round > maxFixups) {
-            emit({
-              _tag: "Noticed",
-              id: notice,
-              text: `${errors} still left after ${maxFixups} tries.`,
-            });
+            notice(`${errors} still left after ${maxFixups} tries.`);
             return;
           }
           previous = found.fingerprint;
-          emit({
-            _tag: "Noticed",
-            id: notice,
-            text: `Found ${errors}; asking the agent to fix ${found.count === 1 ? "it" : "them"}.`,
-          });
+          notice(
+            `Found ${errors}; asking the agent to fix ${found.count === 1 ? "it" : "them"}.`,
+          );
           const turn = { turnId: `${chainId}-fix-${round}`, chainId };
           if (!(yield* runTurn(turn, found.prompt))) return;
         }

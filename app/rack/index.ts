@@ -17,7 +17,6 @@ export {
   type Stamp,
 } from "./reduce";
 export {
-  initialRackState,
   onDispatch,
   onRackWork,
   rackStore,

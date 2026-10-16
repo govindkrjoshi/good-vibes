@@ -462,3 +462,17 @@ export type RackState = Schema.Schema.Type<typeof RackStateSchema>;
 export const rackStateKeys = Object.keys(
   RackStateSchema.fields,
 ) as readonly (keyof RackState)[];
+
+// A rack with nothing in it but the root.
+export const initialRackState: RackState = {
+  blocks: { [rootRack.id]: rootRack },
+  jacks: {},
+  params: {},
+  methods: {},
+  values: {},
+  automations: {},
+  patches: {},
+  events: {},
+  transport: { bpm: 120 },
+  rootId: rootRack.id,
+};

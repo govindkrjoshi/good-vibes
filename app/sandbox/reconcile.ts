@@ -1,5 +1,5 @@
 import { entityChanges, transportId, type EntityKind } from "../rack/entities";
-import { rootRack, type RackState } from "../rack/model";
+import { initialRackState, type Patch, type RackState } from "../rack/model";
 import { initialRackMeta, type RackMeta, type Stamp } from "../rack/reduce";
 import type { Command } from "./protocol";
 
@@ -25,16 +25,7 @@ export type Snapshot = RackState & Pick<RackMeta, "stamps" | "incarnations">;
 
 // The frame with nothing sent to it yet.
 export const emptySnapshot: Snapshot = {
-  blocks: { [rootRack.id]: rootRack },
-  jacks: {},
-  params: {},
-  methods: {},
-  values: {},
-  automations: {},
-  patches: {},
-  events: {},
-  transport: { bpm: 120 },
-  rootId: rootRack.id,
+  ...initialRackState,
   stamps: initialRackMeta.stamps,
   incarnations: initialRackMeta.incarnations,
 };
@@ -85,6 +76,10 @@ const causeOf = (
     : { rev: stamp.rev, envelopeId: stamp.envelopeId, entity, id };
 };
 
+// The cause as a field of a planned command, left out when there is none.
+const withCause = (cause: Cause | undefined) =>
+  cause === undefined ? {} : { cause };
+
 const target = (state: Snapshot, entity: EntityKind, id: string): Target => {
   const incarnation = state.incarnations[entity][id];
   return incarnation === undefined
@@ -128,29 +123,31 @@ export const commandsFor = (
   const replacedPatches = replaced("patch");
   const replacedEvents = replaced("event");
 
-  const patchRemovals = unique([
-    ...changes.patch.removed,
-    ...replacedPatches,
-  ]).map((id): Planned => ({
-    command: { name: "deletePatch", patchId: id },
-    target: target(prev, "patch", id),
-    cause: removalCause(next.rootId),
+  const removals = (
+    entity: Forced["entity"],
+    replacedIds: readonly string[],
+    command: (id: string) => Command,
+    holder: (id: string) => string | undefined = () => next.rootId,
+  ) =>
+    unique([...changes[entity].removed, ...replacedIds]).map((id): Planned => ({
+      command: command(id),
+      target: target(prev, entity, id),
+      cause: removalCause(holder(id)),
+    }));
+
+  const patchRemovals = removals("patch", replacedPatches, (patchId) => ({
+    name: "deletePatch",
+    patchId,
   }));
-  const eventRemovals = unique([
-    ...changes.event.removed,
-    ...replacedEvents,
-  ]).map((id): Planned => ({
-    command: { name: "deleteEvent", eventId: id },
-    target: target(prev, "event", id),
-    cause: removalCause(prev.events[id]?.belongToBlockId),
-  }));
-  const blockRemovals = unique([
-    ...changes.block.removed,
-    ...replacedBlocks,
-  ]).map((id): Planned => ({
-    command: { name: "deleteBlock", blockId: id },
-    target: target(prev, "block", id),
-    cause: removalCause(next.rootId),
+  const eventRemovals = removals(
+    "event",
+    replacedEvents,
+    (eventId) => ({ name: "deleteEvent", eventId }),
+    (id) => prev.events[id]?.belongToBlockId,
+  );
+  const blockRemovals = removals("block", replacedBlocks, (blockId) => ({
+    name: "deleteBlock",
+    blockId,
   }));
 
   // --- Blocks to build ----------------------------------------------------
@@ -191,7 +188,7 @@ export const commandsFor = (
         command: { name: "addBlock", blockId: id },
         target: target(next, "block", id),
         errorKind: "build",
-        ...(cause === undefined ? {} : { cause }),
+        ...withCause(cause),
       },
     ];
   });
@@ -199,31 +196,31 @@ export const commandsFor = (
 
   // --- Patches ------------------------------------------------------------
 
+  // Why a patch in `next` has to be made, if it does.
+  const patchCause = (id: string, patch: Patch): Cause | undefined | false => {
+    if (
+      changes.patch.added.includes(id) ||
+      changes.patch.changed.includes(id) ||
+      replacedPatches.includes(id)
+    )
+      return causeOf(next, "patch", id);
+    const ends = [blockOfJack(next, patch.from), blockOfJack(next, patch.to)];
+    const rebuiltEnd = ends.find((end) => end !== undefined && built.has(end));
+    if (rebuiltEnd !== undefined) return built.get(rebuiltEnd);
+    const retried = forcedOf("patch").find((one) => one.id === id);
+    return retried === undefined ? false : retried.cause;
+  };
+
   const patches = Object.entries(next.patches).flatMap(
     ([id, patch]): Planned[] => {
-      const ends = [blockOfJack(next, patch.from), blockOfJack(next, patch.to)];
-      const rebuiltEnd = ends.find(
-        (end) => end !== undefined && built.has(end),
-      );
-      const retried = forcedOf("patch").find((one) => one.id === id);
-
-      const cause =
-        changes.patch.added.includes(id) ||
-        changes.patch.changed.includes(id) ||
-        replacedPatches.includes(id)
-          ? causeOf(next, "patch", id)
-          : rebuiltEnd !== undefined
-            ? built.get(rebuiltEnd)
-            : retried !== undefined
-              ? retried.cause
-              : false;
+      const cause = patchCause(id, patch);
       if (cause === false) return [];
       return [
         {
           command: { name: "addPatch", patchId: id },
           target: target(next, "patch", id),
           errorKind: "connect",
-          ...(cause === undefined ? {} : { cause }),
+          ...withCause(cause),
         },
       ];
     },
@@ -240,9 +237,7 @@ export const commandsFor = (
       command: { name: "updateParam", paramId: id },
       target: target(next, "param", id),
       errorKind: "param",
-      ...(causeOf(next, "param", id) === undefined
-        ? {}
-        : { cause: causeOf(next, "param", id) }),
+      ...withCause(causeOf(next, "param", id)),
     }));
 
   // --- Events -------------------------------------------------------------
@@ -276,7 +271,7 @@ export const commandsFor = (
           },
           target: target(next, "event", id),
           errorKind: "schedule",
-          ...(cause === undefined ? {} : { cause }),
+          ...withCause(cause),
         },
       ];
     },
@@ -291,9 +286,7 @@ export const commandsFor = (
           {
             command: { name: "updateTransport" },
             target: { entity: "transport", id: transportId },
-            ...(causeOf(next, "transport", transportId) === undefined
-              ? {}
-              : { cause: causeOf(next, "transport", transportId) }),
+            ...withCause(causeOf(next, "transport", transportId)),
           },
         ];
 

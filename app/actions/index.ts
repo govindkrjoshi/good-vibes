@@ -3,7 +3,6 @@ import type { StoreApi } from "zustand";
 import type { ActionResult, FixupCheck, RackAction, Turn } from "../agent";
 import { CATALOGUE } from "../catalogue";
 import type {
-  EntityKind,
   Jack,
   Outcome,
   Param,
@@ -16,11 +15,12 @@ import type {
   Refused,
   TreeBlock,
 } from "../rack";
-import type {
-  BarrierResult,
-  ErrorEntry,
-  SandboxClient,
-  SandboxStatus,
+import {
+  entityOfKind,
+  type BarrierResult,
+  type ErrorEntry,
+  type SandboxClient,
+  type SandboxStatus,
 } from "../sandbox";
 
 // Makes the changes the agent asks for. The agent only ever sends a
@@ -336,20 +336,27 @@ const planSetTransport = ({
   refused: () => refuse("The tempo has to be a number above 0."),
 });
 
+// What to call the entity a retry is for, or undefined when it is gone.
+const retryName = (
+  state: RackState,
+  entity: Extract<RackAction, { kind: "retry" }>["entity"],
+  id: string,
+): string | undefined => {
+  switch (entity) {
+    case "block":
+      return state.blocks[id]?.name;
+    case "patch":
+      return state.patches[id] === undefined ? undefined : `the patch ${id}`;
+    case "event":
+      return state.events[id] === undefined ? undefined : `the event ${id}`;
+  }
+};
+
 const planRetry = (
   state: RackState,
   { entity, id }: Extract<RackAction, { kind: "retry" }>,
 ): ActionPlan => {
-  const name =
-    entity === "block"
-      ? state.blocks[id]?.name
-      : entity === "patch"
-        ? state.patches[id] === undefined
-          ? undefined
-          : `the patch ${id}`
-        : state.events[id] === undefined
-          ? undefined
-          : `the event ${id}`;
+  const name = retryName(state, entity, id);
   if (name === undefined)
     return answer(refuse(`There is no ${entity} with id ${id}.`));
   return {
@@ -388,15 +395,6 @@ export const planAction = (
 };
 
 // --- What failed, as the agent sees it: pure --------------------------------
-
-const entityOf: Record<ErrorEntry["kind"], EntityKind> = {
-  build: "block",
-  connect: "patch",
-  param: "param",
-  schedule: "event",
-  play: "event",
-  playback: "event",
-};
 
 // What each kind of failure means, to start its line in the report.
 const failed: Record<ErrorEntry["kind"], string> = {
@@ -458,7 +456,7 @@ export const errorReport = (
       name: state.blocks[blockId]?.name ?? blockId,
       problems: [],
     };
-    const origin = state.stamps[entityOf[entry.kind]][entry.id]?.origin;
+    const origin = state.stamps[entityOfKind[entry.kind]][entry.id]?.origin;
     group.problems.push({
       kind: entry.kind,
       id: entry.id,
@@ -531,14 +529,27 @@ export type ActionDeps = {
 const firstRefusal = (outcomes: readonly Outcome[]) =>
   outcomes.find((outcome): outcome is Refused => outcome._tag === "Refused");
 
+// Waits until the frame has answered everything dispatched so far, or says
+// why it cannot. Undefined when there is no frame yet.
+const awaitSandbox = async (
+  { sandbox, checkTimeoutMs = 2000 }: ActionDeps,
+  signal: AbortSignal | undefined,
+): Promise<BarrierResult | undefined> => {
+  const client = sandbox();
+  return client === undefined
+    ? undefined
+    : Effect.runPromise(client.barrier(checkTimeoutMs), { signal });
+};
+
 // Carries an action out as the agent's: an edit is dispatched all or
 // nothing, so an action is never half done.
 export const applyAction = async (
-  { store, sandbox, status, checkTimeoutMs = 2000 }: ActionDeps,
+  deps: ActionDeps,
   action: RackAction,
   signal?: AbortSignal,
   turn?: Turn,
 ): Promise<ActionResult> => {
+  const { store, status } = deps;
   const envelopeId = crypto.randomUUID();
   const plan = planAction(store.getState(), action, envelopeId);
   switch (plan._tag) {
@@ -550,9 +561,7 @@ export const applyAction = async (
         plan.msgs.map((msg, index) => ({
           id: plan.msgs.length === 1 ? envelopeId : `${envelopeId}#${index}`,
           origin: "agent" as const,
-          ...(turn === undefined
-            ? {}
-            : { turnId: turn.turnId, chainId: turn.chainId }),
+          ...turn,
           msg,
         })),
       );
@@ -563,12 +572,9 @@ export const applyAction = async (
     }
 
     case "Check": {
-      const client = sandbox();
-      if (client === undefined)
+      const barrier = await awaitSandbox(deps, signal);
+      if (barrier === undefined)
         return refuse("Could not check: the audio engine has not started yet.");
-      const barrier = await Effect.runPromise(client.barrier(checkTimeoutMs), {
-        signal,
-      });
       return checked(store.getState(), barrier, status());
     }
   }
@@ -582,15 +588,13 @@ export const applyAction = async (
 // changed a failing block, or one of its params, counts as a try even if it
 // fails the same way.
 export const checkAfterTurn = async (
-  { store, sandbox, status, checkTimeoutMs = 2000 }: ActionDeps,
+  deps: ActionDeps,
   signal?: AbortSignal,
 ): Promise<FixupCheck> => {
-  const client = sandbox();
-  if (client === undefined)
+  const { store, status } = deps;
+  const barrier = await awaitSandbox(deps, signal);
+  if (barrier === undefined)
     return { _tag: "Unchecked", text: "the audio engine has not started yet." };
-  const barrier = await Effect.runPromise(client.barrier(checkTimeoutMs), {
-    signal,
-  });
   const state = store.getState();
   const result = checked(state, barrier, status());
   if (barrier._tag !== "Settled")
@@ -605,7 +609,7 @@ export const checkAfterTurn = async (
   // the latest change to the block or any of its params counts.
   const touched = (entry: ErrorEntry) =>
     Math.max(
-      state.stamps[entityOf[entry.kind]][entry.id]?.rev ?? 0,
+      state.stamps[entityOfKind[entry.kind]][entry.id]?.rev ?? 0,
       ...(entry.kind === "build"
         ? Object.values(state.params)
             .filter((param) => param.belongToBlockId === entry.id)

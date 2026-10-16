@@ -122,8 +122,11 @@ type Applied =
 
 const edited = (patch: Partial<RackState>, id?: string): Applied =>
   id === undefined ? { _tag: "Edited", patch } : { _tag: "Edited", patch, id };
-const unchanged = (id?: string): Applied =>
+// Both an `Applied` and an `Outcome`, so the reducer can hand it on as is.
+const unchanged = (id?: string): Extract<Outcome, { _tag: "Unchanged" }> =>
   id === undefined ? { _tag: "Unchanged" } : { _tag: "Unchanged", id };
+const committed = (id?: string): Outcome =>
+  id === undefined ? { _tag: "Committed" } : { _tag: "Committed", id };
 
 const rootTree = (state: RackState) => {
   const root = state.blocks[state.rootId];
@@ -648,27 +651,19 @@ export const reduceAll = <S extends RackCore>(
           envelopeId: envelope.id,
           trigger: envelope.msg as RackTrigger,
         });
-        outcomes.push({ _tag: "Committed" });
+        outcomes.push(committed());
         break;
       case "Edited": {
         const next = { ...draft, ...applied.patch };
         const changes = entityChanges(draft, next);
         if (!hasChanges(changes)) {
-          outcomes.push(
-            applied.id === undefined
-              ? { _tag: "Unchanged" }
-              : { _tag: "Unchanged", id: applied.id },
-          );
+          outcomes.push(unchanged(applied.id));
           break;
         }
         draft = { ...next, ...record(draft, changes, stampOf(envelope, rev)) };
         changed = true;
         worked = true;
-        outcomes.push(
-          applied.id === undefined
-            ? { _tag: "Committed" }
-            : { _tag: "Committed", id: applied.id },
-        );
+        outcomes.push(committed(applied.id));
         break;
       }
     }

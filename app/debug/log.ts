@@ -171,53 +171,49 @@ export type ChainView = {
 // after a turn found, so fix-up rounds and their fingerprints can be read.
 export const byChain = (entries: readonly DebugEntry[]): ChainView[] => {
   const chains = new Map<string, ChainView>();
-  const chain = (chainId: string) =>
-    chains.get(chainId) ?? { chainId, turns: [], checks: [] };
+  const update = (chainId: string, change: (held: ChainView) => ChainView) =>
+    chains.set(
+      chainId,
+      change(chains.get(chainId) ?? { chainId, turns: [], checks: [] }),
+    );
   for (const entry of entries) {
     if (entry.source !== "agent") continue;
     const { event } = entry;
     switch (event._tag) {
-      case "TurnStarted": {
-        const held = chain(event.turn.chainId);
-        chains.set(held.chainId, {
+      case "TurnStarted":
+        update(event.turn.chainId, (held) => ({
           ...held,
           turns: [
             ...held.turns,
             { turnId: event.turn.turnId, kind: event.kind },
           ],
-        });
+        }));
         break;
-      }
-      case "TurnEnded": {
-        const held = chain(event.turn.chainId);
-        chains.set(held.chainId, {
+      case "TurnEnded":
+        update(event.turn.chainId, (held) => ({
           ...held,
           turns: held.turns.map((turn) =>
             turn.turnId === event.turn.turnId
               ? { ...turn, ok: event.ok }
               : turn,
           ),
-        });
+        }));
         break;
-      }
       case "Checked": {
-        const held = chain(event.chainId);
-        chains.set(held.chainId, {
+        const { round, found } = event;
+        update(event.chainId, (held) => ({
           ...held,
           checks: [
             ...held.checks,
-            {
-              round: event.round,
-              found:
-                event.found._tag === "Errors"
-                  ? `${event.found.count} errors`
-                  : event.found._tag,
-              ...(event.found._tag === "Errors"
-                ? { fingerprint: event.found.fingerprint }
-                : {}),
-            },
+            found._tag === "Errors"
+              ? {
+                  round,
+                  found: `${found.count} errors`,
+                  fingerprint: found.fingerprint,
+                }
+              : { round, found: found._tag },
           ],
-        });
+        }));
         break;
       }
       case "Cancelled":

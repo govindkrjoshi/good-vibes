@@ -19,6 +19,11 @@ export type RequestAction = (
 // it is asked for, one with what came of it, under one id, so the chat can
 // show it working. Applying that throws, or a reply that is aborted first,
 // still comes back as a result, so the model is never left waiting.
+const calledOff: ActionResult = {
+  ok: false,
+  text: "The change was called off.",
+};
+
 export const announced = (
   publish: (message: GoodVibesMessage) => void,
   apply: ApplyAction,
@@ -30,12 +35,12 @@ export const announced = (
     const aborted = () => signal?.aborted === true;
     publish({ type: "action", id, action, status: "requested" });
     const result: ActionResult = await (async () => {
-      if (aborted()) return { ok: false, text: "The change was called off." };
+      if (aborted()) return calledOff;
       try {
         return await apply(action, signal);
       } catch (error) {
         return aborted()
-          ? { ok: false, text: "The change was called off." }
+          ? calledOff
           : {
               ok: false,
               text:

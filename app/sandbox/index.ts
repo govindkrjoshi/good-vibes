@@ -8,6 +8,7 @@ export {
   type SandboxDebugEvent,
 } from "./client";
 export {
+  entityOfKind,
   errorKey,
   type BarrierResult,
   type Connection,

@@ -19,6 +19,7 @@ import { useRack } from "../../hooks/useRack";
 import { useDispatch } from "../../hooks/useDispatch";
 import { canConnectJacks, edits, rackStore } from "../../rack";
 import { useSandboxStatus } from "../../hooks/useSandboxStatus";
+import { errorKey } from "../../sandbox";
 import { BlockNode } from "./block-node";
 import { RackNode } from "../rack/rack-node";
 import { useCanvasStore } from "./lock-store";
@@ -86,7 +87,7 @@ function RackReactFlowSync() {
   useEffect(() => {
     // A patch the sandbox could not make is drawn as broken, with why.
     const edges = toFlowEdges(blocks, jacks, patches, rootId).map((edge) => {
-      const error = errors[`connect:${edge.id}`];
+      const error = errors[errorKey("connect", edge.id)];
       return error === undefined
         ? edge
         : {

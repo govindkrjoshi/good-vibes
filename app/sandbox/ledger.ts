@@ -1,4 +1,4 @@
-import type { EntityKind } from "../rack/entities";
+import { transportId, type EntityKind } from "../rack/entities";
 import type { RenderErrorCode } from "../rack/model";
 import { playArgs, type RackWork } from "../rack/reduce";
 import {
@@ -200,17 +200,21 @@ export const initialLedger = (
 
 export const errorKey = (kind: ErrorKind, id: string) => `${kind}:${id}`;
 
-const entityOfKind = (kind: ErrorKind): EntityKind =>
-  kind === "build"
-    ? "block"
-    : kind === "connect"
-      ? "patch"
-      : kind === "param"
-        ? "param"
-        : "event";
+// The kind of entity each kind of error is about.
+export const entityOfKind: Readonly<Record<ErrorKind, EntityKind>> = {
+  build: "block",
+  connect: "patch",
+  param: "param",
+  schedule: "event",
+  play: "event",
+  playback: "event",
+};
 
-const kindOfEntity = (entity: "block" | "patch" | "event"): ErrorKind =>
-  entity === "block" ? "build" : entity === "patch" ? "connect" : "schedule";
+const kindOfEntity: Readonly<Record<Forced["entity"], ErrorKind>> = {
+  block: "build",
+  patch: "connect",
+  event: "schedule",
+};
 
 const isConnected = (ledger: Ledger) =>
   ledger.connection._tag === "Connected" &&
@@ -233,7 +237,7 @@ type Landing = {
 // Lands one result on the ledger if it is for the entity as it now is and
 // newer than the last result that landed for the same kind and entity.
 const land = (ledger: Ledger, result: Landing): Ledger => {
-  const entity = entityOfKind(result.kind);
+  const entity = entityOfKind[result.kind];
   if (ledger.desired.incarnations[entity][result.id] !== result.incarnation)
     return ledger;
   const key = errorKey(result.kind, result.id);
@@ -333,7 +337,7 @@ const applyReply = (
     const covered = new Set<string>();
 
     for (const one of entities) {
-      const kind = kindOfEntity(one.entity);
+      const kind = kindOfEntity[one.entity];
       covered.add(errorKey(kind, one.id));
       if (one.entity === "event") {
         // A new schedule, or none: either way the old one's failures are
@@ -386,7 +390,7 @@ const retryCause = (
   work: Work,
   entity: EntityKind,
   id: string,
-) => ({
+): Cause => ({
   rev: ledger.desired.stamps[entity][id]?.rev ?? 0,
   envelopeId: work.envelopeId,
   entity,
@@ -402,13 +406,13 @@ const triggerCommand = (
     case "Run":
       return {
         command: { name: "render" },
-        target: { entity: "transport", id: "transport" },
+        target: { entity: "transport", id: transportId },
         work,
       };
     case "Stop":
       return {
         command: { name: "stop" },
-        target: { entity: "transport", id: "transport" },
+        target: { entity: "transport", id: transportId },
         work,
       };
     case "PlayEvent": {
@@ -443,22 +447,24 @@ type Plan = {
 };
 
 const plan = (ledger: Ledger): Plan => {
-  if (!isConnected(ledger) || ledger.inFlight !== undefined) {
+  if (
+    !isConnected(ledger) ||
+    ledger.inFlight !== undefined ||
+    ledger.blocked !== undefined
+  )
     return { ledger, dropped: [] };
-  }
-  if (ledger.blocked !== undefined) return { ledger, dropped: [] };
 
-  const forced: Forced[] = ledger.work.flatMap(({ trigger, ...work }) =>
-    trigger._tag === "Retry"
+  const forced: Forced[] = ledger.work.flatMap((work) =>
+    work.trigger._tag === "Retry"
       ? [
           {
-            entity: trigger.entity,
-            id: trigger.entityId,
+            entity: work.trigger.entity,
+            id: work.trigger.entityId,
             cause: retryCause(
               ledger,
-              { ...work, trigger },
-              trigger.entity,
-              trigger.entityId,
+              work,
+              work.trigger.entity,
+              work.trigger.entityId,
             ),
           },
         ]
@@ -529,20 +535,25 @@ const plan = (ledger: Ledger): Plan => {
 
 // --- Barriers -------------------------------------------------------------
 
+// What a barrier comes to now, or undefined while it still waits.
+const barrierResult = (
+  ledger: Ledger,
+  barrier: Barrier,
+): BarrierResult | undefined => {
+  if (barrier.gen !== ledger.gen || !isConnected(ledger))
+    return { _tag: "Disconnected" };
+  if (ledger.settledSeq >= barrier.seq) return { _tag: "Settled" };
+  if (ledger.blocked !== undefined)
+    return { _tag: "Blocked", cause: ledger.blocked.cause };
+  if (ledger.now >= barrier.deadline) return { _tag: "TimedOut" };
+  return undefined;
+};
+
 const resolveBarriers = (ledger: Ledger) => {
   const resolved: { id: string; result: BarrierResult }[] = [];
   const barriers: Record<string, Barrier> = {};
   for (const [id, barrier] of Object.entries(ledger.barriers)) {
-    const result: BarrierResult | undefined =
-      barrier.gen !== ledger.gen || !isConnected(ledger)
-        ? { _tag: "Disconnected" }
-        : ledger.settledSeq >= barrier.seq
-          ? { _tag: "Settled" }
-          : ledger.blocked !== undefined
-            ? { _tag: "Blocked", cause: ledger.blocked.cause }
-            : ledger.now >= barrier.deadline
-              ? { _tag: "TimedOut" }
-              : undefined;
+    const result = barrierResult(ledger, barrier);
     if (result === undefined) barriers[id] = barrier;
     else resolved.push({ id, result });
   }
@@ -562,7 +573,7 @@ const errorChanges = (before: Ledger, after: Ledger): ErrorChange[] => [
 // were: deleted, or replaced under the same id.
 const prune = (ledger: Ledger): Ledger => {
   const current = (kind: ErrorKind, id: string, incarnation?: string) =>
-    ledger.desired.incarnations[entityOfKind(kind)][id] === incarnation &&
+    ledger.desired.incarnations[entityOfKind[kind]][id] === incarnation &&
     (incarnation !== undefined ||
       id in ledger.desired.blocks ||
       id in ledger.desired.patches ||
@@ -586,6 +597,19 @@ const prune = (ledger: Ledger): Ledger => {
 
 // --- Step -----------------------------------------------------------------
 
+// A batch that would not post is tried again once there is reason to.
+const unblocked = (ledger: Ledger): Ledger => {
+  const { blocked: _, ...rest } = ledger;
+  return rest;
+};
+
+// Work waiting for a frame that is gone. Stop has nothing to stop; anything
+// else would play out of date once the frame is back.
+const droppedOnDisconnect = (work: readonly Work[]): Dropped[] =>
+  work
+    .filter((one) => one.trigger._tag !== "Stop")
+    .map((one) => ({ work: one, reason: "NotConnected" }));
+
 export const step = (ledger: Ledger, input: LedgerInput): LedgerOutput => {
   let next = ledger;
   let dropped: Dropped[] = [];
@@ -599,26 +623,19 @@ export const step = (ledger: Ledger, input: LedgerInput): LedgerOutput => {
         latestSeq: Math.max(next.latestSeq, input.workSeq),
       });
       // A newer rack is a reason to try a batch that would not post again.
-      if (next.blocked !== undefined && input.workSeq > next.blocked.seq) {
-        const { blocked: _, ...rest } = next;
-        next = rest;
-      }
+      if (next.blocked !== undefined && input.workSeq > next.blocked.seq)
+        next = unblocked(next);
       break;
     }
 
     case "WorkAccepted": {
       next = { ...next, latestSeq: Math.max(next.latestSeq, input.work.seq) };
       if (!isConnected(next)) {
-        // Stop has nothing to stop; anything else would play out of date
-        // once the frame is back.
-        if (input.work.trigger._tag !== "Stop")
-          dropped = [{ work: input.work, reason: "NotConnected" }];
+        dropped = droppedOnDisconnect([input.work]);
         break;
       }
-      if (input.work.trigger._tag === "Retry" && next.blocked !== undefined) {
-        const { blocked: _, ...rest } = next;
-        next = rest;
-      }
+      if (input.work.trigger._tag === "Retry" && next.blocked !== undefined)
+        next = unblocked(next);
       next = { ...next, work: [...next.work, input.work] };
       break;
     }
@@ -642,9 +659,7 @@ export const step = (ledger: Ledger, input: LedgerInput): LedgerOutput => {
       break;
 
     case "Connected": {
-      dropped = next.work
-        .filter((work) => work.trigger._tag !== "Stop")
-        .map((work) => ({ work, reason: "NotConnected" as const }));
+      dropped = droppedOnDisconnect(next.work);
       const { inFlight: _, blocked: __, ...rest } = next;
       next = {
         ...rest,
@@ -662,9 +677,7 @@ export const step = (ledger: Ledger, input: LedgerInput): LedgerOutput => {
     }
 
     case "Lost": {
-      dropped = next.work
-        .filter((work) => work.trigger._tag !== "Stop")
-        .map((work) => ({ work, reason: "NotConnected" as const }));
+      dropped = droppedOnDisconnect(next.work);
       const { inFlight: _, ...rest } = next;
       next = {
         ...rest,

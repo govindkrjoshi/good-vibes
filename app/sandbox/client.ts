@@ -223,22 +223,20 @@ export const makeSandboxClient = (
 
     // Rack changes, then the triggers that came with them, as the store
     // tells them.
-    yield* Effect.acquireRelease(
-      Effect.sync(() =>
-        rack.subscribe((state, previous) => {
-          if (state.rev !== previous.rev)
-            feed({ _tag: "DesiredChanged", state, workSeq: state.workSeq });
-        }),
-      ),
-      (unsubscribe) => Effect.sync(unsubscribe),
+    const subscribed = (subscribe: () => () => void) =>
+      Effect.acquireRelease(Effect.sync(subscribe), (unsubscribe) =>
+        Effect.sync(unsubscribe),
+      );
+    yield* subscribed(() =>
+      rack.subscribe((state, previous) => {
+        if (state.rev !== previous.rev)
+          feed({ _tag: "DesiredChanged", state, workSeq: state.workSeq });
+      }),
     );
-    yield* Effect.acquireRelease(
-      Effect.sync(() =>
-        rack.onWork((work) => {
-          for (const one of work) feed({ _tag: "WorkAccepted", work: one });
-        }),
-      ),
-      (unsubscribe) => Effect.sync(unsubscribe),
+    yield* subscribed(() =>
+      rack.onWork((work) => {
+        for (const one of work) feed({ _tag: "WorkAccepted", work: one });
+      }),
     );
     yield* Effect.sync(() => feed({ _tag: "Tick", now: now() })).pipe(
       Effect.repeat(Schedule.spaced(tickMs)),

@@ -1,6 +1,6 @@
 import { createStore } from "zustand";
 import type { RackEnvelope } from "./messages";
-import { rootRack, type RackState } from "./model";
+import { initialRackState, type RackState } from "./model";
 import {
   initialRackMeta,
   reduceAll,
@@ -9,7 +9,7 @@ import {
   type RackWork,
 } from "./reduce";
 
-export type { RackState };
+export { initialRackState, type RackState };
 
 // The store holds the rack and nothing about audio. The sandbox client
 // follows it: it watches the rack change, and hears each trigger through
@@ -53,19 +53,6 @@ export const onRackWork = (
 ): (() => void) => {
   workListeners.add(listener);
   return () => workListeners.delete(listener);
-};
-
-export const initialRackState: RackState = {
-  blocks: { [rootRack.id]: rootRack },
-  jacks: {},
-  params: {},
-  methods: {},
-  values: {},
-  automations: {},
-  patches: {},
-  events: {},
-  transport: { bpm: 120 },
-  rootId: rootRack.id,
 };
 
 // A vanilla store, so the rack can be driven without React. Components bind

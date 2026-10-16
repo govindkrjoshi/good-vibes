@@ -1,7 +1,7 @@
 import { Cause, Effect, Exit } from "effect";
 import type * as ToneJs from "tone";
 import {
-  rootRack,
+  initialRackState,
   Tone,
   type LeafError,
   type RackState,
@@ -34,19 +34,6 @@ type Options = {
   // Called as a render starts. Audio can only start from a user gesture, and
   // the frame decides how to get one.
   readonly startAudio?: () => void;
-};
-
-const emptyRack: RackState = {
-  blocks: { [rootRack.id]: rootRack },
-  jacks: {},
-  params: {},
-  methods: {},
-  values: {},
-  automations: {},
-  patches: {},
-  events: {},
-  transport: { bpm: 120 },
-  rootId: rootRack.id,
 };
 
 // Carries out one command on the runtime.
@@ -181,7 +168,7 @@ export const makeRackHost = (
   tone: typeof ToneJs,
   { startAudio }: Options = {},
 ) => {
-  let state = emptyRack;
+  let state: RackState = initialRackState;
   let current: FramePort | undefined;
   // For each event, the schedule it plays now and the batch command that
   // built it, so a failure while playing can name that command. A failure
@@ -254,7 +241,7 @@ export const makeRackHost = (
     current = port;
     queue = queue.then(async () => {
       schedules.clear();
-      state = emptyRack;
+      state = initialRackState;
       await Effect.runPromise(runtime.reset);
     });
 
