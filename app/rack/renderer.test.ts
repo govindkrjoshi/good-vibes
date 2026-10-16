@@ -751,3 +751,89 @@ test("stop rewinds the transport to the start", async () => {
   expect(transport.seconds).toBe(0);
   expect((await rendered(runtime)).events.size).toBe(0);
 });
+
+// --- Error codes and playback failures -------------------------------------
+
+const failureCode = (exit: Exit.Exit<unknown, { code?: string }>) =>
+  Exit.isFailure(exit)
+    ? (Exit.findErrorOption(exit) as { value?: { code?: string } }).value?.code
+    : undefined;
+
+test.each([
+  ["throws", "(() => { throw new Error('boom') })()", "LeafThrew"],
+  [
+    "fails with its own LeafError",
+    'Effect.fail(new LeafError({ message: "no" }))',
+    "LeafThrew",
+  ],
+  ["builds something else", "Effect.succeed({})", "LeafNotANode"],
+])("a leaf that %s fails with code %s", async (_, code, expected) => {
+  const { synth } = buildSampleRack();
+  withCode(synth, code);
+  const runtime = await makeRuntime();
+
+  await Effect.runPromise(runtime.render);
+
+  expect(failureCode(await leafFailure(runtime, synth))).toBe(expected);
+});
+
+test("what hangs off a failed leaf fails as the leaf's, under its own code", async () => {
+  const { synth, destination, patch } = buildSampleRack();
+  const eventId = addSequence(synth);
+  withCode(synth, "Effect.succeed({})");
+  const runtime = await makeRuntime();
+  await Effect.runPromise(runtime.render);
+
+  const { patches, events } = await rendered(runtime);
+  expect(failureCode(defined(patches.get(patch), "patch").exit)).toBe(
+    "EndpointFailed",
+  );
+  expect(failureCode(defined(events.get(eventId), "event").exit)).toBe(
+    "BlockFailed",
+  );
+  const param = await Effect.runPromiseExit(
+    runtime.updateParam(`${synth}:param:volume`),
+  );
+  expect(failureCode(param)).toBe("BlockFailed");
+  expect(await nodeOf(runtime, destination)).toBe(ToneJs.getDestination());
+});
+
+test("a scheduled call that fails while playing is reported with its schedule", async () => {
+  const { synth } = buildSampleRack();
+  const eventId = addSequence(synth);
+  const failures: unknown[] = [];
+  const runtime = await Effect.runPromise(
+    makeToneRuntime(store, {
+      onPlaybackFailure: (failure) => failures.push(failure),
+    }).pipe(Effect.provideService(Tone, ToneJs)),
+  );
+  await Effect.runPromise(runtime.render);
+  const first = defined(
+    (await rendered(runtime)).events.get(eventId),
+    "event",
+  ).schedule;
+  vi.spyOn(
+    await nodeOf(runtime, synth),
+    "triggerAttackRelease",
+  ).mockImplementation(() => {
+    throw new Error("bad note");
+  });
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+  (await scheduledOf<ToneJs.Sequence>(runtime, eventId)).callback(1, "C4");
+  await Effect.runPromise(runtime.updateEvent(eventId));
+  const second = defined(
+    (await rendered(runtime)).events.get(eventId),
+    "event",
+  ).schedule;
+
+  expect(failures).toEqual([
+    {
+      eventId,
+      schedule: first,
+      message: expect.stringContaining("bad note"),
+    },
+  ]);
+  expect(second).not.toBe(first);
+  warn.mockRestore();
+});

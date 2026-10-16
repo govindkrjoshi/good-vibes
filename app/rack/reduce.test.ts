@@ -505,3 +505,19 @@ test("any sequence of messages leaves the rack whole", () => {
     "SetTransport",
   ]);
 });
+
+test("a retry is work for an entity that exists, and changes nothing", () => {
+  const { state: built } = play(empty, synth);
+  const { state, outcomes } = play(
+    built,
+    { _tag: "Retry", entity: "block", entityId: "synth" },
+    { _tag: "Retry", entity: "patch", entityId: "nothing" },
+  );
+
+  expect(outcomes).toEqual([
+    { _tag: "Committed" },
+    expect.objectContaining({ _tag: "Refused", code: "UnknownEntity" }),
+  ]);
+  expect(state.rev).toBe(built.rev);
+  expect(state.workSeq).toBe(built.workSeq + 1);
+});

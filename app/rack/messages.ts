@@ -71,7 +71,14 @@ export type RackEdit =
 export type RackTrigger =
   | { readonly _tag: "Run" }
   | { readonly _tag: "Stop" }
-  | { readonly _tag: "PlayEvent"; readonly eventId: string };
+  | { readonly _tag: "PlayEvent"; readonly eventId: string }
+  // Builds an entity again even though it has not changed, as after a
+  // failure that might not happen twice.
+  | {
+      readonly _tag: "Retry";
+      readonly entity: "block" | "patch" | "event";
+      readonly entityId: string;
+    };
 
 export type RackMsg = RackEdit | RackTrigger;
 
@@ -87,7 +94,10 @@ export type RackEnvelope = {
 };
 
 export const isTrigger = (msg: RackMsg): msg is RackTrigger =>
-  msg._tag === "Run" || msg._tag === "Stop" || msg._tag === "PlayEvent";
+  msg._tag === "Run" ||
+  msg._tag === "Stop" ||
+  msg._tag === "PlayEvent" ||
+  msg._tag === "Retry";
 
 // Wraps a message for dispatch under a fresh id.
 export const rackEnvelope = (

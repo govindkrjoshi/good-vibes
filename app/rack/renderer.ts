@@ -15,12 +15,14 @@ import {
   type ParamValue,
   type RackEvent,
   type RackState,
+  type RenderErrorCode,
 } from "./model";
 
 type ToneNode = ToneJs.ToneAudioNode;
 
 export class PatchError extends Data.TaggedError("PatchError")<{
   readonly message: string;
+  readonly code?: RenderErrorCode;
 }> {}
 
 export type RenderedLeaf = {
@@ -68,7 +70,22 @@ export type ToneScheduled = {
 export type RenderedEvent = {
   readonly eventId: string;
   readonly blockId: string;
+  // Tells this schedule apart from the event's earlier and later ones, so a
+  // failure reported while it plays can be traced to the build that made it.
+  readonly schedule: number;
   readonly exit: Exit.Exit<ToneScheduled, LeafError>;
+};
+
+// A scheduled call that failed while the transport was playing, long after
+// the command that scheduled it finished.
+export type PlaybackFailure = {
+  readonly eventId: string;
+  readonly schedule: number;
+  readonly message: string;
+};
+
+export type ToneRuntimeOptions = {
+  readonly onPlaybackFailure?: (failure: PlaybackFailure) => void;
 };
 
 export type RenderedRackState = {
@@ -129,6 +146,7 @@ export const evaluateLeafCode = (
     catch: (cause) =>
       new LeafError({
         message: `Leaf code failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        code: "LeafThrew",
       }),
   });
 
@@ -160,9 +178,12 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 export const makeToneRuntime = (
   getState: () => RackState,
+  { onPlaybackFailure }: ToneRuntimeOptions = {},
 ): Effect.Effect<ToneRuntime, never, Tone> =>
   Effect.gen(function* () {
     const tone = yield* Tone;
+    // Numbers each schedule as it is built; see RenderedEvent.
+    let schedules = 0;
     // Commands are not serialized. That is safe while leaf code builds its
     // node without waiting; once a leaf can wait (e.g. loading samples), a
     // command running meanwhile could leak a node, and they will need a lock.
@@ -205,6 +226,7 @@ export const makeToneRuntime = (
         if (block?.kind !== "leaf") {
           return yield* new LeafError({
             message: `Block ${blockId} is not a rendered leaf`,
+            code: "Missing",
           });
         }
         return yield* block.exit;
@@ -240,7 +262,10 @@ export const makeToneRuntime = (
       return isObject(owner) && key !== undefined && key in owner
         ? Effect.succeed({ owner, key })
         : Effect.fail(
-            new LeafError({ message: `No ${param.path.join(".")} on node` }),
+            new LeafError({
+              message: `No ${param.path.join(".")} on node`,
+              code: "ParamRejected",
+            }),
           );
     };
 
@@ -329,6 +354,7 @@ export const makeToneRuntime = (
           catch: (cause) =>
             new LeafError({
               message: `Could not set ${param.name}: ${String(cause)}`,
+              code: "ParamRejected",
             }),
         }),
       );
@@ -364,13 +390,21 @@ export const makeToneRuntime = (
             Effect.fail(
               new LeafError({
                 message: `Leaf code failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+                code: "LeafThrew",
               }),
             ),
+          ),
+          // Leaf code may fail with a LeafError of its own, which has no code.
+          Effect.mapError((error) =>
+            error.code === undefined
+              ? new LeafError({ message: error.message, code: "LeafThrew" })
+              : error,
           ),
         );
         if (!(node instanceof tone.ToneAudioNode)) {
           return yield* new LeafError({
             message: "Leaf code did not build a Tone.js node",
+            code: "LeafNotANode",
           });
         }
         // A node that cannot take its params is not kept half set up.
@@ -432,11 +466,25 @@ export const makeToneRuntime = (
         yield* putBlock(blockId, undefined);
       });
 
+    // The node of the leaf a param, method or event belongs to. If that
+    // leaf did not build, it is the leaf's failure, not this one's, so it
+    // keeps the leaf's message under its own code.
+    const ownerNode = (blockId: string) =>
+      leafNode(blockId).pipe(
+        Effect.mapError(
+          (error) =>
+            new LeafError({ message: error.message, code: "BlockFailed" }),
+        ),
+      );
+
     // --- Patches ----------------------------------------------------------
 
     const patchEnd = (blockId: string) =>
       leafNode(blockId).pipe(
-        Effect.mapError((error) => new PatchError({ message: error.message })),
+        Effect.mapError(
+          (error) =>
+            new PatchError({ message: error.message, code: "EndpointFailed" }),
+        ),
       );
 
     const connect = (patchId: string) =>
@@ -448,6 +496,7 @@ export const makeToneRuntime = (
         if (fromBlockId === undefined || toBlockId === undefined) {
           return yield* new PatchError({
             message: `Patch ${patchId} is missing a jack`,
+            code: "Missing",
           });
         }
 
@@ -456,7 +505,10 @@ export const makeToneRuntime = (
         yield* Effect.try({
           try: () => from.connect(to),
           catch: (cause) =>
-            new PatchError({ message: `Could not connect: ${String(cause)}` }),
+            new PatchError({
+              message: `Could not connect: ${String(cause)}`,
+              code: "PatchFailed",
+            }),
         });
 
         return { fromBlockId, toBlockId };
@@ -520,6 +572,7 @@ export const makeToneRuntime = (
         if (typeof call !== "function") {
           return yield* new LeafError({
             message: `Node has no method ${method.method}`,
+            code: "MethodThrew",
           });
         }
 
@@ -535,6 +588,7 @@ export const makeToneRuntime = (
           catch: (cause) =>
             new LeafError({
               message: `${method.name} failed: ${String(cause)}`,
+              code: "MethodThrew",
             }),
         });
       });
@@ -543,13 +597,14 @@ export const makeToneRuntime = (
 
     // Tone's event classes all fire `(time, value)` and share the ToneEvent
     // knobs, so only their construction differs.
-    const buildEvent = (event: RackEvent) =>
+    const buildEvent = (event: RackEvent, schedule: number) =>
       Effect.gen(function* () {
-        const node = yield* leafNode(event.belongToBlockId);
+        const node = yield* ownerNode(event.belongToBlockId);
         const method = getState().methods[event.methodId];
         if (method === undefined) {
           return yield* new LeafError({
             message: `No method ${event.methodId}`,
+            code: "Missing",
           });
         }
         const note = noteArg(method);
@@ -567,7 +622,14 @@ export const makeToneRuntime = (
           Effect.runSync(
             invoke(node, method, args, time).pipe(
               Effect.tapError((error) =>
-                Effect.sync(() => console.warn(error)),
+                Effect.sync(() => {
+                  console.warn(error);
+                  onPlaybackFailure?.({
+                    eventId: event.id,
+                    schedule,
+                    message: error.message,
+                  });
+                }),
               ),
               Effect.ignore,
             ),
@@ -594,6 +656,7 @@ export const makeToneRuntime = (
           catch: (cause) =>
             new LeafError({
               message: `Could not schedule ${method.name}: ${String(cause)}`,
+              code: "ScheduleFailed",
             }),
         });
       });
@@ -640,12 +703,17 @@ export const makeToneRuntime = (
       Effect.gen(function* () {
         const event = getState().events[eventId];
         if (event === undefined) {
-          return Exit.fail(new LeafError({ message: `No event ${eventId}` }));
+          return Exit.fail(
+            new LeafError({ message: `No event ${eventId}`, code: "Missing" }),
+          );
         }
-        const exit = yield* Effect.exit(buildEvent(event));
+        schedules += 1;
+        const schedule = schedules;
+        const exit = yield* Effect.exit(buildEvent(event, schedule));
         yield* putEvent(eventId, {
           eventId,
           blockId: event.belongToBlockId,
+          schedule,
           exit,
         });
         return exit;
@@ -705,7 +773,10 @@ export const makeToneRuntime = (
 
           const block = (yield* Ref.get(ref)).blocks.get(blockId);
           if (block === undefined) {
-            return yield* new LeafError({ message: `No block ${blockId}` });
+            return yield* new LeafError({
+              message: `No block ${blockId}`,
+              code: "Missing",
+            });
           }
           if (block.kind === "leaf") yield* block.exit;
         }),
@@ -720,6 +791,7 @@ export const makeToneRuntime = (
           if (tree === undefined) {
             return yield* new PatchError({
               message: `Patch ${patchId} is not in any rack`,
+              code: "Missing",
             });
           }
 
@@ -734,9 +806,12 @@ export const makeToneRuntime = (
         Effect.gen(function* () {
           const param = getState().params[paramId];
           if (param === undefined) {
-            return yield* new LeafError({ message: `No param ${paramId}` });
+            return yield* new LeafError({
+              message: `No param ${paramId}`,
+              code: "Missing",
+            });
           }
-          const node = yield* leafNode(param.belongToBlockId);
+          const node = yield* ownerNode(param.belongToBlockId);
           const block = getState().blocks[param.belongToBlockId];
           const target = yield* locate(node, param).pipe(
             Effect.map(({ owner, key }) => owner[key]),
@@ -756,10 +831,13 @@ export const makeToneRuntime = (
         Effect.gen(function* () {
           const method = getState().methods[methodId];
           if (method === undefined) {
-            return yield* new LeafError({ message: `No method ${methodId}` });
+            return yield* new LeafError({
+              message: `No method ${methodId}`,
+              code: "Missing",
+            });
           }
 
-          const node = yield* leafNode(method.belongToBlockId);
+          const node = yield* ownerNode(method.belongToBlockId);
           yield* invoke(node, method, args);
         }),
 

@@ -73,7 +73,8 @@ export type RefusalCode =
   | "UnknownEvent"
   | "EventRejected"
   | "TransportRejected"
-  | "NotPlayable";
+  | "NotPlayable"
+  | "UnknownEntity";
 
 export type Refused = {
   readonly _tag: "Refused";
@@ -518,6 +519,18 @@ const apply = (state: RackState, msg: RackMsg): Applied => {
     case "Run":
     case "Stop":
       return { _tag: "Triggered" };
+
+    case "Retry": {
+      const table =
+        msg.entity === "block"
+          ? state.blocks
+          : msg.entity === "patch"
+            ? state.patches
+            : state.events;
+      return msg.entityId in table
+        ? { _tag: "Triggered" }
+        : refuse("UnknownEntity", `There is no ${msg.entity} ${msg.entityId}.`);
+    }
 
     case "PlayEvent":
       return playArgs(state, msg.eventId) === undefined

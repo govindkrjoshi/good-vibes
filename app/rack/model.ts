@@ -9,8 +9,31 @@ type ToneNode = ToneJs.ToneAudioNode;
 // context.
 export class Tone extends Context.Service<Tone, typeof ToneJs>()("Tone") {}
 
+// Why the renderer could not do something, as a code the app can act on.
+// Leaf code may fail with a LeafError of its own, which has no code.
+export type RenderErrorCode =
+  // The leaf's code did not parse, threw, or failed.
+  | "LeafThrew"
+  // The leaf's code ran but built something other than a Tone.js node.
+  | "LeafNotANode"
+  // A param could not be set on the node.
+  | "ParamRejected"
+  // The block this needs did not build.
+  | "BlockFailed"
+  // A patch end did not build, so there is nothing to connect.
+  | "EndpointFailed"
+  // Both ends built, and Tone.js would not connect them.
+  | "PatchFailed"
+  // Tone.js would not schedule an event with its settings.
+  | "ScheduleFailed"
+  // A method call on the node threw.
+  | "MethodThrew"
+  // What the command names is not in the rack.
+  | "Missing";
+
 export class LeafError extends Data.TaggedError("LeafError")<{
   readonly message: string;
+  readonly code?: RenderErrorCode;
 }> {}
 
 // What a leaf block runs to make its Tone.js node: the source of a JavaScript
