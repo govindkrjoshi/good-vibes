@@ -53,9 +53,11 @@ const tables: Readonly<Record<EntityKind, Table>> = {
       before.values[id] === after.values[id] &&
       before.automations[id] === after.automations[id],
   },
+  // Compared by value: it is one small record, and a rack built elsewhere,
+  // like the frame's empty one, has its own object for the same tempo.
   transport: {
     ids: () => [transportId],
-    same: (before, after) => before.transport === after.transport,
+    same: (before, after) => before.transport.bpm === after.transport.bpm,
   },
 };
 

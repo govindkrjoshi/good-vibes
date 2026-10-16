@@ -51,7 +51,8 @@ const emptyRack: RackState = {
   rootId: rootRack.id,
 };
 
-const run = (
+// Carries out one command on the runtime.
+export const runCommand = (
   runtime: ToneRuntime,
   command: Command,
 ): Effect.Effect<void, LeafError | PatchError> => {
@@ -226,7 +227,7 @@ export const makeRackHost = (
     for (const { cmdId, command } of batch.commands) {
       if (command.name === "render") startAudio?.();
       const before = await Effect.runPromise(runtime.rendered);
-      const exit = await Effect.runPromiseExit(run(runtime, command));
+      const exit = await Effect.runPromiseExit(runCommand(runtime, command));
       const after = await Effect.runPromise(runtime.rendered);
 
       const entities = entityResults(before, after);
@@ -274,7 +275,9 @@ export const makeRackHost = (
       queue = queue.then(async () => {
         state = { ...state, ...request.changes };
         if (request.command.name === "render") startAudio?.();
-        const exit = await Effect.runPromiseExit(run(runtime, request.command));
+        const exit = await Effect.runPromiseExit(
+          runCommand(runtime, request.command),
+        );
         const error = describe(exit);
         port.postMessage(
           error === undefined
