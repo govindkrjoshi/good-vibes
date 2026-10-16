@@ -1,16 +1,24 @@
 // The agent itself (./agent) is left out on purpose: it pulls in the model
-// runtime, which the session loads on first use to keep it out of the initial
+// runtime, which the service loads on first use to keep it out of the initial
 // bundle. Import it from "./agent/agent" where it is really needed.
 export {
   actionLabel,
-  createSession,
+  initialChatState,
+  reduceChat,
+  type ChatEvent,
   type ChatMessage,
+  type ChatState,
+} from "./chat";
+export {
+  makeAgentService,
+  type AgentService,
+  type AgentServiceOptions,
   type CreateAgent,
-  type Session,
-  type SessionOptions,
-  type SessionState,
-} from "./session";
+  type FixupCheck,
+  type Turn,
+} from "./service";
 export { apiKeyStorageKey, knownApiKey, storeApiKey } from "./key";
+export type { ApplyAction } from "./tools";
 export {
   PromptError,
   type ActionResult,

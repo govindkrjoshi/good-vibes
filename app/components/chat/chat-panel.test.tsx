@@ -9,6 +9,7 @@ import { ChatPanel } from "./chat-panel";
 const agent = vi.hoisted(() => ({
   messages: [] as ChatMessage[],
   busy: false,
+  queued: 0,
   prompt: vi.fn(),
   abort: vi.fn(),
   changeKey: vi.fn(),
@@ -57,7 +58,7 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
 beforeEach(() => {
   agent.messages = [];
   agent.busy = false;
-  agent.prompt.mockResolvedValue(undefined);
+  agent.queued = 0;
 });
 
 afterEach(() => {
@@ -122,16 +123,51 @@ test("offers Stop while the agent is replying", () => {
   expect(agent.abort).toHaveBeenCalledTimes(1);
 });
 
-test("explains a message that could not be sent", async () => {
-  agent.prompt.mockRejectedValue(new Error("No OpenRouter API key was given"));
+test("queues a message sent while the agent is busy, and says how many wait", () => {
+  agent.busy = true;
+  agent.queued = 2;
+  agent.messages = [{ id: "a", role: "user", kind: "message", text: "hello" }];
   render();
-  type("hello");
-  press("Enter");
-  await act(async () => {});
 
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-    "No OpenRouter API key was given",
+  expect(byTestId("chat-queued")?.textContent).toBe("2 messages waiting");
+  type("and then this");
+  // With a draft, the composer offers Send rather than Stop.
+  expect(byTestId("chat-stop")).toBeNull();
+  press("Enter");
+
+  expect(agent.prompt).toHaveBeenCalledWith("and then this");
+});
+
+test("shows the app's notices apart from the agent", () => {
+  agent.messages = [
+    {
+      id: "n",
+      role: "system",
+      kind: "notice",
+      text: "Found 2 errors; asking the agent to fix them.",
+    },
+  ];
+  render();
+
+  expect(byTestId("chat-notice")?.textContent).toBe(
+    "Found 2 errors; asking the agent to fix them.",
   );
+});
+
+test("shows why a reply failed on the reply", () => {
+  agent.messages = [
+    { id: "a", role: "user", kind: "message", text: "hello" },
+    {
+      id: "e",
+      role: "assistant",
+      kind: "message",
+      text: "",
+      error: "No OpenRouter API key was given",
+    },
+  ];
+  render();
+
+  expect(container.textContent).toContain("No OpenRouter API key was given");
 });
 
 test("shows what the agent is doing, then what came of it", () => {

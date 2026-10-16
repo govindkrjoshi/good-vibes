@@ -1,3 +1,4 @@
+import { Effect, Exit, Scope } from "effect";
 import {
   createContext,
   useCallback,
@@ -6,11 +7,17 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { applyAction } from "../../actions";
-import { createSession, type ChatMessage } from "../../agent";
+import { createStore, useStore } from "zustand";
+import { applyAction, checkAfterTurn, type ActionDeps } from "../../actions";
+import {
+  initialChatState,
+  makeAgentService,
+  type AgentService,
+  type ChatMessage,
+  type ChatState,
+} from "../../agent";
 import { rackStore } from "../../rack";
 import { sandboxStatus } from "../../sandbox";
 import { useSandboxClient } from "../sandbox/sandbox-provider";
@@ -20,9 +27,12 @@ export type { ChatMessage } from "../../agent";
 
 type GoodVibesAgentContextValue = {
   readonly messages: readonly ChatMessage[];
-  // True from a prompt being sent until the agent has finished replying.
+  // True while a prompt runs or waits to.
   readonly busy: boolean;
-  readonly prompt: (text: string) => Promise<void>;
+  // Prompts sent while the agent was busy, waiting their turn.
+  readonly queued: number;
+  readonly prompt: (text: string) => void;
+  // Stops the reply, its fix-ups, and everything waiting.
   readonly abort: () => void;
   readonly changeKey: () => void;
 };
@@ -31,101 +41,77 @@ const GoodVibesAgentContext = createContext<
   GoodVibesAgentContextValue | undefined
 >(undefined);
 
-type KeyRequest = {
-  readonly promise: Promise<string>;
-  readonly resolve: (key: string) => void;
-  readonly reject: (error: Error) => void;
-};
+// A chat with no service yet, as on the server and before the first effect.
+const idleChat = createStore<ChatState>()(() => initialChatState);
 
-const keyRequest = (): KeyRequest => {
-  let resolve!: (key: string) => void;
-  let reject!: (error: Error) => void;
-  const promise = new Promise<string>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve, reject };
-};
-
-// Runs one agent session in the browser for as long as the provider is
-// mounted, shows the key dialog whenever the session asks for one, and makes
-// the changes the agent asks for on the rack store.
+// Runs the agent service in the browser for as long as the provider is
+// mounted, shows the key dialog whenever it asks for one, and applies the
+// changes the agent asks for to the rack store.
 export function GoodVibesAgentProvider({
   children,
 }: {
   readonly children: ReactNode;
 }) {
-  // The session's open request for a key, while the user is being asked.
-  const [request, setRequest] = useState<KeyRequest | undefined>(undefined);
+  const [service, setService] = useState<AgentService | undefined>(undefined);
   // Asked for from settings, so there is no prompt waiting on the answer.
   const [changingKey, setChangingKey] = useState(false);
-  // The session outlives renders, and the sandbox client comes later, so the
+  // The service outlives renders, and the sandbox client comes later, so the
   // agent's checks read the current one through this.
   const sandbox = useSandboxClient();
   const sandboxRef = useRef(sandbox);
   useEffect(() => {
     sandboxRef.current = sandbox;
   }, [sandbox]);
-  const [session] = useState(() =>
-    createSession({
-      askForKey: () => {
-        const asked = keyRequest();
-        setRequest(asked);
-        return asked.promise;
-      },
-      applyAction: (action, signal) =>
-        applyAction(
-          {
-            store: rackStore,
-            sandbox: () => sandboxRef.current,
-            status: sandboxStatus.getState,
-          },
-          action,
-          signal,
-        ),
-    }),
-  );
-  const state = useSyncExternalStore(
-    session.subscribe,
-    session.getState,
-    session.getState,
-  );
 
-  const answer = (settle: (request: KeyRequest) => void) => {
-    setRequest(undefined);
-    if (request !== undefined) settle(request);
-  };
+  useEffect(() => {
+    const deps: ActionDeps = {
+      store: rackStore,
+      sandbox: () => sandboxRef.current,
+      status: sandboxStatus.getState,
+    };
+    const scope = Effect.runSync(Scope.make());
+    const made = Effect.runSync(
+      makeAgentService({
+        applyAction: (action, signal, turn) =>
+          applyAction(deps, action, signal, turn),
+        checkAfterTurn: (signal) => checkAfterTurn(deps, signal),
+      }).pipe(Scope.provide(scope)),
+    );
+    setService(made);
+    return () => {
+      setService(undefined);
+      Effect.runFork(Scope.close(scope, Exit.void));
+    };
+  }, []);
 
+  const state = useStore(service?.chat ?? idleChat);
   const changeKey = useCallback(() => setChangingKey(true), []);
 
   const value = useMemo(
     () => ({
       messages: state.messages,
       busy: state.busy,
-      prompt: session.prompt,
-      abort: session.abort,
+      queued: state.queued,
+      prompt: (text: string) => service?.prompt(text),
+      abort: () => service?.cancel(),
       changeKey,
     }),
-    [state, session, changeKey],
+    [state, service, changeKey],
   );
 
   return (
     <GoodVibesAgentContext.Provider value={value}>
       {children}
-      {request !== undefined && (
+      {state.keyNeeded && (
         <ApiKeyDialog
-          onSubmit={(key) => answer((asked) => asked.resolve(key))}
-          onCancel={() =>
-            answer((asked) =>
-              asked.reject(new Error("No OpenRouter API key was given")),
-            )
-          }
+          onSubmit={(key) => service?.submitKey(key)}
+          onCancel={() => service?.declineKey()}
         />
       )}
-      {changingKey && request === undefined && (
+      {changingKey && !state.keyNeeded && (
         <ApiKeyDialog
           onSubmit={(key) => {
-            session.setKey(key);
+            service?.setKey(key);
             setChangingKey(false);
           }}
           onCancel={() => setChangingKey(false)}

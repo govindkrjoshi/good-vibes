@@ -173,3 +173,33 @@ test.describe("building and checking in one list", () => {
     await expect(chat(page)).toContainText("All wired up.");
   });
 });
+
+test.describe("fixing errors left after a turn", () => {
+  test.use({
+    openRouterReplies: [
+      "Sure.",
+      "That Leaf block has no code, and I cannot write code for it.",
+    ],
+  });
+
+  test("asks the agent to fix errors, the user's too, and stops when nothing changes", async ({
+    page,
+  }) => {
+    await page.getByTestId("add-source").click();
+    await expect(page.getByTestId("block-error")).toBeVisible();
+
+    await ask(page, "hello");
+
+    const notices = page.getByTestId("chat-notice");
+    await expect(notices.first()).toHaveText(
+      "Found 1 error; asking the agent to fix it.",
+    );
+    await expect(chat(page)).toContainText(
+      "That Leaf block has no code, and I cannot write code for it.",
+    );
+    await expect(notices.last()).toHaveText(
+      "The last fix changed nothing about the 1 error, so the agent has stopped trying.",
+    );
+    await expect(page.getByTestId("chat-stop")).toHaveCount(0);
+  });
+});

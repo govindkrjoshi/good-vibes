@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { StoreApi } from "zustand";
-import type { ActionResult, RackAction } from "../agent";
+import type { ActionResult, FixupCheck, RackAction, Turn } from "../agent";
 import { CATALOGUE } from "../catalogue";
 import type {
   EntityKind,
@@ -537,6 +537,7 @@ export const applyAction = async (
   { store, sandbox, status, checkTimeoutMs = 2000 }: ActionDeps,
   action: RackAction,
   signal?: AbortSignal,
+  turn?: Turn,
 ): Promise<ActionResult> => {
   const envelopeId = crypto.randomUUID();
   const plan = planAction(store.getState(), action, envelopeId);
@@ -549,6 +550,9 @@ export const applyAction = async (
         plan.msgs.map((msg, index) => ({
           id: plan.msgs.length === 1 ? envelopeId : `${envelopeId}#${index}`,
           origin: "agent" as const,
+          ...(turn === undefined
+            ? {}
+            : { turnId: turn.turnId, chainId: turn.chainId }),
           msg,
         })),
       );
@@ -568,4 +572,54 @@ export const applyAction = async (
       return checked(store.getState(), barrier, status());
     }
   }
+};
+
+// --- After a turn -------------------------------------------------------------
+
+// What to tell the agent service once a turn ends: whether the rack has
+// errors, every one of them, whoever made it. The fingerprint holds each
+// error with the revision its entity was last changed at, so a try that
+// changed a failing block, or one of its params, counts as a try even if it
+// fails the same way.
+export const checkAfterTurn = async (
+  { store, sandbox, status, checkTimeoutMs = 2000 }: ActionDeps,
+  signal?: AbortSignal,
+): Promise<FixupCheck> => {
+  const client = sandbox();
+  if (client === undefined)
+    return { _tag: "Unchecked", text: "the audio engine has not started yet." };
+  const barrier = await Effect.runPromise(client.barrier(checkTimeoutMs), {
+    signal,
+  });
+  const state = store.getState();
+  const result = checked(state, barrier, status());
+  if (barrier._tag !== "Settled")
+    return {
+      _tag: "Unchecked",
+      text: result.text.replace(/^Could not check: /, ""),
+    };
+
+  const errors = Object.values(status().errors);
+  if (errors.length === 0) return { _tag: "Clean" };
+  // When a block's build failed, changing one of its params rebuilds it, so
+  // the latest change to the block or any of its params counts.
+  const touched = (entry: ErrorEntry) =>
+    Math.max(
+      state.stamps[entityOf[entry.kind]][entry.id]?.rev ?? 0,
+      ...(entry.kind === "build"
+        ? Object.values(state.params)
+            .filter((param) => param.belongToBlockId === entry.id)
+            .map((param) => state.stamps.param[param.id]?.rev ?? 0)
+        : []),
+    );
+  const fingerprint = errors
+    .map((entry) => `${entry.kind}:${entry.id}:${entry.code}@${touched(entry)}`)
+    .sort()
+    .join("|");
+  return {
+    _tag: "Errors",
+    count: errors.length,
+    fingerprint,
+    prompt: `The audio engine reports problems with the rack after your last turn. ${result.text} Fix every one of them, whoever made it, then check errors again. If one cannot be fixed, say why.`,
+  };
 };

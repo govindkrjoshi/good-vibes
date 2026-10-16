@@ -63,8 +63,13 @@ function render(children: ReactNode) {
   act(() => root.render(tree(children)));
 }
 
-// Lets pending promises (the lazy agent import, the reply) settle.
-const flush = () => act(async () => {});
+// Lets pending promises (the lazy agent import, the reply) and the
+// service's fibers settle.
+const flush = () =>
+  act(async () => {
+    for (let i = 0; i < 5; i += 1)
+      await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
 // The key the agent would send with its next request.
 const agentKey = () =>
@@ -116,7 +121,9 @@ test("uses the key saved in local storage without asking", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
   render(<Probe />);
 
-  await expect(current?.prompt("hello")).resolves.toBeUndefined();
+  act(() => current?.prompt("hello"));
+  await flush();
+
   expect(agentKey()).toBe("sk-or-saved");
   expect(agent.prompt).toHaveBeenCalledWith("hello");
   expect(keyInput()).toBeNull();
@@ -125,17 +132,14 @@ test("uses the key saved in local storage without asking", async () => {
 test("asks for a key when none is known, then saves it", async () => {
   render(<Probe />);
 
-  let done: Promise<void> | undefined;
-  act(() => {
-    done = current?.prompt("hello");
-  });
+  act(() => current?.prompt("hello"));
+  await flush();
   expect(keyInput()).not.toBeNull();
   expect(createGoodVibesAgent).not.toHaveBeenCalled();
 
   enterKey("  sk-or-typed  ");
   await flush();
 
-  await expect(done).resolves.toBeUndefined();
   expect(agentKey()).toBe("sk-or-typed");
   expect(agent.prompt).toHaveBeenCalledWith("hello");
   expect(localStorage.getItem(apiKeyStorageKey)).toBe("sk-or-typed");
@@ -145,50 +149,36 @@ test("asks for a key when none is known, then saves it", async () => {
 test("prompts waiting on the key share one dialog and one agent", async () => {
   render(<Probe />);
 
-  let first: Promise<void> | undefined;
-  let second: Promise<void> | undefined;
   act(() => {
-    first = current?.prompt("one");
-    second = current?.prompt("two");
+    current?.prompt("one");
+    current?.prompt("two");
   });
+  await flush();
   expect(document.querySelectorAll("dialog")).toHaveLength(1);
 
   enterKey("sk-or-typed");
   await flush();
 
-  await expect(first).resolves.toBeUndefined();
-  await expect(second).resolves.toBeUndefined();
   expect(createGoodVibesAgent).toHaveBeenCalledTimes(1);
   expect(agent.prompt.mock.calls).toEqual([["one"], ["two"]]);
 });
 
-test("keeps one agent across prompts", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+test("shows that no key was given, and asks again next time", async () => {
   render(<Probe />);
 
-  await current?.prompt("one");
-  await current?.prompt("two");
-
-  expect(createGoodVibesAgent).toHaveBeenCalledTimes(1);
-  expect(agent.prompt).toHaveBeenCalledTimes(2);
-});
-
-test("rejects when the user declines to give a key", async () => {
-  render(<Probe />);
-
-  let done: Promise<void> | undefined;
-  act(() => {
-    done = current?.prompt("hello");
-  });
+  act(() => current?.prompt("hello"));
+  await flush();
   act(() => button("Not now").click());
+  await flush();
 
-  await expect(done).rejects.toThrow("No OpenRouter API key was given");
+  expect(current?.messages.at(-1)).toMatchObject({
+    error: "No OpenRouter API key was given",
+  });
   expect(createGoodVibesAgent).not.toHaveBeenCalled();
   expect(keyInput()).toBeNull();
 
-  act(() => {
-    done = current?.prompt("hello");
-  });
+  act(() => current?.prompt("hello"));
+  await flush();
   expect(keyInput()).not.toBeNull();
 });
 
@@ -196,15 +186,22 @@ test("keeps the conversation as it streams in", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
   render(<Probe />);
 
-  await act(() => current?.prompt("hello"));
+  act(() => current?.prompt("hello"));
+  await flush();
 
-  expect(current?.messages).toEqual([
-    { id: "user-0", role: "user", kind: "message", text: "hello" },
+  expect(current?.messages.slice(0, 2)).toEqual([
+    { id: "user-chain-1", role: "user", kind: "message", text: "hello" },
     { id: "agent-1-0", role: "assistant", kind: "message", text: "Hi there" },
   ]);
+  // Rendered here with no sandbox, so the rack cannot be checked.
+  expect(current?.messages.at(-1)).toMatchObject({
+    role: "system",
+    kind: "notice",
+    text: "Could not check the rack for errors: the audio engine has not started yet.",
+  });
 });
 
-test("is busy from sending until the reply ends", async () => {
+test("is busy from sending until the reply ends, and queues what comes meanwhile", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
   let finish!: () => void;
   render(<Probe />);
@@ -212,18 +209,15 @@ test("is busy from sending until the reply ends", async () => {
     Effect.promise(() => new Promise<void>((resolve) => (finish = resolve))),
   );
 
-  let done: Promise<void> | undefined;
-  act(() => {
-    done = current?.prompt("hello");
-  });
-  expect(current?.busy).toBe(true);
-
+  act(() => current?.prompt("hello"));
   await flush();
-  await act(async () => {
-    finish();
-    await done;
-  });
-  expect(current?.busy).toBe(false);
+  act(() => current?.prompt("and this"));
+  expect(current).toMatchObject({ busy: true, queued: 1 });
+
+  act(() => finish());
+  await flush();
+  expect(current).toMatchObject({ busy: false, queued: 0 });
+  expect(agent.prompt.mock.calls).toEqual([["hello"], ["and this"]]);
 });
 
 test("shows why a reply failed", async () => {
@@ -233,7 +227,8 @@ test("shows why a reply failed", async () => {
   );
   render(<Probe />);
 
-  await act(() => current?.prompt("hello"));
+  act(() => current?.prompt("hello"));
+  await flush();
 
   expect(current?.messages.at(-1)).toMatchObject({
     role: "assistant",
@@ -245,18 +240,24 @@ test("shows why a reply failed", async () => {
 test("stops the running reply", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
   render(<Probe />);
-  await act(() => current?.prompt("hello"));
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(agent.aborted))),
+  );
+  act(() => current?.prompt("hello"));
+  await flush();
 
   act(() => current?.abort());
   await flush();
 
   expect(agent.aborted).toHaveBeenCalledTimes(1);
+  expect(current?.busy).toBe(false);
 });
 
 test("uses a key changed in settings for the running agent", async () => {
   localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
   render(<Probe />);
-  await act(() => current?.prompt("hello"));
+  act(() => current?.prompt("hello"));
+  await flush();
 
   act(() => current?.changeKey());
   enterKey("sk-or-new");

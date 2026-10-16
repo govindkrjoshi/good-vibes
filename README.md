@@ -61,7 +61,7 @@ while building, so users always bring their own.
 
 The agent can change the rack, but never touches it directly. Its one tool
 takes a list of `RackAction`s (the schema in `app/agent/rack-action.ts` is
-the source of truth). The session hands the agent a function from
+the source of truth). The agent service (`app/agent/service.ts`) hands the agent a function from
 `app/actions/` that applies one: it works out from the rack alone the
 messages the action comes to, dispatches them all or nothing, marked as the
 agent's, and answers with an `ActionResult`. A refused action stops the rest
@@ -74,6 +74,13 @@ before it, then reports what failed, grouped by the block at its root and
 with who last changed it. A `retry` action builds a block, patch or event
 again as it is. The agent is told to end a list that changes the rack with a
 check.
+
+The service runs one prompt at a time; a prompt sent while the agent is busy
+waits its turn. When a turn ends, the service checks the rack, and if
+anything failed, whoever made it, it asks the agent to fix it in another turn
+before any prompt waiting. It stops after three tries, as soon as a try
+changes nothing about the errors, and never after Stop or a failed reply. The
+chat is a store the service feeds through a pure reducer (`app/agent/chat.ts`).
 
 The model chooses the id of each block it adds, so one list can add a block
 and then patch it or set its params (`<block id>:param:<name>`) by that id.

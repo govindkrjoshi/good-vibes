@@ -2,11 +2,12 @@ import { beforeEach, expect, test } from "vitest";
 import { Effect } from "effect";
 import {
   applyAction,
+  checkAfterTurn,
   describeRack,
   planAction,
   type ActionDeps,
 } from "./index";
-import type { RackAction } from "../agent";
+import type { FixupCheck, RackAction } from "../agent";
 import { rackStore } from "../rack";
 import {
   initialSandboxStatus,
@@ -454,4 +455,65 @@ test.each([
   expect(result.ok).toBe(false);
   expect(result.text).toContain("Could not check");
   expect(result.text).toContain(why);
+});
+
+// --- After a turn ---------------------------------------------------------------
+
+const afterTurn = (
+  barrier: BarrierResult,
+  errors: Readonly<Record<string, ErrorEntry>> = {},
+) =>
+  checkAfterTurn({
+    ...deps,
+    sandbox: () => ({ barrier: () => Effect.succeed(barrier) }),
+    status: () => ({ ...initialSandboxStatus, errors }),
+  });
+
+test("finds nothing to fix in a clean rack", async () => {
+  expect(await afterTurn({ _tag: "Settled" })).toEqual({ _tag: "Clean" });
+});
+
+test("cannot check a rack the audio engine has not answered for", async () => {
+  expect(await afterTurn({ _tag: "TimedOut" })).toMatchObject({
+    _tag: "Unchecked",
+    text: expect.stringContaining("still busy"),
+  });
+});
+
+test("asks the agent to fix every error, the user's too", async () => {
+  // Added by the user, not the agent.
+  const leaf = state().addBlock("leaf") ?? "";
+
+  const found = await afterTurn(
+    { _tag: "Settled" },
+    { [`build:${leaf}`]: entry({ id: leaf, message: "Leaf has no code" }) },
+  );
+
+  expect(found).toMatchObject({ _tag: "Errors", count: 1 });
+  if (found._tag !== "Errors") throw new Error("expected errors");
+  expect(found.prompt).toContain("Leaf has no code");
+  expect(found.prompt).toContain("whoever made it");
+});
+
+test("counts a change to a failing block as a try, even if it fails the same way", async () => {
+  await add("synth", "instruments", "AMSynth");
+  const failing = { "build:synth": entry({}) };
+  const before = await afterTurn({ _tag: "Settled" }, failing);
+
+  await apply({ kind: "set_param", paramId: "synth:param:volume", value: -6 });
+  const changed = await afterTurn({ _tag: "Settled" }, failing);
+  await apply({ kind: "retry", entity: "block", id: "synth" });
+  const after = await afterTurn({ _tag: "Settled" }, failing);
+
+  const print = (found: FixupCheck) =>
+    found._tag === "Errors" ? found.fingerprint : found._tag;
+  // Changing a param of a block that failed to build rebuilds it: a try.
+  expect(print(changed)).not.toBe(print(before));
+  // A retry changes nothing in the rack, so failing again is no new try.
+  expect(print(after)).toBe(print(changed));
+
+  state().removeBlocks(["synth"]);
+  await add("synth", "instruments", "AMSynth");
+  const rebuilt = await afterTurn({ _tag: "Settled" }, failing);
+  expect(print(rebuilt)).not.toBe(print(after));
 });

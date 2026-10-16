@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Check,
   CircleAlert,
+  Info,
   MessageCircle,
   Square,
 } from "lucide-react";
@@ -33,9 +34,6 @@ import {
 } from "../ui/message-scroller";
 import { Spinner } from "../ui/spinner";
 import { useGoodVibesAgent, type ChatMessage } from "./agent-provider";
-
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "The message could not be sent";
 
 // A change the agent asked for: what it is doing while it waits, then what
 // came of it.
@@ -75,6 +73,7 @@ function ActionRow({ message }: { readonly message: ChatMessage }) {
 // a bubble, so the conversation reads as the instrument talking back.
 function ChatRow({ message }: { readonly message: ChatMessage }) {
   if (message.kind === "action") return <ActionRow message={message} />;
+  if (message.kind === "notice") return <NoticeRow message={message} />;
   const fromUser = message.role === "user";
   return (
     <Message align={fromUser ? "end" : "start"} data-role={message.role}>
@@ -102,10 +101,25 @@ function ChatRow({ message }: { readonly message: ChatMessage }) {
   );
 }
 
+// The app speaking in the chat, as when it finds errors after a turn.
+function NoticeRow({ message }: { readonly message: ChatMessage }) {
+  return (
+    <Message align="start" data-role="system" data-testid="chat-notice">
+      <MessageContent>
+        <Marker className="text-muted-foreground">
+          <MarkerIcon>
+            <Info />
+          </MarkerIcon>
+          <MarkerContent>{message.text}</MarkerContent>
+        </Marker>
+      </MessageContent>
+    </Message>
+  );
+}
+
 export function ChatPanel({ className }: { readonly className?: string }) {
-  const { messages, busy, prompt, abort } = useGoodVibesAgent();
+  const { messages, busy, queued, prompt, abort } = useGoodVibesAgent();
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | undefined>(undefined);
   const inputId = useId();
 
   const last = messages.at(-1);
@@ -117,15 +131,16 @@ export function ChatPanel({ className }: { readonly className?: string }) {
     (last === undefined ||
       last.role === "user" ||
       last.text === "" ||
+      last.kind === "notice" ||
       (last.kind === "action" && last.status !== "requested"));
 
+  // A message sent while the agent is busy waits its turn.
   const send = (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (text === "" || busy) return;
+    if (text === "") return;
     setDraft("");
-    setError(undefined);
-    prompt(text).catch((failure: unknown) => setError(errorText(failure)));
+    prompt(text);
   };
 
   // Enter sends and Shift+Enter breaks the line, except mid-composition so
@@ -150,7 +165,7 @@ export function ChatPanel({ className }: { readonly className?: string }) {
         <MessageScroller className="flex-1">
           <MessageScrollerViewport>
             <MessageScrollerContent className="p-4">
-              {messages.length === 0 && !busy && error === undefined && (
+              {messages.length === 0 && !busy && (
                 <Empty>
                   <EmptyHeader>
                     <EmptyMedia variant="icon">
@@ -182,14 +197,16 @@ export function ChatPanel({ className }: { readonly className?: string }) {
                   </p>
                 </MessageScrollerItem>
               )}
-              {error !== undefined && (
-                <MessageScrollerItem messageId="send-error">
-                  <Marker role="alert">
-                    <MarkerIcon>
-                      <CircleAlert />
-                    </MarkerIcon>
-                    <MarkerContent>{error}</MarkerContent>
-                  </Marker>
+              {queued > 0 && (
+                <MessageScrollerItem messageId="queued">
+                  <p
+                    data-testid="chat-queued"
+                    className="text-xs text-muted-foreground"
+                  >
+                    {queued === 1
+                      ? "1 message waiting"
+                      : `${queued} messages waiting`}
+                  </p>
                 </MessageScrollerItem>
               )}
             </MessageScrollerContent>
@@ -214,7 +231,7 @@ export function ChatPanel({ className }: { readonly className?: string }) {
             onKeyDown={onKeyDown}
           />
           <InputGroupAddon align="block-end" className="justify-end">
-            {busy ? (
+            {busy && draft.trim() === "" ? (
               <InputGroupButton
                 size="icon-sm"
                 variant="outline"
