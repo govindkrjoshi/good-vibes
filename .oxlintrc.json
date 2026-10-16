@@ -9,6 +9,7 @@
         "app/canvas/**",
         "app/agent/**",
         "app/sandbox/**",
+        "app/debug/**",
         "app/runtime.ts"
       ],
       "rules": {

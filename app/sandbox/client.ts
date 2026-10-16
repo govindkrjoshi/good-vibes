@@ -9,7 +9,13 @@ import {
   type LedgerInput,
   type LedgerOutput,
 } from "./ledger";
-import { isReply, type Batch } from "./protocol";
+import {
+  isReply,
+  type Batch,
+  type BatchResult,
+  type Playback,
+} from "./protocol";
+import type { Planned } from "./reconcile";
 import {
   initialSandboxStatus,
   sandboxStatus,
@@ -52,7 +58,24 @@ export type SandboxClient = {
   readonly setVisible: (visible: boolean) => void;
 };
 
+// What the client did, for the dev log.
+export type SandboxDebugEvent =
+  | {
+      readonly _tag: "Posted";
+      readonly batch: Batch;
+      readonly planned: readonly (Planned & { readonly cmdId: number })[];
+    }
+  | { readonly _tag: "Replied"; readonly result: BatchResult }
+  | { readonly _tag: "Playback"; readonly report: Playback }
+  | {
+      readonly _tag: "ErrorChanged";
+      readonly change: LedgerOutput["errorChanges"][number];
+    }
+  | { readonly _tag: "Connected"; readonly gen: number }
+  | { readonly _tag: "Lost" };
+
 export type SandboxClientOptions = {
+  readonly onDebug?: (event: SandboxDebugEvent) => void;
   readonly now?: () => number;
   // How often the clock ticks, for barrier deadlines and liveness.
   readonly tickMs?: number;
@@ -92,6 +115,7 @@ export const makeSandboxClient = (
     tickMs = 250,
     status = sandboxStatus,
     onLost,
+    onDebug,
   }: SandboxClientOptions = {},
 ): Effect.Effect<SandboxClient, never, Scope.Scope> =>
   Effect.gen(function* () {
@@ -113,6 +137,13 @@ export const makeSandboxClient = (
           if (port === undefined) throw new Error("No sandbox frame");
           port.postMessage(out.post);
           inbox.push({ _tag: "Posted", batchId: out.post.batchId });
+          onDebug?.({
+            _tag: "Posted",
+            batch: out.post,
+            planned: [...(ledger.inFlight?.commands ?? [])].map(
+              ([cmdId, planned]) => ({ ...planned, cmdId }),
+            ),
+          });
         } catch (cause) {
           inbox.push({
             _tag: "PostFailed",
@@ -128,12 +159,14 @@ export const makeSandboxClient = (
           Deferred.doneUnsafe(waiting, Effect.succeed(result));
       }
       for (const change of out.errorChanges) {
+        onDebug?.({ _tag: "ErrorChanged", change });
         if (change._tag === "Set") {
           const { kind, id, message } = change.entry;
           console.warn(`Sandbox ${kind} ${id}: ${message}`);
         }
       }
       if (out.lost === true) {
+        onDebug?.({ _tag: "Lost" });
         drop();
         onLost?.();
       }
@@ -178,9 +211,11 @@ export const makeSandboxClient = (
           status.setState({ audio: reply.state });
           return;
         case "batchResult":
+          onDebug?.({ _tag: "Replied", result: reply });
           feed({ _tag: "Replied", result: reply });
           return;
         case "playback":
+          onDebug?.({ _tag: "Playback", report: reply });
           feed({ _tag: "PlaybackReported", report: reply });
           return;
       }
@@ -228,6 +263,7 @@ export const makeSandboxClient = (
         port = next;
         gen += 1;
         next.onmessage = receive;
+        onDebug?.({ _tag: "Connected", gen });
         feed({ _tag: "Connected", gen });
       },
 

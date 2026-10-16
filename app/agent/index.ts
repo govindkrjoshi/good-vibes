@@ -11,6 +11,7 @@ export {
 } from "./chat";
 export {
   makeAgentService,
+  type AgentDebugEvent,
   type AgentService,
   type AgentServiceOptions,
   type CreateAgent,

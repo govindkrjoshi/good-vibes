@@ -18,7 +18,9 @@ export {
 } from "./reduce";
 export {
   initialRackState,
+  onDispatch,
   onRackWork,
   rackStore,
+  type Dispatched,
   type RackStore,
 } from "./store";

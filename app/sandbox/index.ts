@@ -5,6 +5,7 @@ export {
   type HostPort,
   type RackSource,
   type SandboxClient,
+  type SandboxDebugEvent,
 } from "./client";
 export {
   errorKey,

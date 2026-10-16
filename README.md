@@ -19,6 +19,7 @@ app/
   components/   React components, grouped by the module they front
   hooks/        thin React bindings, such as useRack over the rack store
   testing/      helpers for tests only
+  debug/        the ?debug log, and its views by revision and by chain
   runtime.ts    the one Effect runtime: the sandbox client and the agent service
 ```
 
@@ -129,6 +130,19 @@ Audio can only start from a user gesture, and a Run in the app is not one in the
 frame. Chromium lets the app delegate it (`allow="autoplay"`), so Run starts
 audio there. Where the browser will not, the frame shows itself with a
 "Click to start audio" button, since a click inside the frame does count.
+
+## Debugging
+
+Open the app with `?debug` (for example `http://localhost:5173/?debug`) to see
+a log of what it does. **Revisions** lists each change to the rack, newest
+first: the messages that made it and who sent them, the commands it caused in
+the sandbox with how the frame answered, edits sent in the same batch, and
+the errors that came of it. A change with no commands had no effect in the
+sandbox, as when a block is added and removed before the frame is sent
+either. **Chains** lists each prompt's turns, and what each check after a
+turn found, with the fingerprint that decides whether a fix-up changed
+anything. The log lives in `app/debug/log.ts`; nothing is recorded without
+`?debug`.
 
 ## End-to-end tests
 

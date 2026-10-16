@@ -2,7 +2,8 @@ import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import type { StoreApi } from "zustand";
 import { applyAction, checkAfterTurn, type ActionDeps } from "./actions";
 import { makeAgentService, type AgentService, type CreateAgent } from "./agent";
-import { onRackWork, rackStore, type RackStore } from "./rack";
+import { record, type DebugLog } from "./debug/log";
+import { onDispatch, onRackWork, rackStore, type RackStore } from "./rack";
 import {
   makeSandboxClient,
   sandboxStatus,
@@ -29,11 +30,28 @@ export type AppRuntimeOptions = {
   readonly onSandboxLost?: () => void;
   // For tests: how the agent itself is made.
   readonly createAgent?: CreateAgent;
+  // Where to record what the store, the sandbox and the agent do (?debug).
+  readonly debug?: DebugLog;
 };
 
 const StoreLive = Layer.succeed(RackStoreService, rackStore);
 
-const SandboxLive = ({ onSandboxLost }: AppRuntimeOptions) =>
+// Records every dispatch while the runtime runs, when asked to.
+const DebugLive = ({ debug }: AppRuntimeOptions) =>
+  debug === undefined
+    ? Layer.empty
+    : Layer.effectDiscard(
+        Effect.acquireRelease(
+          Effect.sync(() =>
+            onDispatch((dispatched) =>
+              record(debug, { at: Date.now(), source: "rack", ...dispatched }),
+            ),
+          ),
+          (unsubscribe) => Effect.sync(unsubscribe),
+        ),
+      );
+
+const SandboxLive = ({ onSandboxLost, debug }: AppRuntimeOptions) =>
   Layer.effect(
     Sandbox,
     Effect.gen(function* () {
@@ -44,12 +62,20 @@ const SandboxLive = ({ onSandboxLost }: AppRuntimeOptions) =>
           subscribe: store.subscribe,
           onWork: onRackWork,
         },
-        onSandboxLost === undefined ? {} : { onLost: onSandboxLost },
+        {
+          ...(onSandboxLost === undefined ? {} : { onLost: onSandboxLost }),
+          ...(debug === undefined
+            ? {}
+            : {
+                onDebug: (event) =>
+                  record(debug, { at: Date.now(), source: "sandbox", event }),
+              }),
+        },
       );
     }),
   );
 
-const AgentLive = ({ createAgent }: AppRuntimeOptions) =>
+const AgentLive = ({ createAgent, debug }: AppRuntimeOptions) =>
   Layer.effect(
     Agent,
     Effect.gen(function* () {
@@ -65,6 +91,12 @@ const AgentLive = ({ createAgent }: AppRuntimeOptions) =>
           applyAction(deps, action, signal, turn),
         checkAfterTurn: (signal) => checkAfterTurn(deps, signal),
         ...(createAgent === undefined ? {} : { createAgent }),
+        ...(debug === undefined
+          ? {}
+          : {
+              onDebug: (event) =>
+                record(debug, { at: Date.now(), source: "agent", event }),
+            }),
       });
     }),
   );
@@ -83,6 +115,7 @@ export const makeAppRuntime = (options: AppRuntimeOptions = {}): AppRuntime => {
   const layer = AgentLive(options).pipe(
     Layer.provideMerge(SandboxLive(options)),
     Layer.provideMerge(StoreLive),
+    Layer.merge(DebugLive(options)),
   );
   const runtime = ManagedRuntime.make(layer);
   const services = runtime.runSync(

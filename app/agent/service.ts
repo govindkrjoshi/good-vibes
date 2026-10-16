@@ -49,7 +49,24 @@ export type CreateAgent = (
   apply: ApplyAction,
 ) => Effect.Effect<GoodVibesAgent, never, Scope.Scope>;
 
+// What the service did, for the dev log.
+export type AgentDebugEvent =
+  | {
+      readonly _tag: "TurnStarted";
+      readonly turn: Turn;
+      readonly kind: "prompt" | "fixup";
+    }
+  | { readonly _tag: "TurnEnded"; readonly turn: Turn; readonly ok: boolean }
+  | {
+      readonly _tag: "Checked";
+      readonly chainId: string;
+      readonly round: number;
+      readonly found: FixupCheck;
+    }
+  | { readonly _tag: "Cancelled" };
+
 export type AgentServiceOptions = {
+  readonly onDebug?: (event: AgentDebugEvent) => void;
   // Applies one action for the turn that asked for it.
   readonly applyAction: (
     action: RackAction,
@@ -94,6 +111,7 @@ export const makeAgentService = ({
   checkAfterTurn,
   createAgent = loadAgent,
   maxFixups = 3,
+  onDebug,
 }: AgentServiceOptions): Effect.Effect<AgentService, never, Scope.Scope> =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
@@ -167,6 +185,11 @@ export const makeAgentService = ({
     // One turn: whether it ended normally.
     const runTurn = (turn: Turn, text: string): Effect.Effect<boolean> =>
       Effect.gen(function* () {
+        onDebug?.({
+          _tag: "TurnStarted",
+          turn,
+          kind: turn.turnId === turn.chainId ? "prompt" : "fixup",
+        });
         const ready = yield* getAgent;
         active = turn;
         yield* ready.prompt(text);
@@ -192,6 +215,9 @@ export const makeAgentService = ({
               return false;
             }),
         }),
+        Effect.tap((ok) =>
+          Effect.sync(() => onDebug?.({ _tag: "TurnEnded", turn, ok })),
+        ),
         Effect.ensuring(
           Effect.sync(() => {
             if (active === turn) active = undefined;
@@ -220,6 +246,8 @@ export const makeAgentService = ({
         let previous: string | undefined;
         for (let round = 1; ; round += 1) {
           const found = yield* check();
+          if (found !== undefined)
+            onDebug?.({ _tag: "Checked", chainId, round, found });
           if (found === undefined || found._tag === "Clean") return;
           const notice = `notice-${chainId}-${round}`;
           if (found._tag === "Unchecked") {
@@ -294,6 +322,7 @@ export const makeAgentService = ({
       },
 
       cancel: () => {
+        onDebug?.({ _tag: "Cancelled" });
         Effect.runSync(Queue.clear(waiting));
         answerKey(
           Effect.fail(new NoKey({ message: "Stopped before a key was given" })),

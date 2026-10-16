@@ -28,6 +28,23 @@ export type RackStore = RackCore & {
 // the rack as it is, so watching the rack alone would miss it.
 const workListeners = new Set<(work: readonly RackWork[]) => void>();
 
+// Listeners for every dispatch, whatever came of it, for the dev log.
+export type Dispatched = {
+  readonly envelopes: readonly RackEnvelope[];
+  readonly outcomes: readonly Outcome[];
+  readonly rev: number;
+  readonly workSeq: number;
+};
+
+const dispatchListeners = new Set<(dispatched: Dispatched) => void>();
+
+export const onDispatch = (
+  listener: (dispatched: Dispatched) => void,
+): (() => void) => {
+  dispatchListeners.add(listener);
+  return () => dispatchListeners.delete(listener);
+};
+
 // How many are listening, for checking nothing is left subscribed.
 export const workListenerCount = () => workListeners.size;
 
@@ -61,6 +78,15 @@ export const rackStore = createStore<RackStore>()((set, get) => {
     const { state, outcomes, work } = reduceAll(before, envelopes);
     if (state !== before) set(state, true);
     if (work.length > 0) for (const listener of workListeners) listener(work);
+    if (dispatchListeners.size > 0) {
+      const dispatched = {
+        envelopes,
+        outcomes,
+        rev: state.rev,
+        workSeq: state.workSeq,
+      };
+      for (const listener of dispatchListeners) listener(dispatched);
+    }
     return outcomes;
   };
   const dispatch = (envelope: RackEnvelope): Outcome =>

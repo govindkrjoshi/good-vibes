@@ -7,7 +7,9 @@ import {
   type ReactNode,
 } from "react";
 import type { AgentService, CreateAgent } from "../../agent";
+import { makeDebugLog, type DebugLog } from "../../debug/log";
 import { makeAppRuntime, type AppRuntime } from "../../runtime";
+import { DebugPanel } from "../debug/debug-panel";
 import type { SandboxClient } from "../../sandbox";
 import { SandboxFrame } from "../sandbox/sandbox-frame";
 
@@ -28,17 +30,25 @@ export function AppProvider({
   readonly createAgent?: CreateAgent;
 }) {
   const [app, setApp] = useState<AppRuntime | undefined>(undefined);
+  const [debug, setDebug] = useState<DebugLog | undefined>(undefined);
   // What to do when the frame stops answering; the frame sets it.
   const onLost = useRef<() => void>(() => {});
 
   useEffect(() => {
+    // Read here, not while rendering: the server has no URL to read.
+    const log = new URLSearchParams(window.location.search).has("debug")
+      ? makeDebugLog()
+      : undefined;
     const made = makeAppRuntime({
       onSandboxLost: () => onLost.current(),
       ...(createAgent === undefined ? {} : { createAgent }),
+      ...(log === undefined ? {} : { debug: log }),
     });
     setApp(made);
+    setDebug(log);
     return () => {
       setApp(undefined);
+      setDebug(undefined);
       void made.dispose();
     };
   }, [createAgent]);
@@ -51,6 +61,7 @@ export function AppProvider({
         onLost={onLost}
         {...(sandboxSrc === undefined ? {} : { sandboxSrc })}
       />
+      {debug === undefined ? null : <DebugPanel log={debug} />}
     </AppContext.Provider>
   );
 }
