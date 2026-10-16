@@ -123,6 +123,9 @@ export type RackRuntime = {
 // nodes it built, which cannot leave that frame.
 export type ToneRuntime = RackRuntime & {
   readonly rendered: Effect.Effect<RenderedRackState>;
+  // Throws the whole graph away and stops the transport, leaving nothing
+  // built, as for an app that connects afresh and sends the rack again.
+  readonly reset: Effect.Effect<void>;
 };
 
 // Turns a leaf's source into the Effect it describes. Only the sandbox frame
@@ -159,6 +162,7 @@ const empty: RenderedRackState = {
 // For a store with no audio attached, such as in tests of the store itself.
 export const noopRuntime: ToneRuntime = {
   rendered: Effect.succeed(empty),
+  reset: Effect.void,
   render: Effect.void,
   addBlock: () => Effect.void,
   deleteBlock: () => Effect.void,
@@ -737,6 +741,18 @@ export const makeToneRuntime = (
 
     const transport = tone.getTransport();
 
+    // Disposes every event and node, and forgets them.
+    const clear = Effect.gen(function* () {
+      const old = yield* Ref.get(ref);
+      for (const event of old.events.values()) disposeEvent(event);
+      for (const block of old.blocks.values()) {
+        if (block.kind === "leaf" && Exit.isSuccess(block.exit)) {
+          release(block.exit.value);
+        }
+      }
+      yield* Ref.set(ref, empty);
+    });
+
     const updateEvent = (eventId: string) =>
       Effect.gen(function* () {
         yield* removeEvent(eventId);
@@ -747,15 +763,14 @@ export const makeToneRuntime = (
     return {
       rendered: Ref.get(ref),
 
+      reset: Effect.gen(function* () {
+        yield* clear;
+        transport.stop();
+        transport.cancel(0);
+      }),
+
       render: Effect.gen(function* () {
-        const old = yield* Ref.get(ref);
-        for (const event of old.events.values()) disposeEvent(event);
-        for (const block of old.blocks.values()) {
-          if (block.kind === "leaf" && Exit.isSuccess(block.exit)) {
-            release(block.exit.value);
-          }
-        }
-        yield* Ref.set(ref, empty);
+        yield* clear;
         // Paused rather than stopped, so a re-run carries on from where the
         // playhead is instead of going back to the start.
         transport.pause();

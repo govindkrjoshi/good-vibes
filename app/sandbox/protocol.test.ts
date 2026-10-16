@@ -4,37 +4,50 @@ import {
   frameReady,
   isFrameReady,
   isHostHello,
+  isBatch,
   isReply,
-  isRequest,
   rackChanges,
 } from "./protocol";
 
-const request = {
-  type: "request",
-  id: 1,
+const batch = {
+  v: 2,
+  type: "batch",
+  gen: 1,
+  batchId: 1,
   changes: { ...initialRackState },
-  command: { name: "addBlock", blockId: "synth" },
+  commands: [{ cmdId: 1, command: { name: "addBlock", blockId: "synth" } }],
 };
+const withCommand = (command: unknown) => ({
+  ...batch,
+  commands: [{ cmdId: 1, command }],
+});
 
-test("accepts a request with rack changes and a known command", () => {
-  expect(isRequest(request)).toBe(true);
-  expect(isRequest({ ...request, changes: {} })).toBe(true);
+test("accepts a batch of rack changes and known commands", () => {
+  expect(isBatch(batch)).toBe(true);
+  expect(isBatch({ ...batch, changes: {}, commands: [] })).toBe(true);
   expect(
-    isRequest({
-      ...request,
-      command: { name: "runLeafMethod", methodId: "m", args: { note: "C4" } },
-    }),
+    isBatch(
+      withCommand({
+        name: "runLeafMethod",
+        methodId: "m",
+        args: { note: "C4" },
+      }),
+    ),
   ).toBe(true);
 });
 
 test.each([
-  ["an unknown command", { ...request, command: { name: "eval", code: "1" } }],
-  ["a command missing its id", { ...request, command: { name: "addBlock" } }],
-  ["no id", { ...request, id: "1" }],
+  ["an unknown command", withCommand({ name: "eval", code: "1" })],
+  ["a command missing its id", withCommand({ name: "addBlock" })],
+  ["no generation", { ...batch, gen: undefined }],
+  [
+    "a command with no number",
+    { ...batch, commands: [{ command: { name: "stop" } }] },
+  ],
   [
     "leaf code that is not source",
     {
-      ...request,
+      ...batch,
       changes: {
         blocks: {
           leaf: {
@@ -52,27 +65,59 @@ test.each([
       },
     },
   ],
-  ["a transport that is not one", { ...request, changes: { transport: 1 } }],
+  ["a transport that is not one", { ...batch, changes: { transport: 1 } }],
+  [
+    "an old-style request",
+    { type: "request", id: 1, changes: {}, command: { name: "stop" } },
+  ],
   ["something else entirely", "render"],
-])("refuses a request with %s", (_, message) => {
-  expect(isRequest(message)).toBe(false);
+])("refuses a batch with %s", (_, message) => {
+  expect(isBatch(message)).toBe(false);
 });
 
-test("accepts only results and audio states from the frame", () => {
-  expect(isReply({ type: "result", id: 3 })).toBe(true);
+test("accepts only batch results, playback reports and audio states from the frame", () => {
+  const result = {
+    v: 2,
+    type: "batchResult",
+    gen: 1,
+    batchId: 1,
+    results: [
+      {
+        cmdId: 1,
+        failure: { code: "PatchFailed", message: "no" },
+        entities: [
+          {
+            entity: "patch",
+            id: "p",
+            failure: { code: "PatchFailed", message: "no" },
+          },
+        ],
+      },
+    ],
+  };
+  expect(isReply(result)).toBe(true);
   expect(
     isReply({
-      type: "result",
-      id: 3,
-      error: { _tag: "PatchError", message: "no" },
+      v: 2,
+      type: "playback",
+      gen: 1,
+      eventId: "e",
+      scheduleCmdId: 2,
+      message: "x",
     }),
   ).toBe(true);
   expect(isReply({ type: "audio", state: "suspended" })).toBe(true);
 
   expect(isReply({ type: "audio", state: "loud" })).toBe(false);
-  expect(isReply({ type: "result", id: 3, error: { _tag: "Boom" } })).toBe(
-    false,
-  );
+  expect(
+    isReply({
+      ...result,
+      results: [
+        { cmdId: 1, failure: { code: "Boom", message: "no" }, entities: [] },
+      ],
+    }),
+  ).toBe(false);
+  expect(isReply({ type: "result", id: 3 })).toBe(false);
   expect(isReply({ type: "navigate", to: "https://example.com" })).toBe(false);
 });
 

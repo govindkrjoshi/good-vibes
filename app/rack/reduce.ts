@@ -5,7 +5,7 @@ import {
   type EntityChanges,
   type EntityKind,
 } from "./entities";
-import type { Origin, RackEnvelope, RackMsg } from "./messages";
+import type { Origin, RackEnvelope, RackMsg, RackTrigger } from "./messages";
 import {
   makeBlock,
   makeDefaultJacks,
@@ -52,6 +52,14 @@ export type RackMeta = {
 };
 
 export type RackCore = RackState & RackMeta;
+
+// A trigger the rack accepted, in its place in the order of work. Whatever
+// drives the sandbox carries these out; they leave the rack as it is.
+export type RackWork = {
+  readonly seq: number;
+  readonly envelopeId: string;
+  readonly trigger: RackTrigger;
+};
 
 const emptyByKind = <T>(): ByKind<T> =>
   Object.fromEntries(entityKinds.map((kind) => [kind, {}])) as ByKind<T>;
@@ -596,6 +604,8 @@ const stampOf = (envelope: RackEnvelope, rev: number): Stamp => ({
 export type Reduced<S extends RackCore> = {
   readonly state: S;
   readonly outcomes: readonly Outcome[];
+  // The triggers committed, in order. They share the batch's workSeq.
+  readonly work: readonly RackWork[];
 };
 
 // Applies the envelopes in order, all or nothing: if one is refused, the
@@ -612,6 +622,7 @@ export const reduceAll = <S extends RackCore>(
   let changed = false;
   let worked = false;
   const outcomes: Outcome[] = [];
+  const triggers: { envelopeId: string; trigger: RackTrigger }[] = [];
 
   for (const [index, envelope] of envelopes.entries()) {
     const applied = apply(draft, envelope.msg);
@@ -619,6 +630,7 @@ export const reduceAll = <S extends RackCore>(
       case "Refused":
         return {
           state,
+          work: [],
           outcomes: [
             ...outcomes.map((): Outcome => ({ _tag: "RolledBack" })),
             applied,
@@ -632,6 +644,10 @@ export const reduceAll = <S extends RackCore>(
         break;
       case "Triggered":
         worked = true;
+        triggers.push({
+          envelopeId: envelope.id,
+          trigger: envelope.msg as RackTrigger,
+        });
         outcomes.push({ _tag: "Committed" });
         break;
       case "Edited": {
@@ -658,14 +674,12 @@ export const reduceAll = <S extends RackCore>(
     }
   }
 
-  if (!worked) return { state, outcomes };
+  if (!worked) return { state, outcomes, work: [] };
+  const workSeq = state.workSeq + 1;
   return {
-    state: {
-      ...draft,
-      rev: changed ? rev : state.rev,
-      workSeq: state.workSeq + 1,
-    },
+    state: { ...draft, rev: changed ? rev : state.rev, workSeq },
     outcomes,
+    work: triggers.map((one) => ({ ...one, seq: workSeq })),
   };
 };
 

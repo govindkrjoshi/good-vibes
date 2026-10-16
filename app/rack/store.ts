@@ -1,6 +1,4 @@
-import { Effect } from "effect";
 import { createStore } from "zustand";
-import { entityChanges } from "./entities";
 import { rackEnvelope, type RackEnvelope, type RackMsg } from "./messages";
 import {
   rootRack,
@@ -13,22 +11,19 @@ import {
 } from "./model";
 import {
   initialRackMeta,
-  playArgs,
   reduceAll,
   type Outcome,
   type RackCore,
+  type RackWork,
 } from "./reduce";
-import { noopRuntime, type RackRuntime } from "./renderer";
 import { resolvePatch } from "./rules";
 
 export type { RackState };
 
+// The store holds the rack and nothing about audio. The sandbox client
+// follows it: it watches the rack change, and hears each trigger through
+// onRackWork, and works out what to tell the frame from there.
 export type RackStore = RackCore & {
-  // The live Tone.js graph, which lives in the sandbox frame; the sandbox
-  // provider plugs in its end once the frame is up. Each action below that
-  // changes the rack tells it what changed, once the store itself has been
-  // updated.
-  readonly runtime: RackRuntime;
   // The one way the rack changes: reduces the message (see reduce.ts) and
   // says what came of it. Nothing is published when nothing changed.
   readonly dispatch: (envelope: RackEnvelope) => Outcome;
@@ -38,7 +33,7 @@ export type RackStore = RackCore & {
   ) => readonly Outcome[];
 
   // The actions below are thin wrappers over dispatch for the components that
-  // still call them, and they still drive the runtime themselves.
+  // still call them.
   readonly addBlock: (blockType: "leaf" | "tree") => string | undefined;
   // Adds a block built from a template, such as a catalogue entry, under the
   // given id or a fresh one. Refused when the id is taken.
@@ -79,14 +74,15 @@ export type RackStore = RackCore & {
   readonly run: () => void;
 };
 
-// Each Run waits for the one before it, so two quick ones cannot render over
-// each other.
-let running: Promise<void> = Promise.resolve();
+// Listeners for triggers the store accepts: work for the sandbox that leaves
+// the rack as it is, so watching the rack alone would miss it.
+const workListeners = new Set<(work: readonly RackWork[]) => void>();
 
-// A failure in the audio graph is the renderer's to report, not a reason to
-// undo the edit, so the store only logs it.
-const perform = (effect: Effect.Effect<void, unknown>) => {
-  Effect.runPromise(effect).catch((error) => console.warn(error));
+export const onRackWork = (
+  listener: (work: readonly RackWork[]) => void,
+): (() => void) => {
+  workListeners.add(listener);
+  return () => workListeners.delete(listener);
 };
 
 export const initialRackState: RackState = {
@@ -108,10 +104,13 @@ const committed = (outcome: Outcome): string | undefined =>
 // A vanilla store, so the rack can be driven without React. Components bind
 // to it through useRack.
 export const rackStore = createStore<RackStore>()((set, get) => {
+  // Subscribers hear the new rack before the work listeners hear the
+  // triggers that came with it, so a trigger always finds its rack.
   const dispatchAll = (envelopes: readonly RackEnvelope[]) => {
     const before = get();
-    const { state, outcomes } = reduceAll(before, envelopes);
+    const { state, outcomes, work } = reduceAll(before, envelopes);
     if (state !== before) set(state, true);
+    if (work.length > 0) for (const listener of workListeners) listener(work);
     return outcomes;
   };
   const dispatch = (envelope: RackEnvelope): Outcome =>
@@ -121,25 +120,16 @@ export const rackStore = createStore<RackStore>()((set, get) => {
   return {
     ...initialRackState,
     ...initialRackMeta,
-    runtime: noopRuntime,
     dispatch,
     dispatchAll,
 
-    addBlock: (blockType) => {
-      const id = committed(
+    addBlock: (blockType) =>
+      committed(
         send({ _tag: "AddBlock", blockId: crypto.randomUUID(), blockType }),
-      );
-      if (id === undefined) return undefined;
-      perform(get().runtime.addBlock(id));
-      return id;
-    },
+      ),
 
-    addTemplate: (template, blockId = crypto.randomUUID()) => {
-      const id = committed(send({ _tag: "AddTemplate", blockId, template }));
-      if (id === undefined) return undefined;
-      perform(get().runtime.addBlock(id));
-      return id;
-    },
+    addTemplate: (template, blockId = crypto.randomUUID()) =>
+      committed(send({ _tag: "AddTemplate", blockId, template })),
 
     canConnectJacks: (fromJackId, toJackId) =>
       resolvePatch(get(), fromJackId, toJackId) !== undefined,
@@ -152,129 +142,70 @@ export const rackStore = createStore<RackStore>()((set, get) => {
         to,
       });
       // The patch already there comes back unchanged.
-      if (outcome._tag === "Unchanged") return outcome.id;
-      const id = committed(outcome);
-      if (id === undefined) return undefined;
-      perform(get().runtime.addPatch(id));
-      return id;
+      return outcome._tag === "Unchanged" ? outcome.id : committed(outcome);
     },
 
     removeBlocks: (blockIds) => {
-      const before = get();
-      if (send({ _tag: "RemoveBlocks", blockIds })._tag !== "Committed") return;
-
-      const removed = entityChanges(before, get());
-      const root = before.blocks[before.rootId];
-      const cut = (root?.type === "tree" ? root.patches : []).filter((id) =>
-        removed.patch.removed.includes(id),
-      );
-      const events = removed.event.removed;
-      const blocks = blockIds.filter((id) =>
-        removed.block.removed.includes(id),
-      );
-      // Patches and events first, while the nodes they use are still in the
-      // graph.
-      const { runtime } = get();
-      perform(
-        Effect.gen(function* () {
-          for (const patchId of cut) yield* runtime.deletePatch(patchId);
-          for (const eventId of events) yield* runtime.deleteEvent(eventId);
-          for (const blockId of blocks) yield* runtime.deleteBlock(blockId);
-        }),
-      );
+      send({ _tag: "RemoveBlocks", blockIds });
     },
 
     removePatches: (patchIds) => {
-      const before = get();
-      if (send({ _tag: "RemovePatches", patchIds })._tag !== "Committed")
-        return;
-
-      const removed = entityChanges(before, get()).patch.removed;
-      const cut = patchIds.filter((id) => removed.includes(id));
-      const { runtime } = get();
-      perform(Effect.forEach(cut, runtime.deletePatch, { discard: true }));
+      send({ _tag: "RemovePatches", patchIds });
     },
 
-    setParamValue: (paramId, value) => {
-      const outcome = send({ _tag: "SetParamValue", paramId, value });
-      if (outcome._tag === "Committed")
-        perform(get().runtime.updateParam(paramId));
-      return outcome._tag !== "Refused";
-    },
+    setParamValue: (paramId, value) =>
+      send({ _tag: "SetParamValue", paramId, value })._tag !== "Refused",
 
-    addAutomation: (paramId, event) => {
-      const id = committed(
+    addAutomation: (paramId, event) =>
+      committed(
         send({
           _tag: "AddAutomation",
           paramId,
           automationId: crypto.randomUUID(),
           event,
         }),
-      );
-      if (id === undefined) return undefined;
-      perform(get().runtime.updateParam(paramId));
-      return id;
-    },
+      ),
 
     removeAutomation: (paramId, automationId) => {
-      if (
-        send({ _tag: "RemoveAutomation", paramId, automationId })._tag ===
-        "Committed"
-      )
-        perform(get().runtime.updateParam(paramId));
+      send({ _tag: "RemoveAutomation", paramId, automationId });
     },
 
     // Fires an event's method once, now; see playArgs.
     playEvent: (eventId) => {
-      if (send({ _tag: "PlayEvent", eventId })._tag !== "Committed") return;
-      const play = playArgs(get(), eventId);
-      if (play !== undefined)
-        perform(get().runtime.runLeafMethod(play.methodId, play.args));
+      send({ _tag: "PlayEvent", eventId });
     },
 
-    addEvent: (methodId, settings) => {
-      const id = committed(
+    addEvent: (methodId, settings) =>
+      committed(
         send({
           _tag: "AddEvent",
           eventId: crypto.randomUUID(),
           methodId,
           settings,
         }),
-      );
-      if (id === undefined) return undefined;
-      perform(get().runtime.updateEvent(id));
-      return id;
-    },
+      ),
 
-    // Changes a sequence's steps while it plays, without rebuilding it.
+    // Changes a sequence's steps; the sandbox hands a playing one its new
+    // steps without rebuilding it.
     setEventSteps: (eventId, steps) => {
-      if (send({ _tag: "SetEventSteps", eventId, steps })._tag === "Committed")
-        perform(get().runtime.updateEventLive(eventId));
+      send({ _tag: "SetEventSteps", eventId, steps });
     },
 
     updateEvent: (eventId, settings) => {
-      if (send({ _tag: "UpdateEvent", eventId, settings })._tag === "Committed")
-        perform(get().runtime.updateEvent(eventId));
+      send({ _tag: "UpdateEvent", eventId, settings });
     },
 
     removeEvent: (eventId) => {
-      if (send({ _tag: "RemoveEvent", eventId })._tag === "Committed")
-        perform(get().runtime.deleteEvent(eventId));
+      send({ _tag: "RemoveEvent", eventId });
     },
 
-    setTransport: ({ bpm }) => {
-      const outcome = send({ _tag: "SetTransport", bpm });
-      if (outcome._tag === "Committed") perform(get().runtime.updateTransport);
-      return outcome._tag !== "Refused";
-    },
+    setTransport: ({ bpm }) =>
+      send({ _tag: "SetTransport", bpm })._tag !== "Refused",
 
-    // Queued behind any Run still rendering, so a Stop clicked straight after
-    // Run cannot be overtaken by it.
+    // The sandbox carries out Run and Stop in the order they came, after
+    // every edit made before them.
     stop: () => {
       send({ _tag: "Stop" });
-      running = running
-        .then(() => Effect.runPromise(get().runtime.stop))
-        .catch((error) => console.warn(error));
     },
 
     // Starts audio and builds the rack's Tone.js graph, rebuilding it from
@@ -283,9 +214,6 @@ export const rackStore = createStore<RackStore>()((set, get) => {
     // start.
     run: () => {
       send({ _tag: "Run" });
-      running = running
-        .then(() => Effect.runPromise(get().runtime.render))
-        .catch((error) => console.warn(error));
     },
   };
 });

@@ -1,3 +1,4 @@
+import { Effect, Exit, Scope } from "effect";
 import { cn } from "cn";
 import {
   createContext,
@@ -7,26 +8,30 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { noopRuntime, rackStore } from "../../rack";
+import { onRackWork, rackStore } from "../../rack";
 import {
   hostConnect,
   hostPing,
   isFrameReady,
   makeSandboxClient,
   type AudioState,
+  type SandboxClient,
 } from "../../sandbox";
+import { useSandboxStatus } from "../../hooks/useSandboxStatus";
 
 type SandboxContextValue = {
   // How the frame's audio is doing, once the rack has been run.
   readonly audio: AudioState | undefined;
+  // The app's end of the frame, once mounted: what waits on it goes here.
+  readonly client: SandboxClient | undefined;
 };
 
 const SandboxContext = createContext<SandboxContextValue | undefined>(
   undefined,
 );
 
-// Owns the sandbox frame, where the rack's Tone.js graph lives, and plugs the
-// app's end of it into the rack store as its runtime. The store keeps the rack;
+// Owns the sandbox frame, where the rack's Tone.js graph lives, and the
+// client that keeps it following the rack store. The store keeps the rack;
 // the frame only ever gets a copy of it, and runs its leaf code.
 export function SandboxProvider({
   children,
@@ -36,13 +41,32 @@ export function SandboxProvider({
   readonly sandboxSrc?: string;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const [audio, setAudio] = useState<AudioState | undefined>(undefined);
+  const [client, setClient] = useState<SandboxClient | undefined>(undefined);
+  const audio = useSandboxStatus((status) => status.audio);
 
   useEffect(() => {
-    const client = makeSandboxClient(rackStore.getState);
-    rackStore.setState({ runtime: client.runtime });
-    const unsubscribe = client.onAudio(setAudio);
+    // The frame each connection was made to, so a frame that loads again,
+    // or one that stopped answering, is connected again.
     let boot: string | undefined;
+    const ping = () => frame.current?.contentWindow?.postMessage(hostPing, "*");
+
+    const scope = Effect.runSync(Scope.make());
+    const made = Effect.runSync(
+      makeSandboxClient(
+        {
+          getState: rackStore.getState,
+          subscribe: rackStore.subscribe,
+          onWork: onRackWork,
+        },
+        {
+          onLost: () => {
+            boot = undefined;
+            ping();
+          },
+        },
+      ).pipe(Scope.provide(scope)),
+    );
+    setClient(made);
 
     // Only the frame's own window is listened to; its origin is opaque, so
     // that is the only way to know a message is from it.
@@ -59,15 +83,20 @@ export function SandboxProvider({
       }
       boot = event.data.boot;
       const channel = new MessageChannel();
-      client.connect(channel.port1);
+      made.connect(channel.port1);
       // An opaque origin cannot be named as the target, hence "*"; the port
       // is what keeps the rest private.
       target.postMessage(hostConnect, "*", [channel.port2]);
     };
+    const onVisibility = () =>
+      made.setVisible(document.visibilityState === "visible");
+
     window.addEventListener("message", onMessage);
+    document.addEventListener("visibilitychange", onVisibility);
+    onVisibility();
     // The frame can load before React hydrates, and say it is ready before
     // anyone listens, so it is asked again.
-    frame.current?.contentWindow?.postMessage(hostPing, "*");
+    ping();
 
     // The iframe's load event is not a reliable signal for the same reason,
     // so log once the provider itself is mounted.
@@ -75,9 +104,9 @@ export function SandboxProvider({
 
     return () => {
       window.removeEventListener("message", onMessage);
-      unsubscribe();
-      client.close();
-      rackStore.setState({ runtime: noopRuntime });
+      document.removeEventListener("visibilitychange", onVisibility);
+      setClient(undefined);
+      Effect.runFork(Scope.close(scope, Exit.void));
     };
   }, []);
 
@@ -87,7 +116,7 @@ export function SandboxProvider({
   const needsClick = audio === "suspended";
 
   return (
-    <SandboxContext.Provider value={{ audio }}>
+    <SandboxContext.Provider value={{ audio, client }}>
       {children}
       <iframe
         ref={frame}

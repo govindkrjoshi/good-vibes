@@ -1,8 +1,6 @@
-import { Effect } from "effect";
 import { beforeEach, expect, test } from "vitest";
-import { noopRuntime, type ToneRuntime } from "./renderer";
 import { rackEnvelope } from "./messages";
-import { rackStore } from "./store";
+import { onRackWork, rackStore } from "./store";
 import { CATALOGUE } from "../catalogue";
 import { hasOutputJack, type RackTemplate } from "./model";
 
@@ -708,119 +706,6 @@ test("sets the tempo only to a positive number", () => {
   expect(state().transport).toEqual({ bpm: 90 });
 });
 
-// A runtime that only writes down which commands it was sent, so these tests
-// check the store's side of the wiring without any audio.
-const recordRuntime = () => {
-  const sent: string[] = [];
-  const record = (command: string) => (id: string) =>
-    Effect.sync(() => {
-      sent.push(`${command} ${id}`);
-    });
-  const runtime: ToneRuntime = {
-    ...noopRuntime,
-    addBlock: record("addBlock"),
-    deleteBlock: record("deleteBlock"),
-    addPatch: record("addPatch"),
-    deletePatch: record("deletePatch"),
-    updateParam: record("updateParam"),
-    runLeafMethod: record("runLeafMethod"),
-    updateEvent: record("updateEvent"),
-    updateEventLive: record("updateEventLive"),
-    deleteEvent: record("deleteEvent"),
-    updateTransport: record("updateTransport")("bpm"),
-    stop: record("stop")("transport"),
-  };
-  rackStore.setState({ runtime });
-  return sent;
-};
-
-test("tells the runtime about each change to the rack", async () => {
-  const sent = recordRuntime();
-
-  const synth = addSynth();
-  const volume = synth.param("volume");
-  const destination = state().addTemplate(template("output", "Destination"));
-  const patch = state().connectJacks(`${synth.id}:out`, `${destination}:in`);
-  state().setParamValue(volume, -6);
-  const eventId = state().addAutomation(volume, {
-    method: "setValueAtTime",
-    value: -3,
-    time: "0",
-  });
-  state().removeAutomation(volume, eventId ?? "");
-  const methodId = synth.method("triggerAttackRelease");
-  const event = state().addEvent(methodId, sequence);
-  state().playEvent(event ?? "");
-  state().removePatches([patch ?? ""]);
-  state().setEventSteps(event ?? "", ["E4"]);
-  state().updateEvent(event ?? "", { subdivision: "4n" });
-  state().removeEvent(event ?? "");
-  state().setTransport({ bpm: 90 });
-  state().stop();
-  // Stop is queued behind Run, so it lands a tick later.
-  await new Promise((resolve) => setTimeout(resolve));
-
-  expect(sent).toEqual([
-    `addBlock ${synth.id}`,
-    `addBlock ${destination}`,
-    `addPatch ${patch}`,
-    `updateParam ${volume}`,
-    `updateParam ${volume}`,
-    `updateParam ${volume}`,
-    `updateEvent ${event}`,
-    `runLeafMethod ${methodId}`,
-    `deletePatch ${patch}`,
-    `updateEventLive ${event}`,
-    `updateEvent ${event}`,
-    `deleteEvent ${event}`,
-    "updateTransport bpm",
-    "stop transport",
-  ]);
-});
-
-test("plays an event now with its method and first step as the note", () => {
-  const synth = addSynth();
-  const methodId = synth.method("triggerAttackRelease");
-  const event = state().addEvent(methodId, {
-    ...sequence,
-    steps: [null, "E4", "G4"],
-  });
-  const sent: unknown[] = [];
-  rackStore.setState({
-    runtime: {
-      ...noopRuntime,
-      runLeafMethod: (id, args) =>
-        Effect.sync(() => {
-          sent.push([id, args]);
-        }),
-    },
-  });
-
-  state().playEvent(event ?? "");
-
-  expect(sent).toEqual([[methodId, { duration: "8n", note: "E4" }]]);
-});
-
-test("removing a block deletes its patches and events before the block", () => {
-  const synth = addSynth();
-  const destination = state().addTemplate(template("output", "Destination"));
-  const patch = state().connectJacks(`${synth.id}:out`, `${destination}:in`);
-  const event = state().addEvent(
-    synth.method("triggerAttackRelease"),
-    sequence,
-  );
-  const sent = recordRuntime();
-
-  state().removeBlocks([synth.id]);
-
-  expect(sent).toEqual([
-    `deletePatch ${patch}`,
-    `deleteEvent ${synth.riff}`,
-    `deleteEvent ${event}`,
-    `deleteBlock ${synth.id}`,
-  ]);
-});
-
 test("gives the Destination only an input jack", () => {
   const destination = state().addTemplate(template("output", "Destination"));
 
@@ -914,18 +799,30 @@ test("Run and Stop take a place in the order of work", () => {
   expect(state().rev).toBe(initial.rev);
 });
 
-test("does not tell the runtime about a refused or unchanged action", () => {
+test("hands each trigger to the work listeners, after the rack it came with", () => {
   const synth = addSynth();
-  const sent = recordRuntime();
-
-  state().setParamValue(synth.param("volume"), "loud");
-  state().setParamValue(
-    synth.param("volume"),
-    state().values[synth.param("volume")] ?? 0,
+  const heard: string[] = [];
+  const unsubscribe = rackStore.subscribe((next) =>
+    heard.push(`rack ${next.rev}`),
   );
-  state().removePatches(["nothing"]);
-  state().removeEvent("nothing");
-  state().setTransport({ bpm: state().transport.bpm });
+  const stop = onRackWork((work) =>
+    heard.push(...work.map((one) => `${one.trigger._tag} ${one.seq}`)),
+  );
 
-  expect(sent).toEqual([]);
+  state().playEvent(synth.riff);
+  state().dispatchAll([
+    rackEnvelope({ _tag: "SetTransport", bpm: 90 }),
+    rackEnvelope({ _tag: "Run" }),
+  ]);
+  state().playEvent("nothing");
+  unsubscribe();
+  stop();
+
+  const { rev, workSeq } = state();
+  expect(heard).toEqual([
+    `rack ${rev - 1}`,
+    `PlayEvent ${workSeq - 1}`,
+    `rack ${rev}`,
+    `Run ${workSeq}`,
+  ]);
 });

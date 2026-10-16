@@ -10,9 +10,15 @@ export {
   type Outcome,
   type RackCore,
   type RackMeta,
+  type RackWork,
   type RefusalCode,
   type Refused,
   type Stamp,
 } from "./reduce";
-export { initialRackState, rackStore, type RackStore } from "./store";
+export {
+  initialRackState,
+  onRackWork,
+  rackStore,
+  type RackStore,
+} from "./store";
 export { noopRuntime, type RackRuntime } from "./renderer";

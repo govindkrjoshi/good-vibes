@@ -1,7 +1,6 @@
 import type { EntityKind } from "../rack/entities";
-import type { RackTrigger } from "../rack/messages";
 import type { RenderErrorCode } from "../rack/model";
-import { playArgs } from "../rack/reduce";
+import { playArgs, type RackWork } from "../rack/reduce";
 import {
   rackChanges,
   type Batch,
@@ -38,11 +37,7 @@ import {
 //   it now is (its incarnation).
 
 // Work for the frame that is not a change to the rack.
-export type Work = {
-  readonly seq: number;
-  readonly envelopeId: string;
-  readonly trigger: RackTrigger;
-};
+export type Work = RackWork;
 
 export type ErrorCode = RenderErrorCode | "PlaybackThrew";
 

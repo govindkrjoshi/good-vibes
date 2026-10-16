@@ -15,11 +15,9 @@ import {
 } from "../rack/renderer";
 import {
   isBatch,
-  isRequest,
   type AudioState,
   type Batch,
   type Command,
-  type CommandError,
   type CommandResult,
   type EntityResult,
   type Failure,
@@ -98,19 +96,8 @@ const isTagged = (
   "message" in error &&
   typeof error.message === "string";
 
-// Why a command failed, as plain data the app can read back.
-const describe = (exit: Exit.Exit<void, unknown>): CommandError | undefined => {
-  if (Exit.isSuccess(exit)) return undefined;
-  const error = Cause.squash(exit.cause);
-  if (isTagged(error)) return { _tag: error._tag, message: error.message };
-  return {
-    _tag: "LeafError",
-    message: error instanceof Error ? error.message : String(error),
-  };
-};
-
-// The same for version 2, with a code. Anything without one of its own gets
-// the code that fits what failed.
+// Why a command failed, as plain data with a code. Anything without one of
+// its own gets the code that fits what failed.
 const failureOf = (
   exit: Exit.Exit<unknown, unknown>,
   fallback: RenderErrorCode,
@@ -181,14 +168,15 @@ const commandFallback = (command: Command): RenderErrorCode => {
   }
 };
 
-// Builds the rack's Tone.js graph here, in the frame, from the requests that
-// arrive on its port: each one brings what changed in the rack and a command
-// for the runtime, which reads the rack as it now stands. Requests are carried
-// out one at a time, in the order they came, and each is answered.
+// Builds the rack's Tone.js graph here, in the frame, from the batches that
+// arrive on its port: each brings what changed in the rack and commands for
+// the runtime, which reads the rack as it now stands. Batches are carried out
+// one at a time, in the order they came, each command in order, and each
+// batch is answered once all of it is done.
 //
 // The frame has one host, and so one graph, for as long as it lives. The app
 // may hand it a new port, as when the provider mounts again; the newest port
-// is the only one listened to, and the app sends it the whole rack.
+// is the only one listened to.
 export const makeRackHost = (
   tone: typeof ToneJs,
   { startAudio }: Options = {},
@@ -258,33 +246,24 @@ export const makeRackHost = (
     });
   };
 
+  // A new port is an app connecting afresh, which sends the whole rack in
+  // its first batch, so whatever the graph holds from before is thrown away
+  // first rather than left playing.
   const attach = (port: FramePort) => {
     if (current !== undefined) current.onmessage = null;
     current = port;
+    queue = queue.then(async () => {
+      schedules.clear();
+      state = emptyRack;
+      await Effect.runPromise(runtime.reset);
+    });
 
     port.onmessage = (event) => {
       const request = event.data;
       // The app is the only one holding the other end, but a message that
-      // does not fit is still dropped rather than half applied.
-      if (isBatch(request)) {
-        queue = queue.then(() => runBatch(port, request));
-        return;
-      }
-      if (!isRequest(request)) return;
-
-      queue = queue.then(async () => {
-        state = { ...state, ...request.changes };
-        if (request.command.name === "render") startAudio?.();
-        const exit = await Effect.runPromiseExit(
-          runCommand(runtime, request.command),
-        );
-        const error = describe(exit);
-        port.postMessage(
-          error === undefined
-            ? { type: "result", id: request.id }
-            : { type: "result", id: request.id, error },
-        );
-      });
+      // does not fit is dropped rather than half applied.
+      if (!isBatch(request)) return;
+      queue = queue.then(() => runBatch(port, request));
     };
   };
 

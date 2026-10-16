@@ -86,38 +86,13 @@ const CommandSchema = Schema.Union([
 
 export type Command = Schema.Schema.Type<typeof CommandSchema>;
 
-// Only the parts of the rack that changed since the last request; the frame
+// Only the parts of the rack that changed since the last batch; the frame
 // keeps the rest from before.
 const RackChangesSchema = RackStateSchema.mapFields(
   Struct.map(Schema.optionalKey),
 );
 
 export type RackChanges = Schema.Schema.Type<typeof RackChangesSchema>;
-
-const RequestSchema = Schema.Struct({
-  type: Schema.Literal("request"),
-  id: Schema.Number,
-  changes: RackChangesSchema,
-  command: CommandSchema,
-});
-
-export type Request = Schema.Schema.Type<typeof RequestSchema>;
-
-export const isRequest = Schema.is(RequestSchema);
-
-const CommandErrorSchema = Schema.Struct({
-  _tag: Schema.Literals(["LeafError", "PatchError"]),
-  message: Schema.String,
-});
-
-export type CommandError = Schema.Schema.Type<typeof CommandErrorSchema>;
-
-// The answer to the request with the same id: done, or why it failed.
-const ResultSchema = Schema.Struct({
-  type: Schema.Literal("result"),
-  id: Schema.Number,
-  error: Schema.optionalKey(CommandErrorSchema),
-});
 
 // Whether the frame's audio is playing. "suspended" means the browser would
 // not let it start without a click in the frame itself.
@@ -130,15 +105,14 @@ const AudioSchema = Schema.Struct({
   state: AudioStateSchema,
 });
 
-// --- Version 2: batches ----------------------------------------------------
+// --- Batches ---------------------------------------------------------------
 //
 // The app sends one batch at a time: the rack's changes since the last batch,
 // then commands the frame carries out in order. It answers once all of them
 // are done, with what each one did to each block, patch and event, and
 // reports later, unprompted, any scheduled call that fails while playing.
 // `gen` is the app's count of connections, echoed back so the app can tell
-// an old frame's answers from the current one's. Version 1 above stays until
-// the app's client has moved over.
+// an old frame's answers from the current one's.
 
 const FailureSchema = Schema.Struct({
   code: Schema.Literals(renderErrorCodes),
@@ -206,7 +180,6 @@ const PlaybackSchema = Schema.Struct({
 export type Playback = Schema.Schema.Type<typeof PlaybackSchema>;
 
 const ReplySchema = Schema.Union([
-  ResultSchema,
   AudioSchema,
   BatchResultSchema,
   PlaybackSchema,

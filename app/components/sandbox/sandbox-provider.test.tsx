@@ -3,7 +3,6 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { noopRuntime, rackStore } from "../../rack";
 import { SandboxProvider, useSandbox } from "./sandbox-provider";
 
 type SandboxApi = ReturnType<typeof useSandbox>;
@@ -71,14 +70,14 @@ test("logs to the console once on mount", () => {
   expect(log).toHaveBeenCalledTimes(1);
 });
 
-test("plugs the frame's runtime into the rack store while mounted", () => {
+test("runs a sandbox client while mounted", () => {
   render();
 
-  expect(rackStore.getState().runtime).not.toBe(noopRuntime);
+  expect(current?.client).toBeDefined();
 
   act(() => root.unmount());
-  expect(rackStore.getState().runtime).toBe(noopRuntime);
   render();
+  expect(current?.client).toBeDefined();
 });
 
 test("hands a port to its own frame once per load, and to no other window", () => {
