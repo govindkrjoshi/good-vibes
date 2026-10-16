@@ -48,7 +48,8 @@ test("picks up again after the sandbox frame reloads mid-play, silent until Run"
     const frame = document.querySelector<HTMLIFrameElement>(
       'iframe[title="Code sandbox"]',
     );
-    if (frame !== null) frame.src = frame.src;
+    // Setting the same src again reloads the frame.
+    frame?.setAttribute("src", frame.getAttribute("src") ?? "");
   });
   await expectSilent(page);
 
