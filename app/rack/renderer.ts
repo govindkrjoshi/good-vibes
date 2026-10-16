@@ -159,24 +159,6 @@ const empty: RenderedRackState = {
   events: new Map(),
 };
 
-// For a store with no audio attached, such as in tests of the store itself.
-export const noopRuntime: ToneRuntime = {
-  rendered: Effect.succeed(empty),
-  reset: Effect.void,
-  render: Effect.void,
-  addBlock: () => Effect.void,
-  deleteBlock: () => Effect.void,
-  addPatch: () => Effect.void,
-  deletePatch: () => Effect.void,
-  updateParam: () => Effect.void,
-  runLeafMethod: () => Effect.void,
-  updateEvent: () => Effect.void,
-  updateEventLive: () => Effect.void,
-  deleteEvent: () => Effect.void,
-  updateTransport: Effect.void,
-  stop: Effect.void,
-};
-
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
