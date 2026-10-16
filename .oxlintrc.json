@@ -48,6 +48,12 @@
           }
         ]
       }
+    },
+    {
+      "files": ["app/rack/**", "app/actions/**", "app/canvas/**"],
+      "rules": {
+        "no-param-reassign": ["error", { "props": true }]
+      }
     }
   ]
 }

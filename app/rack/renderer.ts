@@ -320,6 +320,9 @@ export const makeToneRuntime = (
               target.value = value as number;
               for (const { schedule } of scheduled) schedule();
             } else {
+              // Setting a Tone.js option is the point here: the node is the
+              // renderer's own, not rack data.
+              // oxlint-disable-next-line no-param-reassign
               owner[key] = value;
             }
           },
