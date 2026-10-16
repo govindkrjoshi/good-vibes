@@ -1,7 +1,19 @@
 import { beforeEach, expect, test } from "vitest";
-import { applyAction, describeRack } from "./index";
+import { Effect } from "effect";
+import {
+  applyAction,
+  describeRack,
+  planAction,
+  type ActionDeps,
+} from "./index";
 import type { RackAction } from "../agent";
 import { rackStore } from "../rack";
+import {
+  initialSandboxStatus,
+  type BarrierResult,
+  type ErrorEntry,
+} from "../sandbox";
+import { deepFreeze } from "../testing/freeze";
 
 const initial = rackStore.getState();
 const state = () => rackStore.getState();
@@ -10,10 +22,20 @@ beforeEach(() => {
   rackStore.setState(initial, true);
 });
 
-const apply = (action: RackAction) => applyAction(rackStore, action);
+const deps: ActionDeps = {
+  store: rackStore,
+  sandbox: () => undefined,
+  status: () => initialSandboxStatus,
+};
 
-const add = (id: string, category: string, entry: string): string => {
-  const result = apply({ kind: "add_block", id, category, entry });
+const apply = (action: RackAction) => applyAction(deps, action);
+
+const add = async (
+  id: string,
+  category: string,
+  entry: string,
+): Promise<string> => {
+  const result = await apply({ kind: "add_block", id, category, entry });
   if (!result.ok) throw new Error(result.text);
   return id;
 };
@@ -26,8 +48,8 @@ const paramId = (blockId: string, name: string): string => {
   return param.id;
 };
 
-test("describes an empty rack and what can be added", () => {
-  const result = apply({ kind: "describe" });
+test("describes an empty rack and what can be added", async () => {
+  const result = await apply({ kind: "describe" });
 
   expect(result).toMatchObject({
     ok: true,
@@ -54,8 +76,8 @@ test("describes an empty rack and what can be added", () => {
   });
 });
 
-test("adds a block under the id it is given, and says what it has", () => {
-  const result = apply({
+test("adds a block under the id it is given, and says what it has", async () => {
+  const result = await apply({
     kind: "add_block",
     id: "synth-1",
     category: "instruments",
@@ -92,11 +114,11 @@ test("adds a block under the id it is given, and says what it has", () => {
   expect(data.events).toHaveLength(1);
 });
 
-test("refuses a block id that is taken", () => {
-  add("synth-1", "instruments", "AMSynth");
+test("refuses a block id that is taken", async () => {
+  await add("synth-1", "instruments", "AMSynth");
 
   expect(
-    apply({
+    await apply({
       kind: "add_block",
       id: "synth-1",
       category: "output",
@@ -106,8 +128,8 @@ test("refuses a block id that is taken", () => {
   expect(state().blocks["synth-1"]?.name).toBe("AMSynth");
 });
 
-test("refuses an entry the catalogue does not have, and says what it has", () => {
-  const result = apply({
+test("refuses an entry the catalogue does not have, and says what it has", async () => {
+  const result = await apply({
     kind: "add_block",
     id: "fx-1",
     category: "fx",
@@ -126,11 +148,11 @@ test("refuses an entry the catalogue does not have, and says what it has", () =>
   expect(Object.keys(state().blocks)).toEqual(["root"]);
 });
 
-test("connects one block's output into another's input", () => {
-  const synth = add("synth", "instruments", "AMSynth");
-  const speakers = add("speakers", "output", "Destination");
+test("connects one block's output into another's input", async () => {
+  const synth = await add("synth", "instruments", "AMSynth");
+  const speakers = await add("speakers", "output", "Destination");
 
-  const result = apply({
+  const result = await apply({
     kind: "connect_blocks",
     fromBlockId: synth,
     toBlockId: speakers,
@@ -150,68 +172,88 @@ test("connects one block's output into another's input", () => {
   ]);
 });
 
-test("says why blocks cannot be connected", () => {
-  const synth = add("synth", "instruments", "AMSynth");
-  const speakers = add("speakers", "output", "Destination");
+test("says why blocks cannot be connected", async () => {
+  const synth = await add("synth", "instruments", "AMSynth");
+  const speakers = await add("speakers", "output", "Destination");
 
   expect(
-    apply({ kind: "connect_blocks", fromBlockId: speakers, toBlockId: synth }),
+    await apply({
+      kind: "connect_blocks",
+      fromBlockId: speakers,
+      toBlockId: synth,
+    }),
   ).toEqual({ ok: false, text: "Destination has no output to patch from." });
   expect(
-    apply({ kind: "connect_blocks", fromBlockId: synth, toBlockId: synth }),
+    await apply({
+      kind: "connect_blocks",
+      fromBlockId: synth,
+      toBlockId: synth,
+    }),
   ).toEqual({ ok: false, text: "AMSynth cannot be patched into AMSynth." });
   expect(
-    apply({ kind: "connect_blocks", fromBlockId: "nope", toBlockId: synth }),
+    await apply({
+      kind: "connect_blocks",
+      fromBlockId: "nope",
+      toBlockId: synth,
+    }),
   ).toEqual({ ok: false, text: "There is no block with id nope." });
   expect(state().patches).toEqual({});
 });
 
-test("disconnects a patch", () => {
-  const synth = add("synth", "instruments", "AMSynth");
-  const speakers = add("speakers", "output", "Destination");
-  const { patchId } = apply({
-    kind: "connect_blocks",
-    fromBlockId: synth,
-    toBlockId: speakers,
-  }).data as { patchId: string };
+test("disconnects a patch", async () => {
+  const synth = await add("synth", "instruments", "AMSynth");
+  const speakers = await add("speakers", "output", "Destination");
+  const { patchId } = (
+    await apply({
+      kind: "connect_blocks",
+      fromBlockId: synth,
+      toBlockId: speakers,
+    })
+  ).data as { patchId: string };
 
-  expect(apply({ kind: "disconnect", patchId })).toEqual({
+  expect(await apply({ kind: "disconnect", patchId })).toEqual({
     ok: true,
     text: "Disconnected AMSynth from Destination.",
   });
   expect(state().patches).toEqual({});
-  expect(apply({ kind: "disconnect", patchId })).toEqual({
+  expect(await apply({ kind: "disconnect", patchId })).toEqual({
     ok: false,
     text: "There is no patch with id " + patchId + ".",
   });
 });
 
-test("removes blocks by name, and refuses ids it does not know", () => {
-  const synth = add("synth", "instruments", "AMSynth");
-  const speakers = add("speakers", "output", "Destination");
+test("removes blocks by name, and refuses ids it does not know", async () => {
+  const synth = await add("synth", "instruments", "AMSynth");
+  const speakers = await add("speakers", "output", "Destination");
 
-  expect(apply({ kind: "remove_blocks", blockIds: [synth, "nope"] })).toEqual({
+  expect(
+    await apply({ kind: "remove_blocks", blockIds: [synth, "nope"] }),
+  ).toEqual({
     ok: false,
     text: "There is no block with id nope.",
   });
   expect(Object.keys(state().blocks)).toHaveLength(3);
 
-  expect(apply({ kind: "remove_blocks", blockIds: [synth, speakers] })).toEqual(
-    { ok: true, text: "Removed AMSynth, Destination." },
-  );
+  expect(
+    await apply({ kind: "remove_blocks", blockIds: [synth, speakers] }),
+  ).toEqual({ ok: true, text: "Removed AMSynth, Destination." });
   expect(Object.keys(state().blocks)).toEqual(["root"]);
 });
 
-test("sets a param and reports the value kept", () => {
-  const synth = add("synth", "instruments", "AMSynth");
+test("sets a param and reports the value kept", async () => {
+  const synth = await add("synth", "instruments", "AMSynth");
   const volume = paramId(synth, "Volume");
 
-  expect(apply({ kind: "set_param", paramId: volume, value: -12 })).toEqual({
+  expect(
+    await apply({ kind: "set_param", paramId: volume, value: -12 }),
+  ).toEqual({
     ok: true,
     text: "Set AMSynth Volume to -12 dB.",
     data: { paramId: volume, value: -12 },
   });
-  expect(apply({ kind: "set_param", paramId: volume, value: 100 })).toEqual({
+  expect(
+    await apply({ kind: "set_param", paramId: volume, value: 100 }),
+  ).toEqual({
     ok: true,
     text: "Set AMSynth Volume to 12 dB (clamped from 100).",
     data: { paramId: volume, value: 12 },
@@ -219,33 +261,197 @@ test("sets a param and reports the value kept", () => {
   expect(state().values[volume]).toBe(12);
 });
 
-test("says what a param takes when a value is refused", () => {
-  const synth = add("synth", "instruments", "AMSynth");
+test("says what a param takes when a value is refused", async () => {
+  const synth = await add("synth", "instruments", "AMSynth");
   const volume = paramId(synth, "Volume");
   const type = paramId(synth, "Type");
 
-  expect(apply({ kind: "set_param", paramId: volume, value: "loud" })).toEqual({
+  expect(
+    await apply({ kind: "set_param", paramId: volume, value: "loud" }),
+  ).toEqual({
     ok: false,
     text: "AMSynth Volume takes a number from -60 to 12.",
   });
-  expect(apply({ kind: "set_param", paramId: type, value: "banjo" })).toEqual({
+  expect(
+    await apply({ kind: "set_param", paramId: type, value: "banjo" }),
+  ).toEqual({
     ok: false,
     text: "AMSynth Type takes one of sine, square, triangle, sawtooth, pulse, pwm, fatsine, fmsine, amsine.",
   });
-  expect(apply({ kind: "set_param", paramId: "nope", value: 1 })).toEqual({
-    ok: false,
-    text: "There is no param with id nope.",
-  });
+  expect(await apply({ kind: "set_param", paramId: "nope", value: 1 })).toEqual(
+    {
+      ok: false,
+      text: "There is no param with id nope.",
+    },
+  );
 });
 
-test("sets the tempo", () => {
-  expect(apply({ kind: "set_transport", bpm: 90 })).toEqual({
+test("sets the tempo", async () => {
+  expect(await apply({ kind: "set_transport", bpm: 90 })).toEqual({
     ok: true,
     text: "Set the tempo to 90 bpm.",
   });
   expect(state().transport).toEqual({ bpm: 90 });
-  expect(apply({ kind: "set_transport", bpm: 0 })).toEqual({
+  expect(await apply({ kind: "set_transport", bpm: 0 })).toEqual({
     ok: false,
     text: "The tempo has to be a number above 0.",
   });
+});
+
+// --- Planning, stamping, retry and checking ---------------------------------
+
+test("plans from the rack alone, deriving any id it makes from the envelope", async () => {
+  await add("synth", "instruments", "AMSynth");
+  await add("speakers", "output", "Destination");
+  const frozen = deepFreeze({ ...state() });
+
+  const plan = planAction(
+    frozen,
+    { kind: "connect_blocks", fromBlockId: "synth", toBlockId: "speakers" },
+    "env-1",
+  );
+
+  expect(plan).toMatchObject({
+    _tag: "Edit",
+    msgs: [
+      {
+        _tag: "ConnectJacks",
+        patchId: "env-1:patch",
+        from: "synth:out",
+        to: "speakers:in",
+      },
+    ],
+  });
+});
+
+test("dispatches what the agent changes as the agent's", async () => {
+  await add("synth", "instruments", "AMSynth");
+
+  expect(state().stamps.block.synth?.origin).toBe("agent");
+  expect(state().incarnations.block.synth).toBe(
+    state().stamps.block.synth?.envelopeId,
+  );
+});
+
+test("retries a block as it is, and refuses one it does not know", async () => {
+  await add("synth", "instruments", "AMSynth");
+  const { rev, workSeq } = state();
+
+  expect(await apply({ kind: "retry", entity: "block", id: "synth" })).toEqual({
+    ok: true,
+    text: "Building AMSynth again. Check errors to see how it went.",
+  });
+  expect(state().rev).toBe(rev);
+  expect(state().workSeq).toBe(workSeq + 1);
+  expect(await apply({ kind: "retry", entity: "patch", id: "p" })).toEqual({
+    ok: false,
+    text: "There is no patch with id p.",
+  });
+});
+
+const entry = (overrides: Partial<ErrorEntry>): ErrorEntry => ({
+  kind: "build",
+  id: "synth",
+  code: "LeafThrew",
+  message: "boom",
+  gen: 1,
+  cmdId: 1,
+  ...overrides,
+});
+
+const checkWith = (
+  barrier: BarrierResult,
+  errors: Readonly<Record<string, ErrorEntry>> = {},
+  signal?: AbortSignal,
+) =>
+  applyAction(
+    {
+      ...deps,
+      sandbox: () => ({ barrier: () => Effect.succeed(barrier) }),
+      status: () => ({ ...initialSandboxStatus, errors }),
+    },
+    { kind: "check_errors" },
+    signal,
+  );
+
+test("says there is nothing to check before the audio engine starts", async () => {
+  expect(await apply({ kind: "check_errors" })).toEqual({
+    ok: false,
+    text: "Could not check: the audio engine has not started yet.",
+  });
+});
+
+test("reports a clean rack, and that playing can still fail later", async () => {
+  const result = await checkWith({ _tag: "Settled" });
+
+  expect(result.ok).toBe(true);
+  expect(result.text).toContain("No errors");
+  expect(result.text).toContain("while playing");
+});
+
+test("reports failures grouped by the block at their root, and who changed them", async () => {
+  await add("synth", "instruments", "AMSynth");
+  await add("speakers", "output", "Destination");
+  const { patchId } = (
+    await apply({
+      kind: "connect_blocks",
+      fromBlockId: "synth",
+      toBlockId: "speakers",
+    })
+  ).data as { patchId: string };
+
+  const result = await checkWith(
+    { _tag: "Settled" },
+    {
+      "build:synth": entry({ message: "Leaf has no code" }),
+      [`connect:${patchId}`]: entry({
+        kind: "connect",
+        id: patchId,
+        code: "EndpointFailed",
+        message: "Leaf has no code",
+        rootCause: "synth",
+      }),
+    },
+  );
+
+  expect(result.ok).toBe(true);
+  expect(result.text).toBe(
+    `2 problems. AMSynth (synth): it did not build: Leaf has no code; ${patchId} could not be connected: Leaf has no code.`,
+  );
+  expect(result.data).toEqual({
+    errors: [
+      {
+        blockId: "synth",
+        name: "AMSynth",
+        problems: [
+          {
+            kind: "build",
+            id: "synth",
+            code: "LeafThrew",
+            message: "Leaf has no code",
+            changedBy: "agent",
+          },
+          {
+            kind: "connect",
+            id: patchId,
+            code: "EndpointFailed",
+            message: "Leaf has no code",
+            changedBy: "agent",
+          },
+        ],
+      },
+    ],
+  });
+});
+
+test.each([
+  [{ _tag: "Disconnected" } as const, "not connected"],
+  [{ _tag: "Blocked", cause: "DataCloneError" } as const, "DataCloneError"],
+  [{ _tag: "TimedOut" } as const, "still busy"],
+])("says why it could not check when the frame %o", async (barrier, why) => {
+  const result = await checkWith(barrier);
+
+  expect(result.ok).toBe(false);
+  expect(result.text).toContain("Could not check");
+  expect(result.text).toContain(why);
 });

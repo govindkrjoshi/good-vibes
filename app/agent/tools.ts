@@ -3,61 +3,57 @@ import { Type } from "@earendil-works/pi-ai";
 import { RackActionSchema } from "./rack-action";
 import type { ActionResult, GoodVibesMessage, RackAction } from "./types";
 
-// Sends an action out and waits for whoever applies it to settle it.
+// Carries out one action the model asked for, and says what came of it. The
+// agent never touches the rack: whoever makes the agent hands this in.
+export type ApplyAction = (
+  action: RackAction,
+  signal?: AbortSignal,
+) => Promise<ActionResult> | ActionResult;
+
 export type RequestAction = (
   action: RackAction,
   signal?: AbortSignal,
 ) => Promise<ActionResult>;
 
-export type ActionRequests = {
-  readonly request: RequestAction;
-  // Answers a request by the id of its action message.
-  readonly settle: (id: string, result: ActionResult) => void;
-};
-
-// Keeps the requests waiting on an answer. Each goes out as an action message
-// through `publish`, first as requested and again once settled, under one id.
-// A request nobody answers fails after `timeoutMs`, so a tool can never hang
-// the reply.
-export const actionRequests = (
+// Applies each action between two action messages through `publish`: one as
+// it is asked for, one with what came of it, under one id, so the chat can
+// show it working. Applying that throws, or a reply that is aborted first,
+// still comes back as a result, so the model is never left waiting.
+export const announced = (
   publish: (message: GoodVibesMessage) => void,
-  timeoutMs = 10_000,
-): ActionRequests => {
-  const waiting = new Map<string, (result: ActionResult) => void>();
+  apply: ApplyAction,
+): RequestAction => {
   let next = 0;
-
-  const request: RequestAction = (action, signal) =>
-    new Promise<ActionResult>((resolve) => {
-      const id = `action-${next++}`;
-      const finish = (result: ActionResult) => {
-        if (!waiting.delete(id)) return;
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
-        publish({
-          type: "action",
-          id,
-          action,
-          status: result.ok ? "done" : "failed",
-          result,
-        });
-        resolve(result);
-      };
-      const onAbort = () =>
-        finish({ ok: false, text: "The change was called off." });
-      const timer = setTimeout(
-        () => finish({ ok: false, text: "Nothing applied the change." }),
-        timeoutMs,
-      );
-
-      waiting.set(id, finish);
-      signal?.addEventListener("abort", onAbort, { once: true });
-      publish({ type: "action", id, action, status: "requested" });
+  return async (action, signal) => {
+    const id = `action-${next++}`;
+    // Read when needed: the reply can be aborted while the action runs.
+    const aborted = () => signal?.aborted === true;
+    publish({ type: "action", id, action, status: "requested" });
+    const result: ActionResult = await (async () => {
+      if (aborted()) return { ok: false, text: "The change was called off." };
+      try {
+        return await apply(action, signal);
+      } catch (error) {
+        return aborted()
+          ? { ok: false, text: "The change was called off." }
+          : {
+              ok: false,
+              text:
+                error instanceof Error
+                  ? error.message
+                  : "The change could not be made",
+            };
+      }
+    })();
+    publish({
+      type: "action",
+      id,
+      action,
+      status: result.ok ? "done" : "failed",
+      result,
     });
-
-  const settle = (id: string, result: ActionResult) =>
-    waiting.get(id)?.(result);
-
-  return { request, settle };
+    return result;
+  };
 };
 
 // What the model gets back from one action: the sentence, then the detail as
@@ -74,7 +70,7 @@ const parameters = Type.Object({
   }),
 });
 
-// The one tool the model calls: a list of actions, each sent out in turn and
+// The one tool the model calls: a list of actions, each applied in turn and
 // waited on. A refusal stops the list, since what follows usually builds on
 // what was refused, and the model is told how far it got.
 export const rackActionsTool = (
@@ -83,7 +79,7 @@ export const rackActionsTool = (
   name: rackActionsToolName,
   label: "Change the rack",
   description:
-    "Changes the rack, or looks at it. Takes a list of actions and applies them in order; a block added earlier in the list can be patched or have its params set later in the same list, by the id you gave it.",
+    "Changes the rack, looks at it, or checks it for errors. Takes a list of actions and applies them in order, each one whole or not at all; a block added earlier in the list can be patched or have its params set later in the same list, by the id you gave it. A refusal stops the list there.",
   parameters,
   execute: async (_toolCallId, { actions }, signal) => {
     const lines: string[] = [];

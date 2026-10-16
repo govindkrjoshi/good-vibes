@@ -23,7 +23,7 @@ app/
 
 Modules hold logic only: no React, no JSX, no DOM, and no imports from
 `components`, `hooks` or `pages`. Modules import each other in one direction:
-`catalogue` and `canvas` use `rack`; `actions` uses `agent`, `rack` and
+`catalogue` and `canvas` use `rack`; `actions` uses `agent`, `rack`, `sandbox` and
 `catalogue`; `sandbox` uses `rack`; `agent` stands alone.
 Components import modules, `components/ui` and `hooks`. Pages import anything;
 nothing imports from `pages`. `.oxlintrc.json` enforces these boundaries, so
@@ -61,11 +61,19 @@ while building, so users always bring their own.
 
 The agent can change the rack, but never touches it directly. Its one tool
 takes a list of `RackAction`s (the schema in `app/agent/rack-action.ts` is
-the source of truth). Each action goes out on the agent's message stream and
-waits; the session, which listens to that stream, hands it to `app/actions/`,
-which makes the change on the rack store and answers with an `ActionResult`.
-A refused action stops the rest of the list. The same action messages are
-what the chat shows as the agent works.
+the source of truth). The session hands the agent a function from
+`app/actions/` that applies one: it works out from the rack alone the
+messages the action comes to, dispatches them all or nothing, marked as the
+agent's, and answers with an `ActionResult`. A refused action stops the rest
+of the list. Each action also goes out on the agent's message stream as it is
+asked for and again once applied; those messages are what the chat shows as
+the agent works.
+
+A `check_errors` action waits for the sandbox to carry out every change made
+before it, then reports what failed, grouped by the block at its root and
+with who last changed it. A `retry` action builds a block, patch or event
+again as it is. The agent is told to end a list that changes the rack with a
+check.
 
 The model chooses the id of each block it adds, so one list can add a block
 and then patch it or set its params (`<block id>:param:<name>`) by that id.

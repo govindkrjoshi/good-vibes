@@ -2,6 +2,7 @@ import { Effect, PubSub, Stream } from "effect";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GoodVibesAgent } from "./agent";
 import { createSession, type CreateAgent, type Session } from "./session";
+import { announced, type ApplyAction, type RequestAction } from "./tools";
 import {
   PromptError,
   type ActionResult,
@@ -10,40 +11,26 @@ import {
 } from "./types";
 
 // Stands in for the agent: a prompt says its reply a word at a time, then
-// settles however `outcome` says. `ask` sends an action out and gives back
-// what the session settles it with.
+// settles however `outcome` says. `ask` applies an action through what the
+// session handed the agent, announcing it as the real agent does.
 const fakeAgent = () => {
   const said = Effect.runSync(PubSub.unbounded<GoodVibesMessage>());
   const say = (message: GoodVibesMessage) =>
     PubSub.publishUnsafe(said, message);
   let reply = 0;
-  let asked = 0;
   const aborted = vi.fn();
-  const settled = new Map<string, (result: ActionResult) => void>();
+  let request: RequestAction = () =>
+    Promise.reject(new Error("The session made no agent"));
   let outcome: Effect.Effect<void, PromptError> = Effect.void;
   const agent = {
     set outcome(value: Effect.Effect<void, PromptError>) {
       outcome = value;
     },
     say,
-    ask: (action: RackAction) =>
-      new Promise<ActionResult>((resolve) => {
-        const id = `action-${asked++}`;
-        settled.set(id, (result) => {
-          say({
-            type: "action",
-            id,
-            action,
-            status: result.ok ? "done" : "failed",
-            result,
-          });
-          resolve(result);
-        });
-        say({ type: "action", id, action, status: "requested" });
-      }),
-    settle: vi.fn((id: string, result: ActionResult) =>
-      settled.get(id)?.(result),
-    ),
+    applyWith: (apply: ApplyAction) => {
+      request = announced(say, apply);
+    },
+    ask: (action: RackAction) => request(action),
     prompt: vi.fn((text: string) =>
       Effect.suspend(() => {
         void text;
@@ -76,7 +63,10 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
   agent = fakeAgent();
-  createAgent.mockImplementation(() => Effect.succeed(agent as GoodVibesAgent));
+  createAgent.mockImplementation((_, apply) => {
+    agent.applyWith(apply);
+    return Effect.succeed(agent as GoodVibesAgent);
+  });
   askForKey.mockResolvedValue("sk-or-typed");
   applyAction.mockReturnValue({ ok: true, text: "Added AMSynth." });
 });
@@ -261,7 +251,7 @@ const addSynth: RackAction = {
   entry: "AMSynth",
 };
 
-test("applies what the agent asks for and settles it with the result", async () => {
+test("hands the agent what applies its actions, and shows them in the chat", async () => {
   const chat = session();
   const seen: (string | undefined)[] = [];
   chat.subscribe(() => seen.push(chat.getState().messages.at(-1)?.status));
@@ -275,11 +265,7 @@ test("applies what the agent asks for and settles it with the result", async () 
 
   await chat.prompt("add a synth");
 
-  expect(applyAction).toHaveBeenCalledWith(addSynth);
-  expect(agent.settle).toHaveBeenCalledWith("action-0", {
-    ok: true,
-    text: "Added AMSynth.",
-  });
+  expect(applyAction).toHaveBeenCalledWith(addSynth, undefined);
   expect(result).toEqual({ ok: true, text: "Added AMSynth." });
   expect(seen).toContain("requested");
   expect(chat.getState().messages.slice(1)).toEqual([
@@ -315,7 +301,7 @@ test("shows a refused action with why", async () => {
   });
 });
 
-test("tells the agent when applying throws, instead of leaving it waiting", async () => {
+test("tells the agent when applying throws, and shows it failed", async () => {
   applyAction.mockImplementation(() => {
     throw new Error("Store is gone");
   });

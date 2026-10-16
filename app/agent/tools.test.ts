@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import {
-  actionRequests,
+  announced,
   rackActionsTool,
   rackActionsToolName,
   resultText,
@@ -20,24 +20,22 @@ const connect: RackAction = {
   toBlockId: "speakers",
 };
 
-test("sends an action out, waits to be settled, then sends the outcome", async () => {
+test("announces an action, applies it, then announces what came of it", async () => {
   const published: GoodVibesMessage[] = [];
-  const { request, settle } = actionRequests((message) =>
-    published.push(message),
-  );
+  const apply = vi.fn(() => {
+    expect(published).toEqual([
+      { type: "action", id: "action-0", action: describe, status: "requested" },
+    ]);
+    return { ok: true, text: "Looked.", data: { blocks: [] } };
+  });
+  const request = announced((message) => published.push(message), apply);
 
-  const pending = request(describe);
-  expect(published).toEqual([
-    { type: "action", id: "action-0", action: describe, status: "requested" },
-  ]);
-
-  settle("action-0", { ok: true, text: "Looked.", data: { blocks: [] } });
-
-  await expect(pending).resolves.toEqual({
+  await expect(request(describe)).resolves.toEqual({
     ok: true,
     text: "Looked.",
     data: { blocks: [] },
   });
+  expect(apply).toHaveBeenCalledWith(describe, undefined);
   expect(published.at(-1)).toEqual({
     type: "action",
     id: "action-0",
@@ -49,67 +47,75 @@ test("sends an action out, waits to be settled, then sends the outcome", async (
 
 test("marks a refused action as failed", async () => {
   const published: GoodVibesMessage[] = [];
-  const { request, settle } = actionRequests((message) =>
-    published.push(message),
+  const request = announced(
+    (message) => published.push(message),
+    () => ({ ok: false, text: "No." }),
   );
 
-  const pending = request(describe);
-  settle("action-0", { ok: false, text: "No." });
-
-  await expect(pending).resolves.toEqual({ ok: false, text: "No." });
+  await expect(request(describe)).resolves.toEqual({ ok: false, text: "No." });
   expect(published.at(-1)).toMatchObject({ status: "failed" });
 });
 
-test("numbers requests apart and settles each by its own id", async () => {
-  const { request, settle } = actionRequests(() => undefined);
-
-  const first = request(describe);
-  const second = request({ kind: "set_transport", bpm: 90 });
-  settle("action-1", { ok: true, text: "Second." });
-  settle("action-0", { ok: true, text: "First." });
-
-  await expect(first).resolves.toMatchObject({ text: "First." });
-  await expect(second).resolves.toMatchObject({ text: "Second." });
-});
-
-test("settles only once", async () => {
+test("numbers actions apart, and waits on one that takes a while", async () => {
   const published: GoodVibesMessage[] = [];
-  const { request, settle } = actionRequests((message) =>
-    published.push(message),
+  let finish: (result: ActionResult) => void = () => undefined;
+  const request = announced(
+    (message) => published.push(message),
+    (action) =>
+      action.kind === "check_errors"
+        ? new Promise<ActionResult>((resolve) => (finish = resolve))
+        : { ok: true, text: "Fine." },
   );
 
-  const pending = request(describe);
-  settle("action-0", { ok: true, text: "Once." });
-  settle("action-0", { ok: false, text: "Twice." });
+  await request(describe);
+  const checking = request({ kind: "check_errors" });
+  expect(published.at(-1)).toMatchObject({
+    id: "action-1",
+    status: "requested",
+  });
+  finish({ ok: true, text: "No errors." });
 
-  await expect(pending).resolves.toMatchObject({ text: "Once." });
-  expect(published).toHaveLength(2);
+  await expect(checking).resolves.toEqual({ ok: true, text: "No errors." });
+  expect(published.at(-1)).toMatchObject({ id: "action-1", status: "done" });
 });
 
-test("fails a request nobody answers", async () => {
-  vi.useFakeTimers();
-  try {
-    const { request } = actionRequests(() => undefined, 50);
-    const pending = request(describe);
-    vi.advanceTimersByTime(50);
+test("tells the model when applying throws, instead of failing the tool", async () => {
+  const request = announced(
+    () => undefined,
+    () => {
+      throw new Error("Store is gone");
+    },
+  );
 
-    await expect(pending).resolves.toEqual({
-      ok: false,
-      text: "Nothing applied the change.",
-    });
-  } finally {
-    vi.useRealTimers();
-  }
+  await expect(request(describe)).resolves.toEqual({
+    ok: false,
+    text: "Store is gone",
+  });
 });
 
-test("calls a request off when the reply is aborted", async () => {
-  const { request } = actionRequests(() => undefined);
-  const controller = new AbortController();
+test("calls an action off when the reply is aborted, before or while it runs", async () => {
+  const before = new AbortController();
+  before.abort();
+  const apply = vi.fn(() => ({ ok: true, text: "Fine." }));
 
-  const pending = request(describe, controller.signal);
-  controller.abort();
+  await expect(
+    announced(() => undefined, apply)(describe, before.signal),
+  ).resolves.toEqual({ ok: false, text: "The change was called off." });
+  expect(apply).not.toHaveBeenCalled();
 
-  await expect(pending).resolves.toEqual({
+  const during = new AbortController();
+  const running = announced(
+    () => undefined,
+    () =>
+      new Promise<ActionResult>((_, reject) =>
+        during.signal.addEventListener("abort", () =>
+          reject(new Error("interrupted")),
+        ),
+      ),
+  )({ kind: "check_errors" }, during.signal);
+  during.abort();
+
+  await expect(running).resolves.toEqual({
     ok: false,
     text: "The change was called off.",
   });

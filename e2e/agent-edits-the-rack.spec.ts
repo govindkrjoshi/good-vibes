@@ -105,3 +105,71 @@ test.describe("a change the rack refuses", () => {
     await expect(nodes(page)).toHaveCount(0);
   });
 });
+
+test.describe("checking for errors", () => {
+  test.use({
+    openRouterReplies: [
+      { tool: "rack_actions", args: { actions: [{ kind: "check_errors" }] } },
+      "Your Leaf block has no code yet.",
+    ],
+  });
+
+  test("finds a leaf the user added that did not build", async ({ page }) => {
+    await page.getByTestId("add-source").click();
+    await expect(page.getByTestId("block-error")).toBeVisible();
+
+    await ask(page, "is anything broken?");
+
+    await expect(actions(page)).toHaveCount(1);
+    await expect(actions(page).first()).toHaveAttribute("data-status", "done");
+    await expect(actions(page).first()).toContainText("1 problem.");
+    await expect(actions(page).first()).toContainText(
+      "it did not build: Leaf has no code",
+    );
+    await expect(chat(page)).toContainText("Your Leaf block has no code yet.");
+  });
+});
+
+test.describe("building and checking in one list", () => {
+  test.use({
+    openRouterReplies: [
+      {
+        tool: "rack_actions",
+        args: {
+          actions: [
+            {
+              kind: "add_block",
+              id: "synth-1",
+              category: "instruments",
+              entry: "AMSynth",
+            },
+            {
+              kind: "add_block",
+              id: "speakers",
+              category: "output",
+              entry: "Destination",
+            },
+            {
+              kind: "connect_blocks",
+              fromBlockId: "synth-1",
+              toBlockId: "speakers",
+            },
+            { kind: "check_errors" },
+          ],
+        },
+      },
+      "All wired up.",
+    ],
+  });
+
+  test("waits for the audio engine to build what came before the check", async ({
+    page,
+  }) => {
+    await ask(page, "add a synth I can hear");
+
+    await expect(actions(page)).toHaveCount(4);
+    await expect(actions(page).last()).toHaveAttribute("data-status", "done");
+    await expect(actions(page).last()).toContainText("No errors");
+    await expect(chat(page)).toContainText("All wired up.");
+  });
+});

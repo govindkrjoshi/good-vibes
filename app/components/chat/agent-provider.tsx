@@ -2,7 +2,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
@@ -10,6 +12,8 @@ import {
 import { applyAction } from "../../actions";
 import { createSession, type ChatMessage } from "../../agent";
 import { rackStore } from "../../rack";
+import { sandboxStatus } from "../../sandbox";
+import { useSandboxClient } from "../sandbox/sandbox-provider";
 import { ApiKeyDialog } from "./api-key-dialog";
 
 export type { ChatMessage } from "../../agent";
@@ -55,6 +59,13 @@ export function GoodVibesAgentProvider({
   const [request, setRequest] = useState<KeyRequest | undefined>(undefined);
   // Asked for from settings, so there is no prompt waiting on the answer.
   const [changingKey, setChangingKey] = useState(false);
+  // The session outlives renders, and the sandbox client comes later, so the
+  // agent's checks read the current one through this.
+  const sandbox = useSandboxClient();
+  const sandboxRef = useRef(sandbox);
+  useEffect(() => {
+    sandboxRef.current = sandbox;
+  }, [sandbox]);
   const [session] = useState(() =>
     createSession({
       askForKey: () => {
@@ -62,7 +73,16 @@ export function GoodVibesAgentProvider({
         setRequest(asked);
         return asked.promise;
       },
-      applyAction: (action) => applyAction(rackStore, action),
+      applyAction: (action, signal) =>
+        applyAction(
+          {
+            store: rackStore,
+            sandbox: () => sandboxRef.current,
+            status: sandboxStatus.getState,
+          },
+          action,
+          signal,
+        ),
     }),
   );
   const state = useSyncExternalStore(

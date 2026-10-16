@@ -2,13 +2,8 @@ import { Agent, type AgentMessage } from "@earendil-works/pi-agent-core";
 import { createModels } from "@earendil-works/pi-ai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { Effect, PubSub, Stream, type Scope } from "effect";
-import { actionRequests, rackActionsTool } from "./tools";
-import {
-  PromptError,
-  type ActionResult,
-  type ApiKey,
-  type GoodVibesMessage,
-} from "./types";
+import { announced, rackActionsTool, type ApplyAction } from "./tools";
+import { PromptError, type ApiKey, type GoodVibesMessage } from "./types";
 
 // Cheap and quick, and it calls tools. It has to be a model pi-ai reaches
 // over OpenRouter's chat-completions API: Anthropic models go through its
@@ -22,8 +17,11 @@ tool takes a list of actions on the rack. Look at the rack with a describe actio
 before changing it: the other actions take their ids from what it says, and it lists \
 what the catalogue can add. Put a whole change in one list where you can: add a \
 block under an id you choose, then patch it and set its params by that id in the \
-same list. A rack is only heard through a Destination block, and only once the user \
-presses Run; you cannot start audio yourself. Be warm, brief, and plain-spoken. \
+same list. After adding or changing blocks, patches or events, end the list with a \
+check_errors action, and fix what it reports that you changed before saying you are \
+done; mention any other problems rather than changing what the user made. A rack is \
+only heard through a Destination block, and only once the user presses Run; you \
+cannot start audio yourself. Be warm, brief, and plain-spoken. \
 After acting, say what changed in a sentence; otherwise reply in one or two short \
 sentences.`;
 
@@ -42,10 +40,6 @@ export type GoodVibesAgent = {
   readonly messages: Stream.Stream<GoodVibesMessage>;
   // Stops the running reply; `prompt` then finishes with the text so far.
   readonly abort: Effect.Effect<void>;
-  // Answers an action the agent asked for, by the id of its message. The
-  // agent waits on this before it carries on, so whoever listens to
-  // `messages` has to settle every requested action.
-  readonly settle: (id: string, result: ActionResult) => void;
 };
 
 // The parts of one assistant reply as our messages. `reply` numbers the
@@ -69,6 +63,7 @@ export const messagesOf = (
 // stream.
 export const createGoodVibesAgent = (
   apiKey: ApiKey,
+  apply: ApplyAction,
 ): Effect.Effect<GoodVibesAgent, never, Scope.Scope> =>
   Effect.gen(function* () {
     const model = goodVibesModel();
@@ -82,8 +77,11 @@ export const createGoodVibesAgent = (
       PubSub.unbounded<GoodVibesMessage>(),
       PubSub.shutdown,
     );
-    const { request, settle } = actionRequests((message) =>
-      PubSub.publishUnsafe(said, message),
+    // Each action goes out on `messages` as it is asked for and again once
+    // applied, so the chat shows it working.
+    const request = announced(
+      (message) => PubSub.publishUnsafe(said, message),
+      apply,
     );
 
     // Read per request, see ApiKey.
@@ -139,5 +137,5 @@ export const createGoodVibesAgent = (
         Effect.onInterrupt(() => abort),
       );
 
-    return { prompt, messages: Stream.fromPubSub(said), abort, settle };
+    return { prompt, messages: Stream.fromPubSub(said), abort };
   });

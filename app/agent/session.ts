@@ -1,13 +1,13 @@
 import { Effect, Exit, Scope, Stream } from "effect";
 import { knownApiKey, storeApiKey } from "./key";
 import type {
-  ActionResult,
   ActionStatus,
   ApiKey,
   GoodVibesMessage,
   RackAction,
 } from "./types";
 import type { GoodVibesAgent } from "./agent";
+import type { ApplyAction } from "./tools";
 
 // What the chat shows of one message: who said it and the text so far. The
 // agent's thoughts are its reasoning, shown apart from what it says. An
@@ -41,6 +41,10 @@ export const actionLabel = (action: RackAction): string => {
       return "Setting a param";
     case "set_transport":
       return `Setting the tempo to ${action.bpm} bpm`;
+    case "check_errors":
+      return "Checking for errors";
+    case "retry":
+      return `Trying the ${action.entity} ${action.id} again`;
   }
 };
 
@@ -64,6 +68,7 @@ export type Session = {
 
 export type CreateAgent = (
   apiKey: ApiKey,
+  apply: ApplyAction,
 ) => Effect.Effect<GoodVibesAgent, never, Scope.Scope>;
 
 export type SessionOptions = {
@@ -71,9 +76,9 @@ export type SessionOptions = {
   // prompt; the next prompt asks again.
   readonly askForKey: () => Promise<string>;
   // Makes the change the agent asked for and says what came of it. The
-  // session is the only listener on the agent, so this is what makes the
-  // agent's actions real; the agent itself never touches the rack.
-  readonly applyAction: (action: RackAction) => ActionResult;
+  // agent calls it for each action and waits on it; the agent itself never
+  // touches the rack.
+  readonly applyAction: ApplyAction;
   // How the agent is made. By default the agent module is loaded on first
   // use, so the model runtime stays out of the initial bundle.
   readonly createAgent?: CreateAgent;
@@ -81,9 +86,11 @@ export type SessionOptions = {
 
 let agentModule: Promise<typeof import("./agent")> | undefined;
 
-const loadAgent: CreateAgent = (apiKey) =>
+const loadAgent: CreateAgent = (apiKey, apply) =>
   Effect.promise(() => (agentModule ??= import("./agent"))).pipe(
-    Effect.flatMap(({ createGoodVibesAgent }) => createGoodVibesAgent(apiKey)),
+    Effect.flatMap(({ createGoodVibesAgent }) =>
+      createGoodVibesAgent(apiKey, apply),
+    ),
   );
 
 // Runs one agent for as long as the session lives, so the conversation
@@ -147,22 +154,6 @@ export const createSession = ({
         : [...list, message],
     );
 
-  // A failure in applying is the action's to show, not a reason to drop the
-  // reply, so the agent is told rather than left waiting.
-  const apply = (action: RackAction): ActionResult => {
-    try {
-      return applyAction(action);
-    } catch (error) {
-      return {
-        ok: false,
-        text:
-          error instanceof Error
-            ? error.message
-            : "The change could not be made",
-      };
-    }
-  };
-
   const actionRow = (
     said: GoodVibesMessage & { type: "action" },
   ): ChatMessage => {
@@ -187,15 +178,9 @@ export const createSession = ({
     }
   };
 
-  const onMessage = (
-    said: GoodVibesMessage,
-    settle: GoodVibesAgent["settle"],
-  ) => {
+  const onMessage = (said: GoodVibesMessage) => {
     if (said.type === "action") {
       upsert(actionRow(said));
-      // Shown as requested first, so the chat has the row even if applying
-      // takes a moment or throws.
-      if (said.status === "requested") settle(said.id, apply(said.action));
       return;
     }
     upsert({
@@ -233,9 +218,12 @@ export const createSession = ({
       // Read on every request, so a key changed in settings applies at once.
       const created = await Effect.runPromise(
         Effect.gen(function* () {
-          const made = yield* createAgent(() => currentKey() ?? "");
+          const made = yield* createAgent(
+            () => currentKey() ?? "",
+            applyAction,
+          );
           yield* Stream.runForEach(made.messages, (said) =>
-            Effect.sync(() => onMessage(said, made.settle)),
+            Effect.sync(() => onMessage(said)),
           ).pipe(Effect.forkScoped({ startImmediately: true }));
           return made;
         }).pipe(Scope.provide(scope)),

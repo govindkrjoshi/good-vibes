@@ -78,6 +78,30 @@ const setTransport = Type.Object(
   { description: "Sets the transport's tempo in beats per minute." },
 );
 
+const checkErrors = Type.Object(
+  { kind: Type.Literal("check_errors") },
+  {
+    description:
+      "Waits for the audio engine to finish carrying out every change so far, then lists what failed: blocks whose code did not build, patches that could not be made, params that could not be set, events that could not be scheduled or failed while playing. Use it after changing blocks, patches or events, and before saying you are done. It cannot promise an event will not fail later, while playing.",
+  },
+);
+
+const retry = Type.Object(
+  {
+    kind: Type.Literal("retry"),
+    entity: Type.Union([
+      Type.Literal("block"),
+      Type.Literal("patch"),
+      Type.Literal("event"),
+    ]),
+    id: Type.String(),
+  },
+  {
+    description:
+      "Builds a block, patch or event again as it is, for a failure that might not happen twice. A failure that will happen again needs a change instead. Check errors afterwards to see how it went.",
+  },
+);
+
 export const RackActionSchema = Type.Union([
   describe,
   addBlock,
@@ -86,4 +110,6 @@ export const RackActionSchema = Type.Union([
   disconnect,
   setParam,
   setTransport,
+  checkErrors,
+  retry,
 ]);

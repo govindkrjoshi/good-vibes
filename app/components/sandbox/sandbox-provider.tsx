@@ -134,6 +134,10 @@ export function SandboxProvider({
   );
 }
 
+// The sandbox client if there is one yet, for what can do without it.
+export const useSandboxClient = (): SandboxClient | undefined =>
+  useContext(SandboxContext)?.client;
+
 export const useSandbox = (): SandboxContextValue => {
   const sandbox = useContext(SandboxContext);
   if (sandbox === undefined)
