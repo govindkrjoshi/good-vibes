@@ -15,6 +15,9 @@ import {
   type Command,
   type Playback,
 } from "./protocol";
+import { rackActions } from "../testing/rack-actions";
+
+const rack = rackActions(rackStore);
 
 ToneJs.setContext(
   new ToneJs.OfflineContext(new OfflineAudioContext(2, 44100, 44100)),
@@ -93,10 +96,9 @@ const sendBatch = async (
 };
 
 const synthAndDestination = () => {
-  const synth = store().addTemplate(template("instruments", "AMSynth")) ?? "";
-  const destination =
-    store().addTemplate(template("output", "Destination")) ?? "";
-  const patch = store().connectJacks(`${synth}:out`, `${destination}:in`) ?? "";
+  const synth = rack.addTemplate(template("instruments", "AMSynth")) ?? "";
+  const destination = rack.addTemplate(template("output", "Destination")) ?? "";
+  const patch = rack.connectJacks(`${synth}:out`, `${destination}:in`) ?? "";
   return { synth, destination, patch, riff: `${synth}:event:riff` };
 };
 
@@ -137,8 +139,8 @@ test("runs a batch's commands in order and answers once, for each command", asyn
 
 test("reports a failed leaf, and what hangs off it, with codes", async () => {
   const { synth } = synthAndDestination();
-  const blank = store().addBlock("leaf") ?? "";
-  const patch = store().connectJacks(`${synth}:out`, `${blank}:in`) ?? "";
+  const blank = rack.addBlock("leaf") ?? "";
+  const patch = rack.connectJacks(`${synth}:out`, `${blank}:in`) ?? "";
 
   const result = await sendBatch([
     { name: "addBlock", blockId: synth },
@@ -174,7 +176,7 @@ test("reports a failed leaf, and what hangs off it, with codes", async () => {
 test("reports what a command took away", async () => {
   const { synth, riff } = synthAndDestination();
   await sendBatch([{ name: "addBlock", blockId: synth }]);
-  store().removeBlocks([synth]);
+  rack.removeBlocks([synth]);
 
   const result = await sendBatch(
     [

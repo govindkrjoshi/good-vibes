@@ -10,6 +10,9 @@ import { onRackWork, rackStore } from "../rack/store";
 import { makeSandboxClient, type SandboxClient } from "./client";
 import { makeRackHost } from "./host";
 import { initialSandboxStatus, sandboxStatus } from "./status";
+import { rackActions } from "../testing/rack-actions";
+
+const edit = rackActions(rackStore);
 
 // The app's store and the frame's host, wired as the provider wires them:
 // the client drives a real host over a real MessageChannel.
@@ -80,9 +83,9 @@ const leafOk = async (blockId: string) => {
 };
 
 const buildRiff = () => {
-  const synth = store().addTemplate(template("instruments", "AMSynth")) ?? "";
-  const out = store().addTemplate(template("output", "Destination")) ?? "";
-  const patch = store().connectJacks(`${synth}:out`, `${out}:in`) ?? "";
+  const synth = edit.addTemplate(template("instruments", "AMSynth")) ?? "";
+  const out = edit.addTemplate(template("output", "Destination")) ?? "";
+  const patch = edit.connectJacks(`${synth}:out`, `${out}:in`) ?? "";
   return { synth, out, patch, riff: `${synth}:event:riff` };
 };
 
@@ -116,7 +119,7 @@ test("sends a rack built before the frame connected", async () => {
 test("Run starts audio in the frame after the edits before it", async () => {
   const { client } = connected();
   const { synth } = buildRiff();
-  store().run();
+  edit.run();
 
   expect(await settled(client)).toEqual({ _tag: "Settled" });
   expect(started).toBe(1);
@@ -125,7 +128,7 @@ test("Run starts audio in the frame after the edits before it", async () => {
 
 test("shows a leaf that failed to build, and waits for a retry of it", async () => {
   const { client } = connected();
-  const blank = store().addBlock("leaf") ?? "";
+  const blank = edit.addBlock("leaf") ?? "";
   await settled(client);
 
   expect(sandboxStatus.getState().errors[`build:${blank}`]).toMatchObject({
@@ -150,11 +153,11 @@ test("shows a leaf that failed to build, and waits for a retry of it", async () 
 test("hands a playing sequence its new steps without rebuilding it", async () => {
   const { client } = connected();
   const { riff } = buildRiff();
-  store().run();
+  edit.run();
   await settled(client);
   const sequence = (await rendered()).events.get(riff);
 
-  store().setEventSteps(riff, ["A3", "B3"]);
+  edit.setEventSteps(riff, ["A3", "B3"]);
   await settled(client);
 
   const after = (await rendered()).events.get(riff);
@@ -174,7 +177,7 @@ test("a new connection to the same frame clears what it held from before", async
   await Effect.runPromise(Scope.close(first.scope, Exit.void));
 
   // Removed while nothing was connected, as across a remount.
-  store().removeBlocks([synth]);
+  edit.removeBlocks([synth]);
   const second = connected();
   await settled(second.client);
 

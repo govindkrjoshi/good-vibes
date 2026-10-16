@@ -2,6 +2,7 @@ export * from "./model";
 export * from "./envelope";
 export * from "./messages";
 export * from "./entities";
+export * from "./edits";
 export {
   initialRackMeta,
   playArgs,

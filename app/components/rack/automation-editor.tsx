@@ -16,8 +16,14 @@ import { Separator } from "../ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Hint } from "../ui/hint";
 import { NumberField, unitLabel } from "./param-control";
-import type { AutomationEvent, Param, RampMethod } from "../../rack";
+import {
+  edits,
+  type AutomationEvent,
+  type Param,
+  type RampMethod,
+} from "../../rack";
 import { useRack } from "../../hooks/useRack";
+import { useDispatch } from "../../hooks/useDispatch";
 
 type NumberParam = Extract<Param, { kind: "number" }>;
 
@@ -45,7 +51,9 @@ const methodCopy: Record<
 
 export function AutomationEditor({ param }: { readonly param: NumberParam }) {
   const events = useRack((state) => state.automations[param.id] ?? noEvents);
-  const removeAutomation = useRack((state) => state.removeAutomation);
+  const dispatch = useDispatch();
+  const removeAutomation = (paramId: string, automationId: string) =>
+    dispatch(edits.removeAutomation(paramId, automationId));
   const label = `Automate ${param.name}`;
 
   return (
@@ -106,7 +114,9 @@ export function AutomationEditor({ param }: { readonly param: NumberParam }) {
 }
 
 function AutomationForm({ param }: { readonly param: NumberParam }) {
-  const addAutomation = useRack((state) => state.addAutomation);
+  const dispatch = useDispatch();
+  const addAutomation = (paramId: string, event: Omit<AutomationEvent, "id">) =>
+    dispatch(edits.addAutomation(paramId, event));
   const current = useRack((state) => state.values[param.id]);
   const methods = param.automation?.methods ?? [];
 

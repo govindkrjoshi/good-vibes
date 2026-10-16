@@ -18,8 +18,9 @@ import {
 import { Slider } from "../ui/slider";
 import { Switch } from "../ui/switch";
 import { AutomationEditor } from "./automation-editor";
-import type { Param, ParamValue } from "../../rack";
+import { edits, type Param, type ParamValue } from "../../rack";
 import { useRack } from "../../hooks/useRack";
+import { useDispatch } from "../../hooks/useDispatch";
 
 type NumberParam = Extract<Param, { kind: "number" }>;
 
@@ -30,8 +31,9 @@ export const paramRowClassName =
 
 export function ParamControl({ param }: { readonly param: Param }) {
   const value = useRack((state) => state.values[param.id]);
-  const setParamValue = useRack((state) => state.setParamValue);
-  const set = (next: ParamValue) => setParamValue(param.id, next);
+  const dispatch = useDispatch();
+  const set = (next: ParamValue) =>
+    dispatch(edits.setParamValue(param.id, next));
   const inputId = `${param.id}:input`;
 
   return (

@@ -8,6 +8,9 @@ import { makeToneRuntime, type ToneRuntime } from "./renderer";
 import { CATALOGUE } from "../catalogue";
 import { rackStore } from "./store";
 import { Tone, type RackTemplate } from "./model";
+import { rackActions } from "../testing/rack-actions";
+
+const rack = rackActions(rackStore);
 
 const template = (category: string, entry: string): RackTemplate => {
   const found = CATALOGUE[category]?.[entry]?.rack;
@@ -34,15 +37,15 @@ const defined = <T>(value: T | undefined, what: string): T => {
 // the rack here touches no audio; each test drives the runtime itself.
 const buildSampleRack = () => {
   const synth = defined(
-    store().addTemplate(template("instruments", "AMSynth")),
+    rack.addTemplate(template("instruments", "AMSynth")),
     "AMSynth",
   );
   const destination = defined(
-    store().addTemplate(template("output", "Destination")),
+    rack.addTemplate(template("output", "Destination")),
     "Destination",
   );
   const patch = defined(
-    store().connectJacks(`${synth}:out`, `${destination}:in`),
+    rack.connectJacks(`${synth}:out`, `${destination}:in`),
     "patch",
   );
   return { synth, destination, patch };
@@ -94,9 +97,9 @@ test("render builds a node for each leaf and records the root tree", async () =>
 
 test("render applies the store's param values to the node", async () => {
   const { synth } = buildSampleRack();
-  store().setParamValue(param(synth, "volume"), -6);
-  store().setParamValue(param(synth, "oscillator.type"), "square");
-  store().setParamValue(param(synth, "envelope.attack"), 0.2);
+  rack.setParamValue(param(synth, "volume"), -6);
+  rack.setParamValue(param(synth, "oscillator.type"), "square");
+  rack.setParamValue(param(synth, "envelope.attack"), 0.2);
   const runtime = await makeRuntime();
 
   await Effect.runPromise(runtime.render);
@@ -110,7 +113,7 @@ test("render applies the store's param values to the node", async () => {
 test("a leaf whose code fails is stored as failed and the rest still render", async () => {
   const { synth } = buildSampleRack();
   // A blank leaf has no code yet, so building it fails.
-  const blank = defined(store().addBlock("leaf"), "blank leaf");
+  const blank = defined(rack.addBlock("leaf"), "blank leaf");
   const runtime = await makeRuntime();
 
   await Effect.runPromise(runtime.render);
@@ -139,9 +142,9 @@ test("a patch into the Destination sends the source to the speakers", async () =
 
 test("a patch to a failed leaf is stored as failed and the rest still connect", async () => {
   const { synth, patch } = buildSampleRack();
-  const blank = defined(store().addBlock("leaf"), "blank leaf");
+  const blank = defined(rack.addBlock("leaf"), "blank leaf");
   const broken = defined(
-    store().connectJacks(`${synth}:out`, `${blank}:in`),
+    rack.connectJacks(`${synth}:out`, `${blank}:in`),
     "patch to blank leaf",
   );
   const runtime = await makeRuntime();
@@ -161,7 +164,7 @@ test("updateParam changes the existing node in place", async () => {
   await Effect.runPromise(runtime.render);
   const before = await nodeOf(runtime, synth);
 
-  store().setParamValue(param(synth, "volume"), -12);
+  rack.setParamValue(param(synth, "volume"), -12);
   await Effect.runPromise(runtime.updateParam(param(synth, "volume")));
 
   const after = await nodeOf(runtime, synth);
@@ -172,13 +175,13 @@ test("updateParam changes the existing node in place", async () => {
 test("updateParam replaces scheduled automation and keeps the value", async () => {
   const { synth } = buildSampleRack();
   const volume = param(synth, "volume");
-  store().setParamValue(volume, -12);
+  rack.setParamValue(volume, -12);
   const runtime = await makeRuntime();
   await Effect.runPromise(runtime.render);
   const node = await nodeOf(runtime, synth);
 
   const eventId = defined(
-    store().addAutomation(volume, {
+    rack.addAutomation(volume, {
       method: "setValueAtTime",
       value: -20,
       time: "1",
@@ -190,7 +193,7 @@ test("updateParam replaces scheduled automation and keeps the value", async () =
   expect(node.volume.getValueAtTime(0.5)).toBeCloseTo(-12);
   expect(node.volume.getValueAtTime(2)).toBeCloseTo(-20);
 
-  store().removeAutomation(volume, eventId);
+  rack.removeAutomation(volume, eventId);
   await Effect.runPromise(runtime.updateParam(volume));
 
   expect(node.volume.getValueAtTime(2)).toBeCloseTo(-12);
@@ -201,12 +204,12 @@ test.each(["1", "8n"])(
   async (time) => {
     const { synth } = buildSampleRack();
     const volume = param(synth, "volume");
-    store().setParamValue(volume, -12);
+    rack.setParamValue(volume, -12);
     const runtime = await makeRuntime();
     await Effect.runPromise(runtime.render);
 
     defined(
-      store().addAutomation(volume, {
+      rack.addAutomation(volume, {
         method: "setValueAtTime",
         value: -20,
         time: "5",
@@ -214,7 +217,7 @@ test.each(["1", "8n"])(
       "later set",
     );
     defined(
-      store().addAutomation(volume, {
+      rack.addAutomation(volume, {
         method: "rampTo",
         value: -6,
         time,
@@ -240,9 +243,9 @@ test.each(["1", "8n"])(
 test("automation times count from when the param is applied", async () => {
   const { synth } = buildSampleRack();
   const volume = param(synth, "volume");
-  store().setParamValue(volume, -12);
+  rack.setParamValue(volume, -12);
   defined(
-    store().addAutomation(volume, {
+    rack.addAutomation(volume, {
       method: "setValueAtTime",
       value: -20,
       time: "+1",
@@ -285,11 +288,11 @@ test("updateParam on a bad automation time leaves the param as it was", async ()
 
 test("changing oscillator type applies the params of the new oscillator", async () => {
   const { synth } = buildSampleRack();
-  store().setParamValue(param(synth, "oscillator.width"), 0.7);
+  rack.setParamValue(param(synth, "oscillator.width"), 0.7);
   const runtime = await makeRuntime();
   await Effect.runPromise(runtime.render);
 
-  store().setParamValue(param(synth, "oscillator.type"), "pulse");
+  rack.setParamValue(param(synth, "oscillator.type"), "pulse");
   await Effect.runPromise(runtime.updateParam(param(synth, "oscillator.type")));
 
   const node = await nodeOf(runtime, synth);
@@ -299,14 +302,14 @@ test("changing oscillator type applies the params of the new oscillator", async 
 
 test("an FMSynth renders with a value applied in each of its sections", async () => {
   const synth = defined(
-    store().addTemplate(template("instruments", "FMSynth")),
+    rack.addTemplate(template("instruments", "FMSynth")),
     "FMSynth",
   );
-  store().setParamValue(param(synth, "modulationIndex"), 4);
-  store().setParamValue(param(synth, "oscillator.type"), "triangle");
-  store().setParamValue(param(synth, "envelope.decay"), 0.3);
-  store().setParamValue(param(synth, "modulation.type"), "sine");
-  store().setParamValue(param(synth, "modulationEnvelope.sustain"), 0.4);
+  rack.setParamValue(param(synth, "modulationIndex"), 4);
+  rack.setParamValue(param(synth, "oscillator.type"), "triangle");
+  rack.setParamValue(param(synth, "envelope.decay"), 0.3);
+  rack.setParamValue(param(synth, "modulation.type"), "sine");
+  rack.setParamValue(param(synth, "modulationEnvelope.sustain"), 0.4);
   const runtime = await makeRuntime();
 
   await Effect.runPromise(runtime.render);
@@ -351,10 +354,10 @@ test("deletePatch keeps a connection another patch still uses", async () => {
   const { synth, destination, patch } = buildSampleRack();
   // A second Destination block is the same Tone output as the first.
   const second = defined(
-    store().addTemplate(template("output", "Destination")),
+    rack.addTemplate(template("output", "Destination")),
     "second Destination",
   );
-  defined(store().connectJacks(`${synth}:out`, `${second}:in`), "second patch");
+  defined(rack.connectJacks(`${synth}:out`, `${second}:in`), "second patch");
   const runtime = await makeRuntime();
   await Effect.runPromise(runtime.render);
   expect(await nodeOf(runtime, second)).toBe(
@@ -509,9 +512,9 @@ test("rendering again disposes the old graph and builds a new one", async () => 
 test("render recurses into a nested tree", async () => {
   // The store only adds blocks under the root, so move a synth into a group
   // by hand.
-  const group = defined(store().addBlock("tree"), "group");
+  const group = defined(rack.addBlock("tree"), "group");
   const synth = defined(
-    store().addTemplate(template("instruments", "AMSynth")),
+    rack.addTemplate(template("instruments", "AMSynth")),
     "AMSynth",
   );
   const { blocks } = store();
@@ -540,7 +543,7 @@ const knobs = { mute: false } as const;
 
 const addSequence = (synth: string) =>
   defined(
-    store().addEvent(method(synth, "triggerAttackRelease"), {
+    rack.addEvent(method(synth, "triggerAttackRelease"), {
       kind: "sequence",
       args: { duration: "8n" },
       ...knobs,
@@ -603,7 +606,7 @@ test("updateEventLive hands a sequence its new steps without rebuilding it", asy
   await Effect.runPromise(runtime.render);
   const before = await scheduledOf<ToneJs.Sequence>(runtime, eventId);
 
-  store().setEventSteps(eventId, ["A3", "B3"]);
+  rack.setEventSteps(eventId, ["A3", "B3"]);
   await Effect.runPromise(runtime.updateEventLive(eventId));
 
   const after = await scheduledOf<ToneJs.Sequence>(runtime, eventId);
@@ -614,7 +617,7 @@ test("updateEventLive hands a sequence its new steps without rebuilding it", asy
 test("a looping event renders as a started ToneEvent", async () => {
   const { synth } = buildSampleRack();
   const eventId = defined(
-    store().addEvent(method(synth, "triggerAttackRelease"), {
+    rack.addEvent(method(synth, "triggerAttackRelease"), {
       kind: "event",
       args: { note: "C2", duration: "16n" },
       ...knobs,
@@ -638,7 +641,7 @@ test("a looping event renders as a started ToneEvent", async () => {
 test("a loop fires its method with its fixed args", async () => {
   const { synth } = buildSampleRack();
   const eventId = defined(
-    store().addEvent(method(synth, "triggerAttackRelease"), {
+    rack.addEvent(method(synth, "triggerAttackRelease"), {
       kind: "event",
       args: { note: "C2", duration: "16n" },
       ...knobs,
@@ -698,7 +701,7 @@ test("an event on a failed leaf is stored as failed and the rest still render", 
   const block = store().blocks[synth];
   if (block?.type !== "leaf") throw new Error("expected a leaf");
   // Move the second event onto a blank leaf, whose code fails.
-  const blank = defined(store().addBlock("leaf"), "blank leaf");
+  const blank = defined(rack.addBlock("leaf"), "blank leaf");
   rackStore.setState({
     blocks: {
       ...store().blocks,
@@ -723,7 +726,7 @@ test("an event on a failed leaf is stored as failed and the rest still render", 
 
 test("render sets the tempo and carries on from where the playhead is", async () => {
   buildSampleRack();
-  store().setTransport({ bpm: 90 });
+  rack.setTransport({ bpm: 90 });
   const runtime = await makeRuntime();
   const transport = ToneJs.getTransport();
   await Effect.runPromise(runtime.stop);

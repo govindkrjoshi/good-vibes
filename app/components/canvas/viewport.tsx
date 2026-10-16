@@ -16,6 +16,8 @@ import {
   type CanvasNode,
 } from "../../canvas";
 import { useRack } from "../../hooks/useRack";
+import { useDispatch } from "../../hooks/useDispatch";
+import { canConnectJacks, edits, rackStore } from "../../rack";
 import { useSandboxStatus } from "../../hooks/useSandboxStatus";
 import { BlockNode } from "./block-node";
 import { RackNode } from "../rack/rack-node";
@@ -35,23 +37,19 @@ const noEdges: Edge[] = [];
 
 export function CanvasViewport() {
   const locked = useCanvasStore((state) => state.locked);
-  const connectJacks = useRack((state) => state.connectJacks);
-  const canConnectJacks = useRack((state) => state.canConnectJacks);
+  const dispatch = useDispatch();
 
-  const isValidConnection = useCallback(
-    (connection: Connection | Edge) => {
-      const ids = jackIds(connection);
-      return ids !== undefined && canConnectJacks(...ids);
-    },
-    [canConnectJacks],
-  );
+  const isValidConnection = useCallback((connection: Connection | Edge) => {
+    const ids = jackIds(connection);
+    return ids !== undefined && canConnectJacks(rackStore.getState(), ...ids);
+  }, []);
 
   const onConnect = useCallback(
     (connection: Connection) => {
       const ids = jackIds(connection);
-      if (ids !== undefined) connectJacks(...ids);
+      if (ids !== undefined) dispatch(edits.connectJacks(...ids));
     },
-    [connectJacks],
+    [dispatch],
   );
 
   return (

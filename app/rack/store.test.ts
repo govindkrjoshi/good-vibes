@@ -1,8 +1,12 @@
 import { beforeEach, expect, test } from "vitest";
 import { rackEnvelope } from "./messages";
+import { canConnectJacks } from "./edits";
 import { onRackWork, rackStore } from "./store";
 import { CATALOGUE } from "../catalogue";
 import { hasOutputJack, type RackTemplate } from "./model";
+import { rackActions } from "../testing/rack-actions";
+
+const rack = rackActions(rackStore);
 
 const template = (category: string, entry: string): RackTemplate => {
   const found = CATALOGUE[category]?.[entry]?.rack;
@@ -36,8 +40,8 @@ test("starts as an empty root tree", () => {
 });
 
 test("files each new block under the root and keeps insertion order", () => {
-  state().addBlock("leaf");
-  state().addBlock("tree");
+  rack.addBlock("leaf");
+  rack.addBlock("tree");
 
   const [first, second] = children();
   expect(children()).toHaveLength(2);
@@ -47,7 +51,7 @@ test("files each new block under the root and keeps insertion order", () => {
 });
 
 test("points every added block back at its parent", () => {
-  state().addBlock("tree");
+  rack.addBlock("tree");
 
   const block = state().blocks[children()[0]];
   expect(block.parentId).toBe("root");
@@ -55,7 +59,7 @@ test("points every added block back at its parent", () => {
 });
 
 test("gives a leaf block code as source, so it can be sent to the sandbox", () => {
-  state().addBlock("leaf");
+  rack.addBlock("leaf");
 
   const block = state().blocks[children()[0]];
   if (block.type !== "leaf") throw new Error("expected a leaf block");
@@ -64,7 +68,7 @@ test("gives a leaf block code as source, so it can be sent to the sandbox", () =
 });
 
 test("gives a group block its own empty children and patches", () => {
-  state().addBlock("tree");
+  rack.addBlock("tree");
 
   const block = state().blocks[children()[0]];
   if (block.type !== "tree") throw new Error("expected a tree block");
@@ -73,7 +77,7 @@ test("gives a group block its own empty children and patches", () => {
 });
 
 test("gives each new block one input and one output jack", () => {
-  state().addBlock("leaf");
+  rack.addBlock("leaf");
 
   const block = state().blocks[children()[0]];
   const jacks = block.jackIds.map((id) => state().jacks[id]);
@@ -83,8 +87,8 @@ test("gives each new block one input and one output jack", () => {
 });
 
 test("gives every non-root block an output jack to wire out of", () => {
-  const leafId = state().addBlock("leaf");
-  const treeId = state().addBlock("tree");
+  const leafId = rack.addBlock("leaf");
+  const treeId = rack.addBlock("tree");
   if (leafId === undefined || treeId === undefined) {
     throw new Error("expected blocks to be added");
   }
@@ -98,7 +102,7 @@ test("gives every non-root block an output jack to wire out of", () => {
 });
 
 test("adds AMSynth with its default riff scheduled", () => {
-  const id = state().addTemplate(template("instruments", "AMSynth"));
+  const id = rack.addTemplate(template("instruments", "AMSynth"));
   const block = state().blocks[id ?? ""];
   const eventId = block?.eventIds[0];
   if (eventId === undefined) throw new Error("expected a default event");
@@ -113,7 +117,7 @@ test("adds AMSynth with its default riff scheduled", () => {
 });
 
 test("adds AMSynth from the instrument catalogue", () => {
-  const id = state().addTemplate(template("instruments", "AMSynth"));
+  const id = rack.addTemplate(template("instruments", "AMSynth"));
   if (id === undefined) throw new Error("expected AMSynth to be added");
 
   const block = state().blocks[id];
@@ -149,7 +153,7 @@ test("adds AMSynth from the instrument catalogue", () => {
 });
 
 test("reads a block's output jack off its direction, not its id", () => {
-  const blockId = state().addBlock("leaf");
+  const blockId = rack.addBlock("leaf");
   if (blockId === undefined) throw new Error("expected block to be added");
 
   const renamed = {
@@ -175,13 +179,13 @@ test("exempts the root, which has nothing above it to wire into", () => {
 });
 
 test("connects output jacks to input jacks on other blocks", () => {
-  const fromBlockId = state().addBlock("leaf");
-  const toBlockId = state().addBlock("tree");
+  const fromBlockId = rack.addBlock("leaf");
+  const toBlockId = rack.addBlock("tree");
   if (fromBlockId === undefined || toBlockId === undefined) {
     throw new Error("expected blocks to be added");
   }
 
-  const patchId = state().connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
+  const patchId = rack.connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
 
   expect(patchId).toBeTypeOf("string");
   const rootBlock = root();
@@ -196,14 +200,14 @@ test("connects output jacks to input jacks on other blocks", () => {
 });
 
 test("hands back the patch already there rather than doubling it up", () => {
-  const fromBlockId = state().addBlock("leaf");
-  const toBlockId = state().addBlock("leaf");
+  const fromBlockId = rack.addBlock("leaf");
+  const toBlockId = rack.addBlock("leaf");
   if (fromBlockId === undefined || toBlockId === undefined) {
     throw new Error("expected blocks to be added");
   }
 
-  const first = state().connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
-  const second = state().connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
+  const first = rack.connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
+  const second = rack.connectJacks(`${fromBlockId}:out`, `${toBlockId}:in`);
 
   expect(second).toBe(first);
   expect(Object.keys(state().patches)).toHaveLength(1);
@@ -213,67 +217,63 @@ test("hands back the patch already there rather than doubling it up", () => {
 });
 
 test("rejects invalid jack connections", () => {
-  const blockId = state().addBlock("leaf");
+  const blockId = rack.addBlock("leaf");
   if (blockId === undefined) throw new Error("expected block to be added");
 
-  expect(state().connectJacks(`${blockId}:in`, `${blockId}:out`)).toBe(
-    undefined,
-  );
-  expect(state().connectJacks(`${blockId}:out`, `${blockId}:in`)).toBe(
-    undefined,
-  );
-  expect(state().connectJacks(`${blockId}:out`, "nobody:in")).toBe(undefined);
+  expect(rack.connectJacks(`${blockId}:in`, `${blockId}:out`)).toBe(undefined);
+  expect(rack.connectJacks(`${blockId}:out`, `${blockId}:in`)).toBe(undefined);
+  expect(rack.connectJacks(`${blockId}:out`, "nobody:in")).toBe(undefined);
   expect(state().patches).toEqual({});
 });
 
 test("refuses up front the connections it would reject", () => {
-  const fromBlockId = state().addBlock("leaf");
-  const toBlockId = state().addBlock("leaf");
+  const fromBlockId = rack.addBlock("leaf");
+  const toBlockId = rack.addBlock("leaf");
   if (fromBlockId === undefined || toBlockId === undefined) {
     throw new Error("expected blocks to be added");
   }
 
-  expect(state().canConnectJacks(`${fromBlockId}:out`, `${toBlockId}:in`)).toBe(
-    true,
-  );
-  expect(state().canConnectJacks(`${fromBlockId}:in`, `${toBlockId}:out`)).toBe(
-    false,
-  );
   expect(
-    state().canConnectJacks(`${fromBlockId}:out`, `${fromBlockId}:in`),
+    canConnectJacks(state(), `${fromBlockId}:out`, `${toBlockId}:in`),
+  ).toBe(true);
+  expect(
+    canConnectJacks(state(), `${fromBlockId}:in`, `${toBlockId}:out`),
+  ).toBe(false);
+  expect(
+    canConnectJacks(state(), `${fromBlockId}:out`, `${fromBlockId}:in`),
   ).toBe(false);
   expect(state().patches).toEqual({});
 });
 
 test("hands back the id of the block it added", () => {
-  const id = state().addBlock("leaf");
+  const id = rack.addBlock("leaf");
 
   expect(id).toBeTypeOf("string");
   expect(children()).toEqual([id]);
 });
 
 test("leaves the rack alone when run is called", () => {
-  state().addBlock("leaf");
+  rack.addBlock("leaf");
   const before = state().blocks;
 
-  state().run();
+  rack.run();
 
   expect(state().blocks).toBe(before);
 });
 
 test("removes a block with its jacks and the patches wired to it", () => {
-  const first = state().addBlock("leaf");
-  const second = state().addBlock("leaf");
-  const third = state().addBlock("tree");
+  const first = rack.addBlock("leaf");
+  const second = rack.addBlock("leaf");
+  const third = rack.addBlock("tree");
   if (first === undefined || second === undefined || third === undefined)
     throw new Error("blocks not added");
 
-  const cut = state().connectJacks(`${first}:out`, `${second}:in`);
-  const kept = state().connectJacks(`${second}:out`, `${third}:in`);
+  const cut = rack.connectJacks(`${first}:out`, `${second}:in`);
+  const kept = rack.connectJacks(`${second}:out`, `${third}:in`);
   if (cut === undefined || kept === undefined)
     throw new Error("patches not made");
 
-  state().removeBlocks([first]);
+  rack.removeBlocks([first]);
 
   expect(children()).toEqual([second, third]);
   expect(state().blocks[first]).toBeUndefined();
@@ -288,7 +288,7 @@ test("removes a block with its jacks and the patches wired to it", () => {
 });
 
 test("removes a block with its params and methods", () => {
-  const id = state().addTemplate(template("instruments", "AMSynth"));
+  const id = rack.addTemplate(template("instruments", "AMSynth"));
   if (id === undefined) throw new Error("expected AMSynth to be added");
 
   const block = state().blocks[id];
@@ -298,43 +298,43 @@ test("removes a block with its params and methods", () => {
     throw new Error("expected normalized params and methods");
   }
 
-  state().removeBlocks([id]);
+  rack.removeBlocks([id]);
 
   expect(state().params[harmonicityId]).toBeUndefined();
   expect(state().methods[methodId]).toBeUndefined();
 });
 
 test("removes several blocks at once", () => {
-  const first = state().addBlock("leaf");
-  const second = state().addBlock("tree");
+  const first = rack.addBlock("leaf");
+  const second = rack.addBlock("tree");
   if (first === undefined || second === undefined)
     throw new Error("blocks not added");
 
-  state().removeBlocks([first, second]);
+  rack.removeBlocks([first, second]);
 
   expect(children()).toEqual([]);
   expect(state().jacks).toEqual({});
 });
 
 test("never removes the root or blocks it does not hold", () => {
-  state().addBlock("leaf");
+  rack.addBlock("leaf");
   const before = state();
 
-  state().removeBlocks([before.rootId, "no-such-block"]);
+  rack.removeBlocks([before.rootId, "no-such-block"]);
 
   expect(state()).toBe(before);
 });
 
 test("removes a patch and leaves its blocks and jacks", () => {
-  const first = state().addBlock("leaf");
-  const second = state().addBlock("leaf");
+  const first = rack.addBlock("leaf");
+  const second = rack.addBlock("leaf");
   if (first === undefined || second === undefined)
     throw new Error("blocks not added");
 
-  const patch = state().connectJacks(`${first}:out`, `${second}:in`);
+  const patch = rack.connectJacks(`${first}:out`, `${second}:in`);
   if (patch === undefined) throw new Error("patch not made");
 
-  state().removePatches([patch]);
+  rack.removePatches([patch]);
 
   expect(state().patches[patch]).toBeUndefined();
   expect(children()).toEqual([first, second]);
@@ -346,16 +346,16 @@ test("removes a patch and leaves its blocks and jacks", () => {
 });
 
 test("ignores patches the root does not hold", () => {
-  state().addBlock("leaf");
+  rack.addBlock("leaf");
   const before = state();
 
-  state().removePatches(["no-such-patch"]);
+  rack.removePatches(["no-such-patch"]);
 
   expect(state()).toBe(before);
 });
 
 const addSynth = () => {
-  const id = state().addTemplate(template("instruments", "AMSynth"));
+  const id = rack.addTemplate(template("instruments", "AMSynth"));
   if (id === undefined) throw new Error("expected AMSynth to be added");
   const block = state().blocks[id];
   const param = (key: string, group?: string) => {
@@ -379,18 +379,18 @@ const addSynth = () => {
 };
 
 test("adds a template under a given id, unless it is taken", () => {
-  expect(
-    state().addTemplate(template("instruments", "AMSynth"), "synth-1"),
-  ).toBe("synth-1");
+  expect(rack.addTemplate(template("instruments", "AMSynth"), "synth-1")).toBe(
+    "synth-1",
+  );
   expect(state().blocks["synth-1"]?.name).toBe("AMSynth");
   expect(state().jacks["synth-1:out"]).toBeDefined();
   expect(state().params["synth-1:param:volume"]).toBeDefined();
 
   expect(
-    state().addTemplate(template("output", "Destination"), "synth-1"),
+    rack.addTemplate(template("output", "Destination"), "synth-1"),
   ).toBeUndefined();
   expect(
-    state().addTemplate(template("output", "Destination"), ""),
+    rack.addTemplate(template("output", "Destination"), ""),
   ).toBeUndefined();
   expect(state().blocks["synth-1"]?.name).toBe("AMSynth");
   expect(children()).toEqual(["synth-1"]);
@@ -407,10 +407,10 @@ test("sets a param value, clamped into its range", () => {
   const synth = addSynth();
   const volume = synth.param("volume");
 
-  expect(state().setParamValue(volume, -12)).toBe(true);
+  expect(rack.setParamValue(volume, -12)).toBe(true);
   expect(state().values[volume]).toBe(-12);
 
-  expect(state().setParamValue(volume, 100)).toBe(true);
+  expect(rack.setParamValue(volume, 100)).toBe(true);
   expect(state().values[volume]).toBe(12);
 });
 
@@ -419,8 +419,8 @@ test("refuses a value that does not fit the param", () => {
   const type = synth.param("type", "oscillator");
   const volume = synth.param("volume");
 
-  expect(state().setParamValue(type, "banjo")).toBe(false);
-  expect(state().setParamValue(volume, "loud")).toBe(false);
+  expect(rack.setParamValue(type, "banjo")).toBe(false);
+  expect(rack.setParamValue(volume, "loud")).toBe(false);
 
   expect(state().values[type]).toBe("sine");
   expect(state().values[volume]).toBe(0);
@@ -430,7 +430,7 @@ test("schedules and removes automation on a param", () => {
   const synth = addSynth();
   const volume = synth.param("volume");
 
-  const eventId = state().addAutomation(volume, {
+  const eventId = rack.addAutomation(volume, {
     method: "rampTo",
     value: -6,
     time: "0",
@@ -442,7 +442,7 @@ test("schedules and removes automation on a param", () => {
     { id: eventId, method: "rampTo", value: -6, time: "0", rampTime: "1" },
   ]);
 
-  state().removeAutomation(volume, eventId);
+  rack.removeAutomation(volume, eventId);
   expect(state().automations[volume]).toEqual([]);
 });
 
@@ -450,14 +450,14 @@ test("refuses automation a param does not offer", () => {
   const synth = addSynth();
 
   expect(
-    state().addAutomation(synth.param("attack", "envelope"), {
+    rack.addAutomation(synth.param("attack", "envelope"), {
       method: "setValueAtTime",
       value: 1,
       time: "0",
     }),
   ).toBeUndefined();
   expect(
-    state().addAutomation(synth.param("volume"), {
+    rack.addAutomation(synth.param("volume"), {
       method: "exponentialRampToValueAtTime",
       value: 1,
       time: "0",
@@ -468,7 +468,7 @@ test("refuses automation a param does not offer", () => {
 test("takes automation times in the shapes Tone reads", () => {
   const volume = addSynth().param("volume");
   const at = (time: string, rampTime?: string) =>
-    state().addAutomation(volume, {
+    rack.addAutomation(volume, {
       method: "rampTo",
       value: -6,
       time,
@@ -497,13 +497,13 @@ test("takes automation times in the shapes Tone reads", () => {
 test("removes a block with its values and automation", () => {
   const synth = addSynth();
   const volume = synth.param("volume");
-  state().addAutomation(volume, {
+  rack.addAutomation(volume, {
     method: "setValueAtTime",
     value: -3,
     time: "0",
   });
 
-  state().removeBlocks([synth.id]);
+  rack.removeBlocks([synth.id]);
 
   expect(state().values[volume]).toBeUndefined();
   expect(state().automations[volume]).toBeUndefined();
@@ -523,7 +523,7 @@ test("adds a sequence to the block its method belongs to", () => {
   const synth = addSynth();
   const methodId = synth.method("triggerAttackRelease");
 
-  const id = state().addEvent(methodId, sequence);
+  const id = rack.addEvent(methodId, sequence);
   if (id === undefined) throw new Error("expected an event");
 
   expect(state().events[id]).toEqual({
@@ -548,24 +548,22 @@ test("adds a looping event, which is how Tone builds a Loop", () => {
     loopEnd: "4n",
   } as const;
 
-  expect(state().addEvent(methodId, settings)).toBeDefined();
-  expect(state().addEvent(methodId, { ...settings, loop: 4 })).toBeDefined();
+  expect(rack.addEvent(methodId, settings)).toBeDefined();
+  expect(rack.addEvent(methodId, { ...settings, loop: 4 })).toBeDefined();
   // A loop needs its length, and a count has to be a whole number of times.
   const { loopEnd: _, ...noEnd } = settings;
-  expect(state().addEvent(methodId, noEnd)).toBeUndefined();
-  expect(
-    state().addEvent(methodId, { ...settings, loop: 1.5 }),
-  ).toBeUndefined();
+  expect(rack.addEvent(methodId, noEnd)).toBeUndefined();
+  expect(rack.addEvent(methodId, { ...settings, loop: 1.5 })).toBeUndefined();
   // With no value to fire, the note has to be fixed.
   expect(
-    state().addEvent(methodId, { ...settings, args: { duration: "16n" } }),
+    rack.addEvent(methodId, { ...settings, args: { duration: "16n" } }),
   ).toBeUndefined();
 });
 
 test("adds a pattern", () => {
   const methodId = addSynth().method("triggerAttackRelease");
 
-  const id = state().addEvent(methodId, {
+  const id = rack.addEvent(methodId, {
     kind: "pattern",
     args: { duration: "16n" },
     ...knobs,
@@ -576,7 +574,7 @@ test("adds a pattern", () => {
 
   expect(id).toBeDefined();
   expect(
-    state().addEvent(methodId, {
+    rack.addEvent(methodId, {
       kind: "pattern",
       args: { duration: "16n" },
       ...knobs,
@@ -590,7 +588,7 @@ test("adds a pattern", () => {
 test("adds a part", () => {
   const methodId = addSynth().method("triggerAttack");
 
-  const id = state().addEvent(methodId, {
+  const id = rack.addEvent(methodId, {
     kind: "part",
     args: {},
     ...knobs,
@@ -625,7 +623,7 @@ test("refuses an event on a method that takes no time", () => {
     },
   });
 
-  expect(state().addEvent(methodId, { ...sequence, args: {} })).toBeUndefined();
+  expect(rack.addEvent(methodId, { ...sequence, args: {} })).toBeUndefined();
   expect(Object.keys(state().events)).toEqual([synth.riff]);
 });
 
@@ -634,13 +632,13 @@ test("refuses an event with a time Tone cannot read", () => {
   const methodId = synth.method("triggerAttackRelease");
 
   expect(
-    state().addEvent(methodId, { ...sequence, subdivision: "soon" }),
+    rack.addEvent(methodId, { ...sequence, subdivision: "soon" }),
   ).toBeUndefined();
   expect(
-    state().addEvent(methodId, { ...sequence, humanize: "a bit" }),
+    rack.addEvent(methodId, { ...sequence, humanize: "a bit" }),
   ).toBeUndefined();
   expect(
-    state().addEvent(methodId, {
+    rack.addEvent(methodId, {
       kind: "part",
       args: { duration: "8n" },
       ...knobs,
@@ -651,36 +649,30 @@ test("refuses an event with a time Tone cannot read", () => {
 });
 
 test("sets a sequence's steps", () => {
-  const id = state().addEvent(
-    addSynth().method("triggerAttackRelease"),
-    sequence,
-  );
+  const id = rack.addEvent(addSynth().method("triggerAttackRelease"), sequence);
   if (id === undefined) throw new Error("expected an event");
 
-  state().setEventSteps(id, ["A3", "B3"]);
+  rack.setEventSteps(id, ["A3", "B3"]);
 
   expect(state().events[id]).toMatchObject({ steps: ["A3", "B3"] });
 });
 
 test("updates an event only to settings it would accept", () => {
-  const id = state().addEvent(
-    addSynth().method("triggerAttackRelease"),
-    sequence,
-  );
+  const id = rack.addEvent(addSynth().method("triggerAttackRelease"), sequence);
   if (id === undefined) throw new Error("expected an event");
 
-  state().updateEvent(id, { subdivision: "4n", mute: true });
-  state().updateEvent(id, { subdivision: "never" });
+  rack.updateEvent(id, { subdivision: "4n", mute: true });
+  rack.updateEvent(id, { subdivision: "never" });
 
   expect(state().events[id]).toMatchObject({ subdivision: "4n", mute: true });
 });
 
 test("removes an event from the rack and its block", () => {
   const synth = addSynth();
-  const id = state().addEvent(synth.method("triggerAttackRelease"), sequence);
+  const id = rack.addEvent(synth.method("triggerAttackRelease"), sequence);
   if (id === undefined) throw new Error("expected an event");
 
-  state().removeEvent(id);
+  rack.removeEvent(id);
 
   expect(Object.keys(state().events)).toEqual([synth.riff]);
   expect(state().blocks[synth.id].eventIds).toEqual([synth.riff]);
@@ -689,25 +681,25 @@ test("removes an event from the rack and its block", () => {
 test("removes a block with its events", () => {
   const synth = addSynth();
   const other = addSynth();
-  state().addEvent(synth.method("triggerAttackRelease"), sequence);
-  const kept = state().addEvent(other.method("triggerAttackRelease"), sequence);
+  rack.addEvent(synth.method("triggerAttackRelease"), sequence);
+  const kept = rack.addEvent(other.method("triggerAttackRelease"), sequence);
 
-  state().removeBlocks([synth.id]);
+  rack.removeBlocks([synth.id]);
 
   expect(Object.keys(state().events)).toEqual([other.riff, kept]);
   expect(state().blocks[other.id].eventIds).toEqual([other.riff, kept]);
 });
 
 test("sets the tempo only to a positive number", () => {
-  expect(state().setTransport({ bpm: 90 })).toBe(true);
-  expect(state().setTransport({ bpm: 0 })).toBe(false);
-  expect(state().setTransport({ bpm: Number.NaN })).toBe(false);
+  expect(rack.setTransport({ bpm: 90 })).toBe(true);
+  expect(rack.setTransport({ bpm: 0 })).toBe(false);
+  expect(rack.setTransport({ bpm: Number.NaN })).toBe(false);
 
   expect(state().transport).toEqual({ bpm: 90 });
 });
 
 test("gives the Destination only an input jack", () => {
-  const destination = state().addTemplate(template("output", "Destination"));
+  const destination = rack.addTemplate(template("output", "Destination"));
 
   expect(state().blocks[destination ?? ""]?.jackIds).toEqual([
     `${destination}:in`,
@@ -778,7 +770,7 @@ test("publishes a batch as one snapshot, or nothing when it is refused", () => {
 });
 
 test("the actions go through dispatch, stamped as the user's", () => {
-  const id = state().addBlock("leaf") ?? "";
+  const id = rack.addBlock("leaf") ?? "";
 
   expect(state().stamps.block[id]).toMatchObject({
     origin: "user",
@@ -792,8 +784,8 @@ test("the actions go through dispatch, stamped as the user's", () => {
 test("Run and Stop take a place in the order of work", () => {
   const before = state().workSeq;
 
-  state().run();
-  state().stop();
+  rack.run();
+  rack.stop();
 
   expect(state().workSeq).toBe(before + 2);
   expect(state().rev).toBe(initial.rev);
@@ -809,12 +801,12 @@ test("hands each trigger to the work listeners, after the rack it came with", ()
     heard.push(...work.map((one) => `${one.trigger._tag} ${one.seq}`)),
   );
 
-  state().playEvent(synth.riff);
+  rack.playEvent(synth.riff);
   state().dispatchAll([
     rackEnvelope({ _tag: "SetTransport", bpm: 90 }),
     rackEnvelope({ _tag: "Run" }),
   ]);
-  state().playEvent("nothing");
+  rack.playEvent("nothing");
   unsubscribe();
   stop();
 

@@ -31,12 +31,16 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { ArgField, initialArgs, toArgs } from "./arg-field";
 import {
   noteArg,
+  edits,
+  idOf,
   timeArg,
+  type EventSettings,
   type Method,
   type ParamValue,
   type RackEvent,
 } from "../../rack";
 import { useRack } from "../../hooks/useRack";
+import { useDispatch } from "../../hooks/useDispatch";
 
 type When = "sequence" | "loop" | "pattern" | "part";
 
@@ -70,7 +74,9 @@ export function EventEditor({
 }: {
   readonly methods: readonly Method[];
 }) {
-  const addEvent = useRack((state) => state.addEvent);
+  const dispatch = useDispatch();
+  const addEvent = (methodId: string, settings: EventSettings) =>
+    idOf(dispatch(edits.addEvent(methodId, settings)));
   const [open, setOpen] = useState(false);
   const [methodId, setMethodId] = useState(methods[0]?.id);
   const [when, setWhen] = useState<When>("sequence");
@@ -474,10 +480,15 @@ export function EventEditor({
 // between the voice and a rest; the other kinds say how often they fire.
 export function EventRow({ event }: { readonly event: RackEvent }) {
   const method = useRack((state) => state.methods[event.methodId]);
-  const setEventSteps = useRack((state) => state.setEventSteps);
-  const updateEvent = useRack((state) => state.updateEvent);
-  const removeEvent = useRack((state) => state.removeEvent);
-  const playEvent = useRack((state) => state.playEvent);
+  const dispatch = useDispatch();
+  const setEventSteps = (
+    eventId: string,
+    steps: readonly (string | number | null)[],
+  ) => dispatch(edits.setEventSteps(eventId, steps));
+  const updateEvent = (eventId: string, settings: Partial<EventSettings>) =>
+    dispatch(edits.updateEvent(eventId, settings));
+  const removeEvent = (eventId: string) => dispatch(edits.removeEvent(eventId));
+  const playEvent = (eventId: string) => dispatch(edits.playEvent(eventId));
   if (method === undefined) return null;
 
   return (

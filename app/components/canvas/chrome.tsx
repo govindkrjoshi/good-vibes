@@ -6,16 +6,22 @@ import { ViewportControls } from "./viewport-controls";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./lock-store";
 import { catalogueTemplate } from "../../catalogue";
-import { useRack } from "../../hooks/useRack";
+import { useDispatch } from "../../hooks/useDispatch";
+import { edits, type RackTemplate } from "../../rack";
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
-  const addBlock = useRack((state) => state.addBlock);
-  const addTemplate = useRack((state) => state.addTemplate);
-  const removeBlocks = useRack((state) => state.removeBlocks);
-  const removePatches = useRack((state) => state.removePatches);
-  const run = useRack((state) => state.run);
+  const dispatch = useDispatch();
+  const addBlock = (blockType: "leaf" | "tree") =>
+    dispatch(edits.addBlock(blockType));
+  const addTemplate = (template: RackTemplate) =>
+    dispatch(edits.addTemplate(template));
+  const removeBlocks = (blockIds: readonly string[]) =>
+    dispatch(edits.removeBlocks(blockIds));
+  const removePatches = (patchIds: readonly string[]) =>
+    dispatch(edits.removePatches(patchIds));
+  const run = () => dispatch(edits.run());
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
     useReactFlow();
   const zoom = useStore((state) => state.transform[2]);

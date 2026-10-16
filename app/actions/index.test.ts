@@ -15,6 +15,9 @@ import {
   type ErrorEntry,
 } from "../sandbox";
 import { deepFreeze } from "../testing/freeze";
+import { rackActions } from "../testing/rack-actions";
+
+const rack = rackActions(rackStore);
 
 const initial = rackStore.getState();
 const state = () => rackStore.getState();
@@ -482,7 +485,7 @@ test("cannot check a rack the audio engine has not answered for", async () => {
 
 test("asks the agent to fix every error, the user's too", async () => {
   // Added by the user, not the agent.
-  const leaf = state().addBlock("leaf") ?? "";
+  const leaf = rack.addBlock("leaf") ?? "";
 
   const found = await afterTurn(
     { _tag: "Settled" },
@@ -512,7 +515,7 @@ test("counts a change to a failing block as a try, even if it fails the same way
   // A retry changes nothing in the rack, so failing again is no new try.
   expect(print(after)).toBe(print(changed));
 
-  state().removeBlocks(["synth"]);
+  rack.removeBlocks(["synth"]);
   await add("synth", "instruments", "AMSynth");
   const rebuilt = await afterTurn({ _tag: "Settled" }, failing);
   expect(print(rebuilt)).not.toBe(print(after));

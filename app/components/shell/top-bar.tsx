@@ -26,6 +26,8 @@ import { Label } from "../ui/label";
 import { Separator } from "../ui/separator";
 import { useGoodVibesAgent } from "../chat/agent-provider";
 import { useRack } from "../../hooks/useRack";
+import { useDispatch } from "../../hooks/useDispatch";
+import { edits } from "../../rack";
 import { useSandboxStatus } from "../../hooks/useSandboxStatus";
 
 // The app's fixed chrome: the chat toggle and name on the left, the transport
@@ -40,10 +42,11 @@ export function TopBar({
   readonly onToggleChat: () => void;
   readonly className?: string;
 }) {
-  const run = useRack((state) => state.run);
-  const stop = useRack((state) => state.stop);
+  const dispatch = useDispatch();
+  const run = () => dispatch(edits.run());
+  const stop = () => dispatch(edits.stop());
   const bpm = useRack((state) => state.transport.bpm);
-  const setTransport = useRack((state) => state.setTransport);
+
   const { changeKey } = useGoodVibesAgent();
 
   return (
@@ -87,7 +90,7 @@ export function TopBar({
               value={bpm}
               min={1}
               step={1}
-              onCommit={(next) => setTransport({ bpm: next })}
+              onCommit={(next) => dispatch(edits.setTransport(next))}
             />
           </div>
         </div>
