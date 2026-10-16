@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { beforeEach, expect, test } from "vitest";
 import { noopRuntime, type ToneRuntime } from "./renderer";
+import { rackEnvelope } from "./messages";
 import { rackStore } from "./store";
 import { CATALOGUE } from "../catalogue";
 import { hasOutputJack, type RackTemplate } from "./model";
@@ -826,4 +827,105 @@ test("gives the Destination only an input jack", () => {
   expect(state().blocks[destination ?? ""]?.jackIds).toEqual([
     `${destination}:in`,
   ]);
+});
+
+// --- dispatch ---------------------------------------------------------------
+
+const listen = () => {
+  const published: number[] = [];
+  const unsubscribe = rackStore.subscribe((next) => published.push(next.rev));
+  return { published, unsubscribe };
+};
+
+test("dispatch says what came of a message, synchronously", () => {
+  const outcome = state().dispatch(
+    rackEnvelope({ _tag: "AddBlock", blockId: "b", blockType: "leaf" }),
+  );
+
+  expect(outcome).toEqual({ _tag: "Committed", id: "b" });
+  expect(state().blocks.b).toBeDefined();
+  expect(state().rev).toBe(initial.rev + 1);
+  expect(state().workSeq).toBe(initial.workSeq + 1);
+});
+
+test("publishes each change once, and nothing for refusals or no-ops", () => {
+  const { published, unsubscribe } = listen();
+
+  state().dispatch(
+    rackEnvelope({ _tag: "AddBlock", blockId: "b", blockType: "leaf" }),
+  );
+  const refused = state().dispatch(
+    rackEnvelope({ _tag: "AddBlock", blockId: "b", blockType: "leaf" }),
+  );
+  const noop = state().dispatch(
+    rackEnvelope({ _tag: "RemoveBlocks", blockIds: ["nothing"] }),
+  );
+  unsubscribe();
+
+  expect(refused).toMatchObject({ _tag: "Refused", code: "IdTaken" });
+  expect(noop).toEqual({ _tag: "Unchanged" });
+  expect(published).toEqual([initial.rev + 1]);
+});
+
+test("publishes a batch as one snapshot, or nothing when it is refused", () => {
+  const { published, unsubscribe } = listen();
+
+  const outcomes = state().dispatchAll([
+    rackEnvelope({ _tag: "AddBlock", blockId: "a", blockType: "leaf" }),
+    rackEnvelope({ _tag: "AddBlock", blockId: "b", blockType: "leaf" }),
+  ]);
+  const refused = state().dispatchAll([
+    rackEnvelope({ _tag: "AddBlock", blockId: "c", blockType: "leaf" }),
+    rackEnvelope({ _tag: "AddBlock", blockId: "a", blockType: "leaf" }),
+  ]);
+  unsubscribe();
+
+  expect(outcomes.map((outcome) => outcome._tag)).toEqual([
+    "Committed",
+    "Committed",
+  ]);
+  expect(refused.map((outcome) => outcome._tag)).toEqual([
+    "RolledBack",
+    "Refused",
+  ]);
+  expect(published).toEqual([initial.rev + 1]);
+  expect(children()).toEqual(["a", "b"]);
+});
+
+test("the actions go through dispatch, stamped as the user's", () => {
+  const id = state().addBlock("leaf") ?? "";
+
+  expect(state().stamps.block[id]).toMatchObject({
+    origin: "user",
+    rev: initial.rev + 1,
+  });
+  expect(state().incarnations.block[id]).toBe(
+    state().stamps.block[id]?.envelopeId,
+  );
+});
+
+test("Run and Stop take a place in the order of work", () => {
+  const before = state().workSeq;
+
+  state().run();
+  state().stop();
+
+  expect(state().workSeq).toBe(before + 2);
+  expect(state().rev).toBe(initial.rev);
+});
+
+test("does not tell the runtime about a refused or unchanged action", () => {
+  const synth = addSynth();
+  const sent = recordRuntime();
+
+  state().setParamValue(synth.param("volume"), "loud");
+  state().setParamValue(
+    synth.param("volume"),
+    state().values[synth.param("volume")] ?? 0,
+  );
+  state().removePatches(["nothing"]);
+  state().removeEvent("nothing");
+  state().setTransport({ bpm: state().transport.bpm });
+
+  expect(sent).toEqual([]);
 });
