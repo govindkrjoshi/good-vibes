@@ -15,6 +15,7 @@ import {
   CollapsibleTrigger,
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
+import { BlockErrors } from "./block-errors";
 import { EnvelopeCurve } from "./envelope-curve";
 import { EventEditor, EventRow } from "./event-editor";
 import { ParamControl } from "./param-control";
@@ -74,6 +75,8 @@ export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
           {data.name}
         </CardTitle>
       </CardHeader>
+
+      <BlockErrors blockId={data.blockId} />
 
       <CardContent className="nodrag cursor-default px-0">
         {paramIds === undefined ? null : <ParamPanel group={paramIds} />}

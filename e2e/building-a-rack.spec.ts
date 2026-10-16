@@ -14,11 +14,11 @@ test("renders each added block on the canvas", async ({ page }) => {
 
   await page.getByTestId("add-source").click();
   await expect(blocks(page)).toHaveCount(1);
-  await expect(blocks(page).first()).toHaveText("Leaf");
+  await expect(blocks(page).first().getByRole("heading")).toHaveText("Leaf");
 
   await page.getByTestId("add-group").click();
   await expect(blocks(page)).toHaveCount(2);
-  await expect(blocks(page).last()).toHaveText("Group");
+  await expect(blocks(page).last().getByRole("heading")).toHaveText("Group");
 });
 
 test("drops each new block inside the visible canvas", async ({ page }) => {

@@ -16,6 +16,7 @@ import {
   type CanvasNode,
 } from "../../canvas";
 import { useRack } from "../../hooks/useRack";
+import { useSandboxStatus } from "../../hooks/useSandboxStatus";
 import { BlockNode } from "./block-node";
 import { RackNode } from "../rack/rack-node";
 import { useCanvasStore } from "./lock-store";
@@ -82,16 +83,28 @@ function RackReactFlowSync() {
   const jacks = useRack((state) => state.jacks);
   const patches = useRack((state) => state.patches);
   const rootId = useRack((state) => state.rootId);
+  const errors = useSandboxStatus((status) => status.errors);
 
   useEffect(() => {
-    const edges = toFlowEdges(blocks, jacks, patches, rootId);
+    // A patch the sandbox could not make is drawn as broken, with why.
+    const edges = toFlowEdges(blocks, jacks, patches, rootId).map((edge) => {
+      const error = errors[`connect:${edge.id}`];
+      return error === undefined
+        ? edge
+        : {
+            ...edge,
+            className: "edge-error",
+            style: { stroke: "var(--destructive)", strokeDasharray: "4 3" },
+            ariaLabel: `Not connected: ${error.message}`,
+          };
+    });
 
     setEdges(edges);
     setNodes((current) => {
       const next = syncNodesFromRack(current, blocks, jacks, rootId);
       return sameBlocks(current, next) ? next : layoutNodes(next, edges);
     });
-  }, [setNodes, setEdges, blocks, jacks, patches, rootId]);
+  }, [setNodes, setEdges, blocks, jacks, patches, rootId, errors]);
 
   return null;
 }

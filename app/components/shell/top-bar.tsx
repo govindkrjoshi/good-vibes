@@ -1,4 +1,5 @@
 import {
+  CircleAlert,
   KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
@@ -25,6 +26,7 @@ import { Label } from "../ui/label";
 import { Separator } from "../ui/separator";
 import { useGoodVibesAgent } from "../chat/agent-provider";
 import { useRack } from "../../hooks/useRack";
+import { useSandboxStatus } from "../../hooks/useSandboxStatus";
 
 // The app's fixed chrome: the chat toggle and name on the left, the transport
 // in the middle where it stays put whatever the canvas is doing, and settings
@@ -104,6 +106,7 @@ export function TopBar({
       </div>
 
       <div className="flex items-center justify-end gap-1">
+        <SandboxNotice />
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
@@ -158,5 +161,30 @@ export function TopBar({
         </DropdownMenu>
       </div>
     </header>
+  );
+}
+
+// Says so when the audio engine in the sandbox frame stops answering, or the
+// rack cannot be sent to it. Edits are kept either way, and sent once it can
+// take them.
+function SandboxNotice() {
+  const notice = useSandboxStatus((status) =>
+    status.syncBlocked !== undefined
+      ? "Can't send the rack to the audio engine"
+      : status.connection._tag === "Lost"
+        ? "Audio engine stopped responding. Reconnecting…"
+        : undefined,
+  );
+  if (notice === undefined) return null;
+
+  return (
+    <p
+      role="status"
+      data-testid="sandbox-notice"
+      className="flex min-w-0 items-center gap-1.5 px-2 text-xs text-destructive"
+    >
+      <CircleAlert aria-hidden className="size-3.5 shrink-0" />
+      <span className="truncate max-md:sr-only">{notice}</span>
+    </p>
   );
 }

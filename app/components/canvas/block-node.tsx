@@ -3,8 +3,9 @@ import { Box, Group } from "lucide-react";
 import { cn } from "cn";
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import type { BlockNodeType } from "../../canvas";
+import { BlockErrors } from "../rack/block-errors";
 
-export function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
+export function BlockNode({ id, data, selected }: NodeProps<BlockNodeType>) {
   const Icon = data.kind === "tree" ? Group : Box;
 
   return (
@@ -31,6 +32,7 @@ export function BlockNode({ data, selected }: NodeProps<BlockNodeType>) {
           {data.name}
         </CardTitle>
       </CardHeader>
+      <BlockErrors blockId={id} />
     </Card>
   );
 }

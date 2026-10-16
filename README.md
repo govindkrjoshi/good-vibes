@@ -18,6 +18,7 @@ app/
   pages/        one directory per route; composition only
   components/   React components, grouped by the module they front
   hooks/        thin React bindings, such as useRack over the rack store
+  testing/      helpers for tests only
 ```
 
 Modules hold logic only: no React, no JSX, no DOM, and no imports from
@@ -81,13 +82,22 @@ reaches no network. It may run inline scripts and `eval`, plus the blobs Tone.js
 makes for itself: its clock's worker and the AudioWorklet modules some nodes
 need.
 
-- **The app** owns the rack: the store in `app/rack/store.ts` holds it, and its
-  runtime is the client in `app/sandbox/client.ts`, plugged in by
-  `SandboxProvider`. Each command it sends carries whatever parts of the rack
-  changed since the last one.
+- **The app** owns the rack: the store in `app/rack/store.ts` holds it and
+  knows nothing about audio. Every change is a message reduced by
+  `app/rack/reduce.ts`. The sandbox client (`app/sandbox/client.ts`, run by
+  `SandboxProvider`) follows the store and drives the ledger
+  (`app/sandbox/ledger.ts`), a pure state machine that decides what the frame is
+  sent and keeps what came of it. One batch is in flight at a time: the rack's
+  changes since the last batch, then the commands `app/sandbox/reconcile.ts`
+  works out to bring the frame up to date, then any Run, Stop or Play. What
+  failed, and whether the frame is answering, is in `sandboxStatus`
+  (`app/sandbox/status.ts`), which the nodes and the top bar show.
 - **The frame** owns the AudioContext and every Tone.js object.
   `app/sandbox/frame.ts` is its script; `app/sandbox/host.ts` keeps a copy of
-  the rack and runs each command through the renderer (`app/rack/renderer.ts`).
+  the rack, runs each batch's commands in order through the renderer
+  (`app/rack/renderer.ts`), and answers with what each did to each block,
+  patch and event. A new port is a fresh start: the host throws its graph away
+  and the app sends the whole rack again.
 - **Between them** (`app/sandbox/protocol.ts`): the frame says it is ready, the
   app hands it one end of a `MessageChannel`, and they only talk over that port
   from then on. Every message is checked against a schema on arrival, in both
