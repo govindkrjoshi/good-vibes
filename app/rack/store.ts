@@ -28,6 +28,9 @@ export type RackStore = RackCore & {
 // the rack as it is, so watching the rack alone would miss it.
 const workListeners = new Set<(work: readonly RackWork[]) => void>();
 
+// How many are listening, for checking nothing is left subscribed.
+export const workListenerCount = () => workListeners.size;
+
 export const onRackWork = (
   listener: (work: readonly RackWork[]) => void,
 ): (() => void) => {

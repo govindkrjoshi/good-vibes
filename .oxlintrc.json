@@ -8,7 +8,8 @@
         "app/actions/**",
         "app/canvas/**",
         "app/agent/**",
-        "app/sandbox/**"
+        "app/sandbox/**",
+        "app/runtime.ts"
       ],
       "rules": {
         "no-restricted-imports": [

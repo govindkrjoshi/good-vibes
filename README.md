@@ -19,12 +19,16 @@ app/
   components/   React components, grouped by the module they front
   hooks/        thin React bindings, such as useRack over the rack store
   testing/      helpers for tests only
+  runtime.ts    the one Effect runtime: the sandbox client and the agent service
 ```
 
 Modules hold logic only: no React, no JSX, no DOM, and no imports from
 `components`, `hooks` or `pages`. Modules import each other in one direction:
 `catalogue` and `canvas` use `rack`; `actions` uses `agent`, `rack`, `sandbox` and
-`catalogue`; `sandbox` uses `rack`; `agent` stands alone.
+`catalogue`; `sandbox` uses `rack`; `agent` stands alone; `runtime.ts` wires
+`rack`, `sandbox`, `agent` and `actions` together. React owns only when the
+runtime starts and stops (`AppProvider`); components read stores through hooks
+and change the rack by dispatching messages (`useDispatch`, `app/rack/edits.ts`).
 Components import modules, `components/ui` and `hooks`. Pages import anything;
 nothing imports from `pages`. `.oxlintrc.json` enforces these boundaries, so
 `pnpm lint` fails on a crossing.
@@ -99,8 +103,8 @@ need.
 
 - **The app** owns the rack: the store in `app/rack/store.ts` holds it and
   knows nothing about audio. Every change is a message reduced by
-  `app/rack/reduce.ts`. The sandbox client (`app/sandbox/client.ts`, run by
-  `SandboxProvider`) follows the store and drives the ledger
+  `app/rack/reduce.ts`. The sandbox client (`app/sandbox/client.ts`, run in the app's runtime,
+  connected to the frame by `SandboxFrame`) follows the store and drives the ledger
   (`app/sandbox/ledger.ts`), a pure state machine that decides what the frame is
   sent and keeps what came of it. One batch is in flight at a time: the rack's
   changes since the last batch, then the commands `app/sandbox/reconcile.ts`

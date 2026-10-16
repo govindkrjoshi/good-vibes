@@ -1,26 +1,18 @@
-import { Effect, Exit, Scope } from "effect";
 import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { createStore, useStore } from "zustand";
-import { applyAction, checkAfterTurn, type ActionDeps } from "../../actions";
 import {
   initialChatState,
-  makeAgentService,
-  type AgentService,
   type ChatMessage,
   type ChatState,
 } from "../../agent";
-import { rackStore } from "../../rack";
-import { sandboxStatus } from "../../sandbox";
-import { useSandboxClient } from "../sandbox/sandbox-provider";
+import { useAgentService } from "../app/app-provider";
 import { ApiKeyDialog } from "./api-key-dialog";
 
 export type { ChatMessage } from "../../agent";
@@ -44,45 +36,16 @@ const GoodVibesAgentContext = createContext<
 // A chat with no service yet, as on the server and before the first effect.
 const idleChat = createStore<ChatState>()(() => initialChatState);
 
-// Runs the agent service in the browser for as long as the provider is
-// mounted, shows the key dialog whenever it asks for one, and applies the
-// changes the agent asks for to the rack store.
+// The chat, from the app's agent service: what it says, and the key dialog
+// whenever it asks for one.
 export function GoodVibesAgentProvider({
   children,
 }: {
   readonly children: ReactNode;
 }) {
-  const [service, setService] = useState<AgentService | undefined>(undefined);
+  const service = useAgentService();
   // Asked for from settings, so there is no prompt waiting on the answer.
   const [changingKey, setChangingKey] = useState(false);
-  // The service outlives renders, and the sandbox client comes later, so the
-  // agent's checks read the current one through this.
-  const sandbox = useSandboxClient();
-  const sandboxRef = useRef(sandbox);
-  useEffect(() => {
-    sandboxRef.current = sandbox;
-  }, [sandbox]);
-
-  useEffect(() => {
-    const deps: ActionDeps = {
-      store: rackStore,
-      sandbox: () => sandboxRef.current,
-      status: sandboxStatus.getState,
-    };
-    const scope = Effect.runSync(Scope.make());
-    const made = Effect.runSync(
-      makeAgentService({
-        applyAction: (action, signal, turn) =>
-          applyAction(deps, action, signal, turn),
-        checkAfterTurn: (signal) => checkAfterTurn(deps, signal),
-      }).pipe(Scope.provide(scope)),
-    );
-    setService(made);
-    return () => {
-      setService(undefined);
-      Effect.runFork(Scope.close(scope, Exit.void));
-    };
-  }, []);
 
   const state = useStore(service?.chat ?? idleChat);
   const changeKey = useCallback(() => setChangingKey(true), []);

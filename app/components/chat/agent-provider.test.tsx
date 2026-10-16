@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { apiKeyStorageKey } from "../../agent/key";
 import { PromptError, type GoodVibesMessage } from "../../agent/types";
+import { AppProvider } from "../app/app-provider";
 import { GoodVibesAgentProvider, useGoodVibesAgent } from "./agent-provider";
 
 // Stands in for the agent: a prompt says its reply a word at a time, then
@@ -52,7 +53,9 @@ function Probe() {
 
 const tree = (children: ReactNode) => (
   <StrictMode>
-    <GoodVibesAgentProvider>{children}</GoodVibesAgentProvider>
+    <AppProvider sandboxSrc="about:blank">
+      <GoodVibesAgentProvider>{children}</GoodVibesAgentProvider>
+    </AppProvider>
   </StrictMode>
 );
 
@@ -193,11 +196,13 @@ test("keeps the conversation as it streams in", async () => {
     { id: "user-chain-1", role: "user", kind: "message", text: "hello" },
     { id: "agent-1-0", role: "assistant", kind: "message", text: "Hi there" },
   ]);
-  // Rendered here with no sandbox, so the rack cannot be checked.
+  // No frame answers here, so the rack cannot be checked.
   expect(current?.messages.at(-1)).toMatchObject({
     role: "system",
     kind: "notice",
-    text: "Could not check the rack for errors: the audio engine has not started yet.",
+    text: expect.stringContaining(
+      "Could not check the rack for errors: the audio engine is not connected.",
+    ),
   });
 });
 
