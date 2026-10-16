@@ -1,5 +1,10 @@
 import { Schema, Struct } from "effect";
-import { rackStateKeys, RackStateSchema, type RackState } from "../rack/model";
+import {
+  rackStateKeys,
+  RackStateSchema,
+  renderErrorCodes,
+  type RackState,
+} from "../rack/model";
 
 // How the app and the sandbox frame talk. The frame has an opaque origin, so
 // its messages cannot be told apart by origin: the app only listens to the
@@ -125,7 +130,87 @@ const AudioSchema = Schema.Struct({
   state: AudioStateSchema,
 });
 
-const ReplySchema = Schema.Union([ResultSchema, AudioSchema]);
+// --- Version 2: batches ----------------------------------------------------
+//
+// The app sends one batch at a time: the rack's changes since the last batch,
+// then commands the frame carries out in order. It answers once all of them
+// are done, with what each one did to each block, patch and event, and
+// reports later, unprompted, any scheduled call that fails while playing.
+// `gen` is the app's count of connections, echoed back so the app can tell
+// an old frame's answers from the current one's. Version 1 above stays until
+// the app's client has moved over.
+
+const FailureSchema = Schema.Struct({
+  code: Schema.Literals(renderErrorCodes),
+  message: Schema.String,
+});
+
+export type Failure = Schema.Schema.Type<typeof FailureSchema>;
+
+const BatchSchema = Schema.Struct({
+  v: Schema.Literal(2),
+  type: Schema.Literal("batch"),
+  gen: Schema.Number,
+  batchId: Schema.Number,
+  changes: RackChangesSchema,
+  commands: Schema.Array(
+    Schema.Struct({ cmdId: Schema.Number, command: CommandSchema }),
+  ),
+});
+
+export type Batch = Schema.Schema.Type<typeof BatchSchema>;
+
+export const isBatch = Schema.is(BatchSchema);
+
+// What a command did to one block, patch or event: built it, failed to build
+// it, or took it away.
+const EntityResultSchema = Schema.Struct({
+  entity: Schema.Literals(["block", "patch", "event"]),
+  id: Schema.String,
+  removed: Schema.optionalKey(Schema.Boolean),
+  failure: Schema.optionalKey(FailureSchema),
+});
+
+export type EntityResult = Schema.Schema.Type<typeof EntityResultSchema>;
+
+const CommandResultSchema = Schema.Struct({
+  cmdId: Schema.Number,
+  // Why the command as a whole failed, if it did.
+  failure: Schema.optionalKey(FailureSchema),
+  entities: Schema.Array(EntityResultSchema),
+});
+
+export type CommandResult = Schema.Schema.Type<typeof CommandResultSchema>;
+
+const BatchResultSchema = Schema.Struct({
+  v: Schema.Literal(2),
+  type: Schema.Literal("batchResult"),
+  gen: Schema.Number,
+  batchId: Schema.Number,
+  results: Schema.Array(CommandResultSchema),
+});
+
+export type BatchResult = Schema.Schema.Type<typeof BatchResultSchema>;
+
+// A scheduled call that failed while playing. `scheduleCmdId` is the command
+// that built the schedule it belongs to.
+const PlaybackSchema = Schema.Struct({
+  v: Schema.Literal(2),
+  type: Schema.Literal("playback"),
+  gen: Schema.Number,
+  eventId: Schema.String,
+  scheduleCmdId: Schema.Number,
+  message: Schema.String,
+});
+
+export type Playback = Schema.Schema.Type<typeof PlaybackSchema>;
+
+const ReplySchema = Schema.Union([
+  ResultSchema,
+  AudioSchema,
+  BatchResultSchema,
+  PlaybackSchema,
+]);
 
 export type Reply = Schema.Schema.Type<typeof ReplySchema>;
 

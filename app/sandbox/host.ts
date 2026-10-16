@@ -1,16 +1,28 @@
 import { Cause, Effect, Exit } from "effect";
 import type * as ToneJs from "tone";
-import { rootRack, Tone, type LeafError, type RackState } from "../rack/model";
+import {
+  rootRack,
+  Tone,
+  type LeafError,
+  type RackState,
+  type RenderErrorCode,
+} from "../rack/model";
 import {
   makeToneRuntime,
   type PatchError,
+  type RenderedRackState,
   type ToneRuntime,
 } from "../rack/renderer";
 import {
+  isBatch,
   isRequest,
   type AudioState,
+  type Batch,
   type Command,
   type CommandError,
+  type CommandResult,
+  type EntityResult,
+  type Failure,
   type Reply,
 } from "./protocol";
 
@@ -71,24 +83,101 @@ const run = (
   }
 };
 
+const isTagged = (
+  error: unknown,
+): error is {
+  readonly _tag: "LeafError" | "PatchError";
+  readonly message: string;
+  readonly code?: RenderErrorCode;
+} =>
+  typeof error === "object" &&
+  error !== null &&
+  "_tag" in error &&
+  (error._tag === "LeafError" || error._tag === "PatchError") &&
+  "message" in error &&
+  typeof error.message === "string";
+
 // Why a command failed, as plain data the app can read back.
 const describe = (exit: Exit.Exit<void, unknown>): CommandError | undefined => {
   if (Exit.isSuccess(exit)) return undefined;
   const error = Cause.squash(exit.cause);
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "_tag" in error &&
-    (error._tag === "LeafError" || error._tag === "PatchError") &&
-    "message" in error &&
-    typeof error.message === "string"
-  ) {
-    return { _tag: error._tag, message: error.message };
-  }
+  if (isTagged(error)) return { _tag: error._tag, message: error.message };
   return {
     _tag: "LeafError",
     message: error instanceof Error ? error.message : String(error),
   };
+};
+
+// The same for version 2, with a code. Anything without one of its own gets
+// the code that fits what failed.
+const failureOf = (
+  exit: Exit.Exit<unknown, unknown>,
+  fallback: RenderErrorCode,
+): Failure | undefined => {
+  if (Exit.isSuccess(exit)) return undefined;
+  const error = Cause.squash(exit.cause);
+  if (isTagged(error))
+    return { code: error.code ?? fallback, message: error.message };
+  return {
+    code: fallback,
+    message: error instanceof Error ? error.message : String(error),
+  };
+};
+
+// What a command did to each block, patch and event, read off the rendered
+// graph before and after it: whatever was built again, and whatever is gone.
+const entityResults = (
+  before: RenderedRackState,
+  after: RenderedRackState,
+): EntityResult[] => {
+  const compare = <T>(
+    entity: EntityResult["entity"],
+    was: ReadonlyMap<string, T>,
+    is: ReadonlyMap<string, T>,
+    failure: (value: T) => Failure | undefined,
+  ): EntityResult[] => [
+    ...[...is].flatMap(([id, value]): EntityResult[] => {
+      if (was.get(id) === value) return [];
+      const failed = failure(value);
+      return [
+        failed === undefined ? { entity, id } : { entity, id, failure: failed },
+      ];
+    }),
+    ...[...was.keys()]
+      .filter((id) => !is.has(id))
+      .map((id): EntityResult => ({ entity, id, removed: true })),
+  ];
+
+  return [
+    ...compare("block", before.blocks, after.blocks, (block) =>
+      block.kind === "leaf" ? failureOf(block.exit, "LeafThrew") : undefined,
+    ),
+    ...compare("patch", before.patches, after.patches, (patch) =>
+      failureOf(patch.exit, "PatchFailed"),
+    ),
+    ...compare("event", before.events, after.events, (event) =>
+      failureOf(event.exit, "ScheduleFailed"),
+    ),
+  ];
+};
+
+// The code for a command that failed as a whole, when its error has none.
+const commandFallback = (command: Command): RenderErrorCode => {
+  switch (command.name) {
+    case "addPatch":
+    case "deletePatch":
+      return "PatchFailed";
+    case "updateParam":
+      return "ParamRejected";
+    case "updateEvent":
+    case "updateEventLive":
+    case "deleteEvent":
+      return "ScheduleFailed";
+    case "runLeafMethod":
+      return "MethodThrew";
+    default:
+      return "LeafThrew";
+  }
 };
 
 // Builds the rack's Tone.js graph here, in the frame, from the requests that
@@ -104,11 +193,69 @@ export const makeRackHost = (
   { startAudio }: Options = {},
 ) => {
   let state = emptyRack;
+  let current: FramePort | undefined;
+  // For each event, the schedule it plays now and the batch command that
+  // built it, so a failure while playing can name that command. A failure
+  // from any older schedule is not reported.
+  const schedules = new Map<
+    string,
+    { readonly schedule: number; readonly gen: number; readonly cmdId: number }
+  >();
+
   const runtime = Effect.runSync(
-    makeToneRuntime(() => state).pipe(Effect.provideService(Tone, tone)),
+    makeToneRuntime(() => state, {
+      onPlaybackFailure: ({ eventId, schedule, message }) => {
+        const built = schedules.get(eventId);
+        if (built === undefined || built.schedule !== schedule) return;
+        current?.postMessage({
+          v: 2,
+          type: "playback",
+          gen: built.gen,
+          eventId,
+          scheduleCmdId: built.cmdId,
+          message,
+        });
+      },
+    }).pipe(Effect.provideService(Tone, tone)),
   );
   let queue: Promise<void> = Promise.resolve();
-  let current: FramePort | undefined;
+
+  const runBatch = async (port: FramePort, batch: Batch) => {
+    state = { ...state, ...batch.changes };
+    const results: CommandResult[] = [];
+    for (const { cmdId, command } of batch.commands) {
+      if (command.name === "render") startAudio?.();
+      const before = await Effect.runPromise(runtime.rendered);
+      const exit = await Effect.runPromiseExit(run(runtime, command));
+      const after = await Effect.runPromise(runtime.rendered);
+
+      const entities = entityResults(before, after);
+      for (const result of entities) {
+        if (result.entity !== "event") continue;
+        const event = after.events.get(result.id);
+        if (event === undefined) schedules.delete(result.id);
+        else
+          schedules.set(result.id, {
+            schedule: event.schedule,
+            gen: batch.gen,
+            cmdId,
+          });
+      }
+      const failure = failureOf(exit, commandFallback(command));
+      results.push(
+        failure === undefined
+          ? { cmdId, entities }
+          : { cmdId, failure, entities },
+      );
+    }
+    port.postMessage({
+      v: 2,
+      type: "batchResult",
+      gen: batch.gen,
+      batchId: batch.batchId,
+      results,
+    });
+  };
 
   const attach = (port: FramePort) => {
     if (current !== undefined) current.onmessage = null;
@@ -118,6 +265,10 @@ export const makeRackHost = (
       const request = event.data;
       // The app is the only one holding the other end, but a message that
       // does not fit is still dropped rather than half applied.
+      if (isBatch(request)) {
+        queue = queue.then(() => runBatch(port, request));
+        return;
+      }
       if (!isRequest(request)) return;
 
       queue = queue.then(async () => {

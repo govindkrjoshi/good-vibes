@@ -11,25 +11,28 @@ export class Tone extends Context.Service<Tone, typeof ToneJs>()("Tone") {}
 
 // Why the renderer could not do something, as a code the app can act on.
 // Leaf code may fail with a LeafError of its own, which has no code.
-export type RenderErrorCode =
+export const renderErrorCodes = [
   // The leaf's code did not parse, threw, or failed.
-  | "LeafThrew"
+  "LeafThrew",
   // The leaf's code ran but built something other than a Tone.js node.
-  | "LeafNotANode"
+  "LeafNotANode",
   // A param could not be set on the node.
-  | "ParamRejected"
+  "ParamRejected",
   // The block this needs did not build.
-  | "BlockFailed"
+  "BlockFailed",
   // A patch end did not build, so there is nothing to connect.
-  | "EndpointFailed"
+  "EndpointFailed",
   // Both ends built, and Tone.js would not connect them.
-  | "PatchFailed"
+  "PatchFailed",
   // Tone.js would not schedule an event with its settings.
-  | "ScheduleFailed"
+  "ScheduleFailed",
   // A method call on the node threw.
-  | "MethodThrew"
+  "MethodThrew",
   // What the command names is not in the rack.
-  | "Missing";
+  "Missing",
+] as const;
+
+export type RenderErrorCode = (typeof renderErrorCodes)[number];
 
 export class LeafError extends Data.TaggedError("LeafError")<{
   readonly message: string;

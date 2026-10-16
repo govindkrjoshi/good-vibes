@@ -84,6 +84,8 @@ export const makeSandboxClient = (getState: () => RackState): SandboxClient => {
       for (const listener of listeners) listener(reply.state);
       return;
     }
+    // Version 2 answers batches, which this client does not send.
+    if (reply.type !== "result") return;
 
     const pending = waiting.get(reply.id);
     if (pending === undefined) return;
