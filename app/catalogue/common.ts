@@ -18,6 +18,14 @@ export type CatalogueItem = {
   jacks: Record<string, Jack>;
 };
 
+export type Catalogue = Readonly<
+  Record<string, Readonly<Record<string, CatalogueItem>>>
+>;
+
+export const byId = <T extends { readonly id: string }>(
+  items: readonly T[],
+): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
+
 type NumberParam = Extract<Param, { kind: "number" }>;
 type SelectParam = Extract<Param, { kind: "select" }>;
 type Overrides<P> = Partial<Omit<P, "id" | "belongToRackId" | "kind">>;

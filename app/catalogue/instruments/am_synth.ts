@@ -25,6 +25,7 @@ import {
   triggerAttackRelease,
   triggerRelease,
   volume,
+  byId,
   type CatalogueItem,
 } from "../common";
 
@@ -122,10 +123,6 @@ const events: RackEvent[] = [
     args: { duration: "16n" },
   }),
 ];
-
-const byId = <T extends { readonly id: string }>(
-  items: readonly T[],
-): Record<string, T> => Object.fromEntries(items.map((i) => [i.id, i]));
 
 export const item: CatalogueItem = {
   name,

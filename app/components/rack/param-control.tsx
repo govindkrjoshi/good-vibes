@@ -19,7 +19,7 @@ import { Slider } from "../ui/slider";
 import { Switch } from "../ui/switch";
 import { AutomationEditor } from "./automation-editor";
 import type { Param, ParamValue } from "../../rack";
-import { useRack } from "../../hooks/useRack";
+import { useStore } from "../../stores";
 
 type NumberParam = Extract<Param, { kind: "number" }>;
 
@@ -29,8 +29,8 @@ export const paramRowClassName =
   "grid grid-cols-[6.5rem_minmax(0,1fr)_4.75rem_1.5rem] items-center gap-2";
 
 export function ParamControl({ param }: { readonly param: Param }) {
-  const value = useRack((state) => state.values[param.id]);
-  const setParamValue = useRack((state) => state.setParamValue);
+  const value = useStore((state) => state.rack.values[param.id]);
+  const setParamValue = useStore((state) => state.rack.setParamValue);
   const set = (next: ParamValue) => setParamValue(param.id, next);
   const inputId = `${param.id}:input`;
 

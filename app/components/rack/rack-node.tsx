@@ -19,7 +19,7 @@ import { EnvelopeCurve } from "./envelope-curve";
 import { EventEditor, EventRow } from "./event-editor";
 import { ParamControl } from "./param-control";
 import { rackNodeWidth, type RackNodeType } from "../../canvas";
-import { useRack } from "../../hooks/useRack";
+import { useStore } from "../../stores";
 import { timeArg, type Method, type Param, type ParamGroup } from "../../rack";
 
 // A block with params or methods is played, not just wired, so it gets a
@@ -27,18 +27,21 @@ import { timeArg, type Method, type Param, type ParamGroup } from "../../rack";
 // everything under it is a control, marked `nodrag` so React Flow leaves
 // pointer gestures on sliders and fields alone.
 export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
-  const paramIds = useRack((state) => state.blocks[data.blockId]?.paramIds);
-  const methods = useRack(
+  const paramGroup = useStore((state) => {
+    const id = state.rack.racks[data.blockId]?.paramGroupId;
+    return id === undefined ? undefined : state.rack.paramGroups[id];
+  });
+  const methods = useStore(
     useShallow((state) =>
-      (state.blocks[data.blockId]?.methodIds ?? []).flatMap(
-        (id) => state.methods[id] ?? [],
+      (state.rack.racks[data.blockId]?.methodIds ?? []).flatMap(
+        (id) => state.rack.methods[id] ?? [],
       ),
     ),
   );
-  const events = useRack(
+  const events = useStore(
     useShallow((state) =>
-      (state.blocks[data.blockId]?.eventIds ?? []).flatMap(
-        (id) => state.events[id] ?? [],
+      (state.rack.racks[data.blockId]?.eventIds ?? []).flatMap(
+        (id) => state.rack.events[id] ?? [],
       ),
     ),
   );
@@ -76,7 +79,7 @@ export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
       </CardHeader>
 
       <CardContent className="nodrag cursor-default px-0">
-        {paramIds === undefined ? null : <ParamPanel group={paramIds} />}
+        {paramGroup === undefined ? null : <ParamPanel group={paramGroup} />}
       </CardContent>
 
       {schedulable.length === 0 ? null : (
@@ -101,7 +104,7 @@ function ParamPanel({ group }: { readonly group: ParamGroup }) {
 
   return (
     <div className="flex flex-col">
-      <ParamList paramIds={group.paramIds} className="px-3 py-3" />
+      <ParamList params={group.params} className="px-3 py-3" />
       {sections.map(([key, section]) => (
         <div key={key} className="flex flex-col">
           <Separator />
@@ -119,8 +122,8 @@ function ParamSection({
   readonly name: string;
   readonly group: ParamGroup;
 }) {
-  const envelope = useEnvelope(group.paramIds);
-  const summary = useSectionSummary(group.paramIds);
+  const envelope = useEnvelope(group.params);
+  const summary = useSectionSummary(group.params);
 
   return (
     <Collapsible>
@@ -140,7 +143,7 @@ function ParamSection({
         {envelope === undefined ? null : (
           <EnvelopeCurve envelope={envelope} label={`${name} shape`} />
         )}
-        <ParamList paramIds={group.paramIds} />
+        <ParamList params={group.params} />
         {Object.entries(group.groups ?? {}).map(([key, child]) => (
           <div key={key} className="border-l pl-2">
             <ParamSection name={child.name ?? key} group={child} />
@@ -152,17 +155,12 @@ function ParamSection({
 }
 
 function ParamList({
-  paramIds,
+  params = [],
   className,
 }: {
-  readonly paramIds: ParamGroup["paramIds"];
+  readonly params: ParamGroup["params"];
   readonly className?: string;
 }) {
-  const params = useRack(
-    useShallow((state) =>
-      Object.values(paramIds ?? {}).flatMap((id) => state.params[id] ?? []),
-    ),
-  );
   if (params.length === 0) return null;
 
   return (
@@ -187,13 +185,14 @@ const sortParams = (params: readonly Param[]) =>
 const envelopeStages = ["attack", "decay", "sustain", "release"] as const;
 
 // A group whose params are the four envelope stages is drawn as a curve over
-// its sliders, read live from the values so the shape follows each drag.
-function useEnvelope(paramIds: ParamGroup["paramIds"]) {
-  return useRack(
+// its sliders, read live from the values so the shape follows each drag. A
+// param is a stage when the last step of its path is named after it.
+function useEnvelope(params: ParamGroup["params"] = []) {
+  return useStore(
     useShallow((state) => {
       const stages = envelopeStages.map((stage) => {
-        const id = paramIds?.[stage];
-        const value = id === undefined ? undefined : state.values[id];
+        const id = params.find((param) => param.path.at(-1) === stage)?.id;
+        const value = id === undefined ? undefined : state.rack.values[id];
         return typeof value === "number" ? value : undefined;
       });
       if (stages.some((value) => value === undefined)) return undefined;
@@ -205,12 +204,11 @@ function useEnvelope(paramIds: ParamGroup["paramIds"]) {
 
 // A closed section still says what it is set to where one choice defines it,
 // like an oscillator's waveform.
-function useSectionSummary(paramIds: ParamGroup["paramIds"]) {
-  return useRack((state) => {
-    const chosen = Object.values(paramIds ?? {}).flatMap((id) => {
-      const param = state.params[id];
-      if (param?.kind !== "select") return [];
-      const value = state.values[id] ?? param.defaultValue;
+function useSectionSummary(params: ParamGroup["params"] = []) {
+  return useStore((state) => {
+    const chosen = params.flatMap((param) => {
+      if (param.kind !== "select") return [];
+      const value = state.rack.values[param.id] ?? param.defaultValue;
       const option = param.options.find((held) => held.value === value);
       return [option?.label ?? String(value)];
     });

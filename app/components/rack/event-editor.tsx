@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Play, Plus, Repeat, X } from "lucide-react";
+import { Plus, Repeat, X } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   Field,
@@ -36,7 +36,7 @@ import {
   type ParamValue,
   type RackEvent,
 } from "../../rack";
-import { useRack } from "../../hooks/useRack";
+import { useStore } from "../../stores";
 
 type When = "sequence" | "loop" | "pattern" | "part";
 
@@ -70,7 +70,7 @@ export function EventEditor({
 }: {
   readonly methods: readonly Method[];
 }) {
-  const addEvent = useRack((state) => state.addEvent);
+  const addEvent = useStore((state) => state.rack.addEvent);
   const [open, setOpen] = useState(false);
   const [methodId, setMethodId] = useState(methods[0]?.id);
   const [when, setWhen] = useState<When>("sequence");
@@ -473,24 +473,15 @@ export function EventEditor({
 // One scheduled event on a block's card. A sequence shows its steps to flip
 // between the voice and a rest; the other kinds say how often they fire.
 export function EventRow({ event }: { readonly event: RackEvent }) {
-  const method = useRack((state) => state.methods[event.methodId]);
-  const setEventSteps = useRack((state) => state.setEventSteps);
-  const updateEvent = useRack((state) => state.updateEvent);
-  const removeEvent = useRack((state) => state.removeEvent);
-  const playEvent = useRack((state) => state.playEvent);
+  const method = useStore((state) => state.rack.methods[event.methodId]);
+  const setEventSteps = useStore((state) => state.rack.setEventSteps);
+  const updateEvent = useStore((state) => state.rack.updateEvent);
+  const removeEvent = useStore((state) => state.rack.removeEvent);
   if (method === undefined) return null;
 
   return (
     <li data-testid="event-row" className="flex flex-col gap-1.5 text-xs">
       <div className="flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={`Play ${method.name}`}
-          onClick={() => playEvent(event.id)}
-        >
-          <Play />
-        </Button>
         <span className="truncate">{method.name}</span>
         <span className="flex-1 truncate text-muted-foreground">
           {event.kind === "sequence" ? null : describe(event)}

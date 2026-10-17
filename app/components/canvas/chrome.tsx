@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import * as ReactFlow from "@xyflow/react";
 import { CanvasMenu } from "./menu";
 import { HelpButton } from "./help-button";
@@ -6,20 +5,19 @@ import { RackToolbar } from "./rack-toolbar";
 import { ViewportControls } from "./viewport-controls";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./lock-store";
-import { catalogueTemplate } from "../../catalogue";
-import { useRack } from "../../hooks/useRack";
-import { loadTone } from "../../rack";
 import { useStore } from "../../stores";
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
   const addRack = useStore((state) => state.rack.addRack);
-  const addBlock = useRack((state) => state.addBlock);
-  const addTemplate = useRack((state) => state.addTemplate);
-  const removeBlocks = useRack((state) => state.removeBlocks);
-  const removePatches = useRack((state) => state.removePatches);
-  const run = useRack((state) => state.run);
+  const addBlock = useStore((state) => state.rack.addBlock);
+  const addRackFromCatalogue = useStore(
+    (state) => state.rack.addRackFromCatalogue,
+  );
+  const rootId = useStore((state) => state.rack.rootId);
+  const removeBlocks = useStore((state) => state.rack.removeRacks);
+  const removePatches = useStore((state) => state.rack.removePatches);
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
     ReactFlow.useReactFlow();
   const zoom = ReactFlow.useStore((state) => state.transform[2]);
@@ -30,28 +28,20 @@ export function CanvasChrome() {
   );
   const canDelete = !locked && hasSelection;
 
-  // Ready before the first Run, so audio can start inside its click. A load
-  // that fails here is tried again by Run.
-  useEffect(() => {
-    loadTone().catch(() => undefined);
-  }, []);
-
-  const addLeaf = () => addBlock("leaf");
-  const addGroup = () => addBlock("tree");
+  const addLeaf = () => addBlock("leaf", rootId);
+  const addGroup = () => addBlock("tree", rootId);
 
   // The rack only models leaves and trees so far, so each typed tool adds the
   // closest of the two until its own block type lands in the store.
   const addSource = addLeaf;
-  const addFromCatalogue = (category: string, entry: string) => {
-    const template = catalogueTemplate(category, entry);
-    if (template !== undefined) addTemplate(template);
-  };
-  const addInstrument = () => addFromCatalogue("instruments", "AMSynth");
+  const addInstrument = () =>
+    addRackFromCatalogue("instruments", "AMSynth", rootId);
   const addEffect = addLeaf;
   const addComponent = addGroup;
   const addSignal = addLeaf;
   const addEvent = addLeaf;
-  const addDestination = () => addFromCatalogue("output", "Destination");
+  const addDestination = () =>
+    addRackFromCatalogue("output", "Destination", rootId);
 
   const deleteSelection = () => {
     if (!canDelete) return;
@@ -78,16 +68,11 @@ export function CanvasChrome() {
     d: addDestination,
     backspace: deleteSelection,
     delete: deleteSelection,
-    r: run,
   });
 
   return (
     <>
-      <CanvasMenu
-        onFitView={() => fitView()}
-        onResetZoom={() => zoomTo(1)}
-        onRun={run}
-      />
+      <CanvasMenu onFitView={() => fitView()} onResetZoom={() => zoomTo(1)} />
 
       {/* Drops below the menu island wherever the two would meet. */}
       <RackToolbar

@@ -21,7 +21,6 @@ const shortcuts = [
   { keys: "V", action: "Add event" },
   { keys: "D", action: "Add destination" },
   { keys: "⌫", action: "Delete selection" },
-  { keys: "R", action: "Run rack" },
 ] as const;
 
 export function HelpButton({ className }: { readonly className?: string }) {

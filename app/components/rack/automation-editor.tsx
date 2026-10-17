@@ -17,7 +17,7 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Hint } from "../ui/hint";
 import { NumberField, unitLabel } from "./param-control";
 import type { AutomationEvent, Param, RampMethod } from "../../rack";
-import { useRack } from "../../hooks/useRack";
+import { useStore } from "../../stores";
 
 type NumberParam = Extract<Param, { kind: "number" }>;
 
@@ -44,8 +44,10 @@ const methodCopy: Record<
 };
 
 export function AutomationEditor({ param }: { readonly param: NumberParam }) {
-  const events = useRack((state) => state.automations[param.id] ?? noEvents);
-  const removeAutomation = useRack((state) => state.removeAutomation);
+  const events = useStore(
+    (state) => state.rack.automations[param.id] ?? noEvents,
+  );
+  const removeAutomation = useStore((state) => state.rack.removeAutomation);
   const label = `Automate ${param.name}`;
 
   return (
@@ -106,8 +108,8 @@ export function AutomationEditor({ param }: { readonly param: NumberParam }) {
 }
 
 function AutomationForm({ param }: { readonly param: NumberParam }) {
-  const addAutomation = useRack((state) => state.addAutomation);
-  const current = useRack((state) => state.values[param.id]);
+  const addAutomation = useStore((state) => state.rack.addAutomation);
+  const current = useStore((state) => state.rack.values[param.id]);
   const methods = param.automation?.methods ?? [];
 
   const [method, setMethod] = useState<RampMethod | undefined>(methods[0]);

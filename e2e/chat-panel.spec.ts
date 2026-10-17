@@ -55,9 +55,8 @@ test("hiding the chat gives the canvas its width", async ({ page }) => {
 test("keeps the transport in the top bar", async ({ page }) => {
   const transport = page.getByRole("group", { name: "Transport" });
   const pane = await boxOf(canvas(page), "canvas");
-  const run = await boxOf(page.getByTestId("run-rack"), "run");
+  const bpm = await boxOf(transport.getByLabel("BPM"), "BPM");
 
-  await expect(transport.getByTestId("run-rack")).toBeVisible();
-  await expect(transport.getByTestId("stop-rack")).toBeVisible();
-  expect(run.y + run.height).toBeLessThanOrEqual(pane.y);
+  await expect(transport.getByLabel("BPM")).toBeVisible();
+  expect(bpm.y + bpm.height).toBeLessThanOrEqual(pane.y);
 });

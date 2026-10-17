@@ -2,9 +2,7 @@ import {
   KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
-  Play,
   Settings,
-  Square,
   UserRound,
 } from "lucide-react";
 import { cn } from "cn";
@@ -22,9 +20,8 @@ import {
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Label } from "../ui/label";
-import { Separator } from "../ui/separator";
 import { useGoodVibesAgent } from "../chat/agent-provider";
-import { useRack } from "../../hooks/useRack";
+import { useStore } from "../../stores";
 
 // The app's fixed chrome: the chat toggle and name on the left, the transport
 // in the middle where it stays put whatever the canvas is doing, and settings
@@ -38,10 +35,8 @@ export function TopBar({
   readonly onToggleChat: () => void;
   readonly className?: string;
 }) {
-  const run = useRack((state) => state.run);
-  const stop = useRack((state) => state.stop);
-  const bpm = useRack((state) => state.transport.bpm);
-  const setTransport = useRack((state) => state.setTransport);
+  const bpm = useStore((state) => state.rack.transport.bpm);
+  const setTransport = useStore((state) => state.rack.setTransport);
   const { changeKey } = useGoodVibesAgent();
 
   return (
@@ -89,18 +84,6 @@ export function TopBar({
             />
           </div>
         </div>
-        <Separator
-          orientation="vertical"
-          className="mx-1 h-5 self-center max-sm:hidden"
-        />
-        <Button data-testid="run-rack" onClick={run}>
-          <Play data-icon="inline-start" />
-          <span className="max-sm:sr-only">Run</span>
-        </Button>
-        <Button variant="outline" data-testid="stop-rack" onClick={stop}>
-          <Square data-icon="inline-start" />
-          <span className="max-sm:sr-only">Stop</span>
-        </Button>
       </div>
 
       <div className="flex items-center justify-end gap-1">

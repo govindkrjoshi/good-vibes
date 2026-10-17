@@ -1,5 +1,6 @@
 import { Context, Data, Effect, Schema } from "effect";
 import type * as ToneJs from "tone";
+import { inputJack, outputJack } from "../catalogue/common";
 
 type ToneNode = ToneJs.ToneAudioNode;
 
@@ -123,11 +124,10 @@ const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
 });
 
 const CodeSchema = Schema.declare(
-  (input): input is LeafCode => typeof input === "function",
+  (input): input is LeafCode => Effect.isEffect(input),
   {
     title: "Code",
-    description:
-      "A function returning the Effect that builds a leaf's Tone.js node",
+    description: "The Effect that builds a leaf's Tone.js node",
   },
 );
 
@@ -344,21 +344,6 @@ export const timeArg = (method: Method): MethodArg | undefined =>
 export const noteArg = (method: Method): MethodArg | undefined =>
   method.args.find((arg) => arg.kind === "note");
 
-export const makeDefaultJacks = (blockId: string): readonly [Jack, Jack] => [
-  {
-    id: `${blockId}:in`,
-    name: "Input",
-    belongToBlockId: blockId,
-    direction: "in",
-  },
-  {
-    id: `${blockId}:out`,
-    name: "Output",
-    belongToBlockId: blockId,
-    direction: "out",
-  },
-];
-
 export const hasOutputJack = (
   block: Rack,
   jacks: Record<string, Jack>,
@@ -381,7 +366,7 @@ export const makeBlock = (
     id,
     isRoot: false,
     parentId,
-    jackIds: makeDefaultJacks(id).map((jack) => jack.id),
+    jackIds: [inputJack(id).id, outputJack(id).id],
     paramGroupId: "",
     methodIds: [],
     eventIds: [],
@@ -408,9 +393,9 @@ export const makeBlock = (
 // Everything the rack holds, keyed by id. The store keeps one of these and
 // the renderer reads it to build the audio graph.
 export type RackState = {
-  readonly blocks: Record<string, Rack>;
+  readonly racks: Record<string, Rack>;
   readonly jacks: Record<string, Jack>;
-  readonly params: Record<string, Param>;
+  readonly paramGroups: Record<string, ParamGroup>;
   readonly methods: Record<string, Method>;
   readonly values: Record<string, ParamValue>;
   readonly automations: Record<string, readonly AutomationEvent[]>;
@@ -419,3 +404,28 @@ export type RackState = {
   readonly transport: Transport;
   readonly rootId: string;
 };
+
+// Every param in a group and its subgroups, in the order the group lists them.
+export const flattenParams = (group: ParamGroup): Param[] => [
+  ...(group.params ?? []),
+  ...Object.values(group.groups ?? {}).flatMap(flattenParams),
+];
+
+// A rack's params, or none when it has no param group.
+export const rackParams = (
+  state: Pick<RackState, "racks" | "paramGroups">,
+  rackId: string,
+): Param[] => {
+  const groupId = state.racks[rackId]?.paramGroupId;
+  const group = groupId === undefined ? undefined : state.paramGroups[groupId];
+  return group === undefined ? [] : flattenParams(group);
+};
+
+// The param with an id, looked up through every param group.
+export const findParam = (
+  state: Pick<RackState, "paramGroups">,
+  paramId: string,
+): Param | undefined =>
+  Object.values(state.paramGroups)
+    .flatMap(flattenParams)
+    .find((param) => param.id === paramId);

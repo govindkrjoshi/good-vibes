@@ -7,7 +7,15 @@ import {
   type BlockNodeType as BlockNode,
   type CanvasNode,
 } from ".";
-import { makeBlock, rootRack, type Jack, type Patch, type Rack } from "../rack";
+import {
+  makeBlock,
+  rootRack,
+  type Jack,
+  type ParamGroup,
+  type Patch,
+  type Rack,
+} from "../rack";
+import { volume } from "../catalogue/common";
 
 const rack = (
   children: readonly Rack[],
@@ -39,7 +47,8 @@ const sync = (
   blocks: Record<string, Rack>,
   current: readonly CanvasNode[] = [],
   jacks: Record<string, Jack> = {},
-) => syncNodesFromRack(current, blocks, jacks, "root");
+  paramGroups: Record<string, ParamGroup> = {},
+) => syncNodesFromRack(current, blocks, jacks, paramGroups, "root");
 
 const held = (id: string, overrides: Partial<BlockNode> = {}): BlockNode => ({
   id,
@@ -275,4 +284,21 @@ test("gives a block with params or methods a panel of controls", () => {
   expect(box.type).toBe("block");
   expect(panel.type).toBe("rack");
   expect(panel.data).toEqual({ blockId: "b", name: "AMSynth", jacks: [] });
+});
+
+test("gives a block whose param group holds params a panel of controls", () => {
+  const empty = { ...makeBlock("a", "root", "leaf"), paramGroupId: "a:group" };
+  const nested = { ...makeBlock("b", "root", "leaf"), paramGroupId: "b:group" };
+  const paramGroups: Record<string, ParamGroup> = {
+    "a:group": { id: "a:group", groups: { none: { id: "a:none" } } },
+    "b:group": {
+      id: "b:group",
+      groups: { amp: { id: "b:amp", params: [volume("b")] } },
+    },
+  };
+
+  const [box, panel] = sync(rack([empty, nested]), [], {}, paramGroups);
+
+  expect(box.type).toBe("block");
+  expect(panel.type).toBe("rack");
 });

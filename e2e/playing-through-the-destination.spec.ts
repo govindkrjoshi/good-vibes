@@ -46,7 +46,9 @@ test("adds a destination that only takes input", async ({ page }) => {
   await expect(destination.locator("[data-handleid$=':out']")).toHaveCount(0);
 });
 
-test("plays its riff from a synth patched into the destination", async ({
+// Parked while the audio renderer and Tone handling are rewritten: there is
+// no Run button to start playback until then.
+test.fixme("plays its riff from a synth patched into the destination", async ({
   page,
 }) => {
   const warnings: string[] = [];

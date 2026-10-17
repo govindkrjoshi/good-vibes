@@ -15,10 +15,10 @@ import {
   toFlowEdges,
   type CanvasNode,
 } from "../../canvas";
-import { useRack } from "../../hooks/useRack";
 import { BlockNode } from "./block-node";
 import { RackNode } from "../rack/rack-node";
 import { useCanvasStore } from "./lock-store";
+import { useStore } from "../../stores";
 
 // React Flow re-registers every node type when this object changes identity,
 // so it has to be built once, outside the component.
@@ -34,8 +34,8 @@ const noEdges: Edge[] = [];
 
 export function CanvasViewport() {
   const locked = useCanvasStore((state) => state.locked);
-  const connectJacks = useRack((state) => state.connectJacks);
-  const canConnectJacks = useRack((state) => state.canConnectJacks);
+  const connectJacks = useStore((state) => state.rack.connectJacks);
+  const canConnectJacks = useStore((state) => state.rack.canConnectJacks);
 
   const isValidConnection = useCallback(
     (connection: Connection | Edge) => {
@@ -78,20 +78,27 @@ export function CanvasViewport() {
 
 function RackReactFlowSync() {
   const { setNodes, setEdges } = useReactFlow<CanvasNode>();
-  const blocks = useRack((state) => state.blocks);
-  const jacks = useRack((state) => state.jacks);
-  const patches = useRack((state) => state.patches);
-  const rootId = useRack((state) => state.rootId);
+  const racks = useStore((state) => state.rack.racks);
+  const jacks = useStore((state) => state.rack.jacks);
+  const paramGroups = useStore((state) => state.rack.paramGroups);
+  const patches = useStore((state) => state.rack.patches);
+  const rootId = useStore((state) => state.rack.rootId);
 
   useEffect(() => {
-    const edges = toFlowEdges(blocks, jacks, patches, rootId);
+    const edges = toFlowEdges(racks, jacks, patches, rootId);
 
     setEdges(edges);
     setNodes((current) => {
-      const next = syncNodesFromRack(current, blocks, jacks, rootId);
+      const next = syncNodesFromRack(
+        current,
+        racks,
+        jacks,
+        paramGroups,
+        rootId,
+      );
       return sameBlocks(current, next) ? next : layoutNodes(next, edges);
     });
-  }, [setNodes, setEdges, blocks, jacks, patches, rootId]);
+  }, [setNodes, setEdges, racks, jacks, paramGroups, patches, rootId]);
 
   return null;
 }

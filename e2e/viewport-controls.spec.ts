@@ -26,7 +26,5 @@ test("opens the canvas menu from the top-left island", async ({ page }) => {
     - menu "Canvas menu":
       - menuitem "Fit view"
       - menuitem "Zoom to 100%"
-      - separator
-      - menuitem "Run rack R"
   `);
 });

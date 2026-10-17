@@ -44,7 +44,5 @@ test("lists every shortcut behind the help button", async ({ page }) => {
       - definition: D
       - term: Delete selection
       - definition: ⌫
-      - term: Run rack
-      - definition: R
   `);
 });

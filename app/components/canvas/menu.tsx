@@ -1,12 +1,10 @@
-import { Maximize, Menu, Play, Scan } from "lucide-react";
+import { Maximize, Menu, Scan } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu";
 import { Island } from "../ui/island";
@@ -14,14 +12,12 @@ import { Island } from "../ui/island";
 type CanvasMenuProps = {
   readonly onFitView: () => void;
   readonly onResetZoom: () => void;
-  readonly onRun: () => void;
   readonly className?: string;
 };
 
 export function CanvasMenu({
   onFitView,
   onResetZoom,
-  onRun,
   className,
 }: CanvasMenuProps) {
   return (
@@ -48,12 +44,6 @@ export function CanvasMenu({
           <DropdownMenuItem onClick={onResetZoom}>
             <Maximize />
             Zoom to 100%
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={onRun}>
-            <Play />
-            Run rack
-            <DropdownMenuShortcut>R</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
