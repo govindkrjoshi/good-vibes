@@ -192,7 +192,7 @@ importers:
         version: 0.3.1(@types/react@19.3.0)(react@19.3.0)
       '@xyflow/react':
         specifier: ^12.12.0
-        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(immer@11.1.21)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -202,6 +202,9 @@ importers:
       effect:
         specifier: 4.0.0-rc.117
         version: 4.0.0-rc.117
+      immer:
+        specifier: ^11.1.21
+        version: 11.1.21
       isbot:
         specifier: ^5.1.36
         version: 5.2.2
@@ -231,7 +234,7 @@ importers:
         version: 4.6.5
       zustand:
         specifier: ^5.0.15
-        version: 5.0.15(@types/react@19.3.0)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
+        version: 5.0.15(@types/react@19.3.0)(immer@11.1.21)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
     devDependencies:
       '@playwright/test':
         specifier: ^1.63.0
@@ -2159,6 +2162,9 @@ packages:
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
     engines: {node: '>= 4'}
+
+  immer@11.1.21:
+    resolution: {integrity: sha512-bZSadeCPGdaY5/qRLgr6mDSH1ra21rD3rqpiWk7+QTr4ayYPTE9qZYdLh/NdPhMe0wSrTvHD/Lk8q5EwhUs0aw==}
 
   import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
@@ -4568,13 +4574,13 @@ snapshots:
       '@wasm-audio-decoders/common': 9.0.7
       codec-parser: 2.5.0
 
-  '@xyflow/react@12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@xyflow/react@12.12.0(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(immer@11.1.21)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@xyflow/system': 0.0.83
       classcat: 5.0.5
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
-      zustand: 4.5.7(@types/react@19.3.0)(react@19.3.0)
+      zustand: 4.5.7(@types/react@19.3.0)(immer@11.1.21)(react@19.3.0)
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
@@ -5290,6 +5296,8 @@ snapshots:
       safer-buffer: 2.1.2
 
   ignore@5.3.2: {}
+
+  immer@11.1.21: {}
 
   import-fresh@3.3.1:
     dependencies:
@@ -6288,15 +6296,17 @@ snapshots:
 
   zod@4.6.5: {}
 
-  zustand@4.5.7(@types/react@19.3.0)(react@19.3.0):
+  zustand@4.5.7(@types/react@19.3.0)(immer@11.1.21)(react@19.3.0):
     dependencies:
       use-sync-external-store: 1.7.0(react@19.3.0)
     optionalDependencies:
       '@types/react': 19.3.0
+      immer: 11.1.21
       react: 19.3.0
 
-  zustand@5.0.15(@types/react@19.3.0)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0)):
+  zustand@5.0.15(@types/react@19.3.0)(immer@11.1.21)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0)):
     optionalDependencies:
       '@types/react': 19.3.0
+      immer: 11.1.21
       react: 19.3.0
       use-sync-external-store: 1.7.0(react@19.3.0)
