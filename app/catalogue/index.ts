@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { Tone, type RackTemplate } from "../rack/model";
+import { RenderContext, type RackTemplate } from "../rack/model";
+export type { CatalogueItem } from "./common";
 
 export type CatalogueEntry = {
   readonly name: string;
@@ -19,7 +20,7 @@ const amOscillatorRack: RackTemplate = {
   params: {},
   code: () =>
     Effect.gen(function* () {
-      const tone = yield* Tone;
+      const { tone } = yield* RenderContext;
       // An oscillator makes no sound until started, and has no trigger
       // method to start it later, so it runs from the moment it is built.
       return new tone.AMOscillator().start();
@@ -304,7 +305,7 @@ const amSynthRack: RackTemplate = {
   },
   code: () =>
     Effect.gen(function* () {
-      const tone = yield* Tone;
+      const { tone } = yield* RenderContext;
       return new tone.AMSynth();
     }),
 };
@@ -320,7 +321,7 @@ const destinationRack: RackTemplate = {
   params: {},
   code: () =>
     Effect.gen(function* () {
-      const tone = yield* Tone;
+      const { tone } = yield* RenderContext;
       return tone.getDestination();
     }),
 };

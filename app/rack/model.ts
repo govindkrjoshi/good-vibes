@@ -3,10 +3,13 @@ import type * as ToneJs from "tone";
 
 type ToneNode = ToneJs.ToneAudioNode;
 
-// The Tone.js module, handed to leaf code as a service. The browser provides
-// the real module; tests provide the same module running on a node audio
-// context.
-export class Tone extends Context.Service<Tone, typeof ToneJs>()("Tone") {}
+// What leaf code renders with, handed to it as a service. `tone` is the
+// Tone.js module: the browser provides the real module; tests provide the
+// same module running on a node audio context.
+export class RenderContext extends Context.Service<
+  RenderContext,
+  { readonly tone: typeof ToneJs }
+>()("RenderContext") {}
 
 export class LeafError extends Data.TaggedError("LeafError")<{
   readonly message: string;
@@ -14,7 +17,7 @@ export class LeafError extends Data.TaggedError("LeafError")<{
 
 // What a leaf block runs to make its Tone.js node. Param values are applied
 // by the renderer afterwards, so the code only has to construct the node.
-export type LeafCode = () => Effect.Effect<ToneNode, LeafError, Tone>;
+export type LeafCode = Effect.Effect<ToneNode, LeafError, RenderContext>;
 
 const JackSchema = Schema.Struct({
   id: Schema.String,
@@ -55,7 +58,7 @@ const ParamAutomationSchema = Schema.Struct({
 const BaseParamFields = {
   id: Schema.String,
   name: Schema.String,
-  belongToBlockId: Schema.String,
+  belongToRackId: Schema.String,
   path: Schema.Array(Schema.String),
   order: Schema.optionalKey(Schema.Number),
   description: Schema.optionalKey(Schema.String),
@@ -101,14 +104,16 @@ const ParamSchema = Schema.Union([
 export type Param = Schema.Schema.Type<typeof ParamSchema>;
 
 export interface ParamGroup {
+  readonly id: string;
   readonly name?: string;
-  readonly paramIds?: Readonly<Record<string, string>>;
+  readonly params?: readonly Param[];
   readonly groups?: Readonly<Record<string, ParamGroup>>;
 }
 
 const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
+  id: Schema.String,
   name: Schema.optionalKey(Schema.String),
-  paramIds: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  params: Schema.optionalKey(Schema.Array(ParamSchema)),
   groups: Schema.optionalKey(
     Schema.Record(
       Schema.String,
@@ -157,7 +162,7 @@ const BaseBlockFields = {
   isRoot: Schema.Boolean,
   parentId: Schema.optionalKey(Schema.String),
   jackIds: Schema.Array(Schema.String),
-  paramIds: ParamGroupSchema,
+  paramGroupId: Schema.optionalKey(Schema.String),
   methodIds: Schema.Array(Schema.String),
   eventIds: Schema.Array(Schema.String),
 };
@@ -324,7 +329,6 @@ export const rootRack: TreeBlock = TreeRack.make({
   type: "tree",
   isRoot: true,
   jackIds: [],
-  paramIds: {},
   methodIds: [],
   eventIds: [],
   children: [],
@@ -378,7 +382,7 @@ export const makeBlock = (
     isRoot: false,
     parentId,
     jackIds: makeDefaultJacks(id).map((jack) => jack.id),
-    paramIds: {},
+    paramGroupId: "",
     methodIds: [],
     eventIds: [],
   };
@@ -397,7 +401,7 @@ export const makeBlock = (
         type: "leaf",
         // A new leaf has no Tone.js node until the editor gives it code, so
         // rendering it fails rather than silently producing nothing.
-        code: () => Effect.fail(new LeafError({ message: "Leaf has no code" })),
+        code: Effect.fail(new LeafError({ message: "Leaf has no code" })),
       });
 };
 

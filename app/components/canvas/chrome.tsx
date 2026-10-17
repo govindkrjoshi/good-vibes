@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useReactFlow, useStore } from "@xyflow/react";
+import * as ReactFlow from "@xyflow/react";
 import { CanvasMenu } from "./menu";
 import { HelpButton } from "./help-button";
 import { RackToolbar } from "./rack-toolbar";
@@ -9,19 +9,21 @@ import { useCanvasStore } from "./lock-store";
 import { catalogueTemplate } from "../../catalogue";
 import { useRack } from "../../hooks/useRack";
 import { loadTone } from "../../rack";
+import { useStore } from "../../stores";
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
+  const addRack = useStore((state) => state.rack.addRack);
   const addBlock = useRack((state) => state.addBlock);
   const addTemplate = useRack((state) => state.addTemplate);
   const removeBlocks = useRack((state) => state.removeBlocks);
   const removePatches = useRack((state) => state.removePatches);
   const run = useRack((state) => state.run);
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
-    useReactFlow();
-  const zoom = useStore((state) => state.transform[2]);
-  const hasSelection = useStore(
+    ReactFlow.useReactFlow();
+  const zoom = ReactFlow.useStore((state) => state.transform[2]);
+  const hasSelection = ReactFlow.useStore(
     (state) =>
       state.nodes.some((node) => node.selected === true) ||
       state.edges.some((edge) => edge.selected === true),

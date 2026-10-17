@@ -4,7 +4,7 @@ import {
   LeafError,
   noteArg,
   timeArg,
-  Tone,
+  RenderContext,
   type AutomationEvent,
   type LeafRack,
   type Method,
@@ -127,9 +127,10 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 export const makeToneRuntime = (
   getState: () => RackState,
-): Effect.Effect<ToneRuntime, never, Tone> =>
+): Effect.Effect<ToneRuntime, never, RenderContext> =>
   Effect.gen(function* () {
-    const tone = yield* Tone;
+    const context = yield* RenderContext;
+    const { tone } = context;
     // Commands are not serialized. That is safe while leaf code builds its
     // node without waiting; once a leaf can wait (e.g. loading samples), a
     // command running meanwhile could leak a node, and they will need a lock.
@@ -321,7 +322,7 @@ export const makeToneRuntime = (
       Effect.gen(function* () {
         const node = yield* block
           .code()
-          .pipe(Effect.provideService(Tone, tone));
+          .pipe(Effect.provideService(RenderContext, context));
         // A node that cannot take its params is not kept half set up.
         yield* applyParams(node, block).pipe(
           Effect.tapError(() => Effect.sync(() => release(node))),

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { makeToneRuntime, type ToneRuntime } from "./renderer";
 import { CATALOGUE } from "../catalogue";
 import { rackStore } from "./store";
-import { LeafError, Tone, type RackTemplate } from "./model";
+import { LeafError, RenderContext, type RackTemplate } from "./model";
 
 const template = (category: string, entry: string): RackTemplate => {
   const found = CATALOGUE[category]?.[entry]?.rack;
@@ -53,7 +53,9 @@ const method = (blockId: string, key: string) => `${blockId}:method:${key}`;
 
 const makeRuntime = () =>
   Effect.runPromise(
-    makeToneRuntime(store).pipe(Effect.provideService(Tone, ToneJs)),
+    makeToneRuntime(store).pipe(
+      Effect.provideService(RenderContext, { tone: ToneJs }),
+    ),
   );
 
 const rendered = (runtime: ToneRuntime) => Effect.runPromise(runtime.rendered);

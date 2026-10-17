@@ -4,7 +4,7 @@ import { createStore } from "zustand";
 import { makeToneRuntime, noopRuntime, type ToneRuntime } from "./renderer";
 import {
   canPatch,
-  Tone,
+  RenderContext,
   isRackEvent,
   makeBlock,
   makeDefaultJacks,
@@ -704,7 +704,9 @@ export const rackStore = createStore<RackStore>()((set, get) => ({
 
         if (get().runtime === noopRuntime) {
           const runtime = await Effect.runPromise(
-            makeToneRuntime(get).pipe(Effect.provideService(Tone, tone)),
+            makeToneRuntime(get).pipe(
+              Effect.provideService(RenderContext, { tone }),
+            ),
           );
           set({ runtime });
         }
