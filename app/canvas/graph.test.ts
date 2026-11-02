@@ -1,7 +1,5 @@
-import type { Edge } from "@xyflow/react";
 import { expect, test } from "vitest";
 import {
-  layoutNodes,
   syncNodesFromRack,
   toFlowEdges,
   type BlockNodeType as BlockNode,
@@ -175,34 +173,6 @@ test("leaves a new block for React Flow to size", () => {
   expect(node.measured).toBeUndefined();
   expect(node.width).toBeUndefined();
   expect(node.height).toBeUndefined();
-});
-
-const edge = (source: string, target: string): Edge => ({
-  id: `${source}-${target}`,
-  source,
-  target,
-});
-
-test("stacks blocks with no patches between them in a column", () => {
-  const [a, b] = layoutNodes([held("a"), held("b")], []);
-
-  expect(a.position.x).toBe(b.position.x);
-  expect(Math.abs(a.position.y - b.position.y)).toBeGreaterThanOrEqual(44);
-});
-
-test("lays a patched block out to the right of what feeds it", () => {
-  const [a, b] = layoutNodes([held("a"), held("b")], [edge("a", "b")]);
-
-  expect(b.position.x).toBeGreaterThanOrEqual(a.position.x + 176);
-});
-
-test("keeps everything but the position when laying out", () => {
-  const [node] = layoutNodes([held("a")], []);
-
-  expect({ ...node, position: undefined }).toEqual({
-    ...held("a"),
-    position: undefined,
-  });
 });
 
 const twoBlocks = () =>

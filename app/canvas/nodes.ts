@@ -21,9 +21,4 @@ export type RackNodeType = Node<RackNodeData, "rack">;
 
 export type CanvasNode = BlockNodeType | RackNodeType;
 
-export const blockNodeWidth = 176;
-export const blockNodeHeight = 44;
 export const rackNodeWidth = 360;
-// A rack panel opens with its sections closed; this is roughly that height,
-// used until React Flow has measured the real one.
-export const rackNodeHeight = 420;

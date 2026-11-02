@@ -9,8 +9,6 @@ import {
 } from "@xyflow/react";
 import {
   jackIds,
-  layoutNodes,
-  sameBlocks,
   syncNodesFromRack,
   toFlowEdges,
   type CanvasNode,
@@ -85,19 +83,10 @@ function RackReactFlowSync() {
   const rootId = useStore((state) => state.rack.rootId);
 
   useEffect(() => {
-    const edges = toFlowEdges(racks, jacks, patches, rootId);
-
-    setEdges(edges);
-    setNodes((current) => {
-      const next = syncNodesFromRack(
-        current,
-        racks,
-        jacks,
-        paramGroups,
-        rootId,
-      );
-      return sameBlocks(current, next) ? next : layoutNodes(next, edges);
-    });
+    setEdges(toFlowEdges(racks, jacks, patches, rootId));
+    setNodes((current) =>
+      syncNodesFromRack(current, racks, jacks, paramGroups, rootId),
+    );
   }, [setNodes, setEdges, racks, jacks, paramGroups, patches, rootId]);
 
   return null;

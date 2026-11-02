@@ -19,11 +19,6 @@ export const jackIds = (connection: Connection | Edge) =>
     ? undefined
     : ([connection.sourceHandle, connection.targetHandle] as const);
 
-export const sameBlocks = (
-  a: readonly CanvasNode[],
-  b: readonly CanvasNode[],
-) => a.length === b.length && a.every((node, i) => node.id === b[i]?.id);
-
 const hasParams = (group: ParamGroup | undefined): boolean =>
   group !== undefined &&
   ((group.params?.length ?? 0) > 0 ||

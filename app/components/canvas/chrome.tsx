@@ -6,15 +6,15 @@ import { ViewportControls } from "./viewport-controls";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./lock-store";
 import { useStore } from "../../stores";
+import type { TreeRack } from "../../rack/model";
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
-  const addRack = useStore((state) => state.rack.addRack);
-  const addBlock = useStore((state) => state.rack.addBlock);
   const addRackFromCatalogue = useStore(
     (state) => state.rack.addRackFromCatalogue,
   );
+  const addRack = useStore((state) => state.rack.addRack);
   const rootId = useStore((state) => state.rack.rootId);
   const removeBlocks = useStore((state) => state.rack.removeRacks);
   const removePatches = useStore((state) => state.rack.removePatches);
@@ -28,8 +28,24 @@ export function CanvasChrome() {
   );
   const canDelete = !locked && hasSelection;
 
-  const addLeaf = () => addBlock("leaf", rootId);
-  const addGroup = () => addBlock("tree", rootId);
+  const addLeaf = () => {};
+  // A new tree has no jacks, params, methods or events, so the rack itself is
+  // all there is to add.
+  const addTree = () => {
+    const tree: TreeRack = {
+      id: crypto.randomUUID(),
+      name: "Group",
+      type: "tree",
+      isRoot: false,
+      parentId: rootId,
+      jackIds: [],
+      methodIds: [],
+      eventIds: [],
+      children: [],
+      patches: [],
+    };
+    addRack(tree, rootId);
+  };
 
   // The rack only models leaves and trees so far, so each typed tool adds the
   // closest of the two until its own block type lands in the store.
@@ -37,7 +53,7 @@ export function CanvasChrome() {
   const addInstrument = () =>
     addRackFromCatalogue("instruments", "AMSynth", rootId);
   const addEffect = addLeaf;
-  const addComponent = addGroup;
+  const addComponent = addTree;
   const addSignal = addLeaf;
   const addEvent = addLeaf;
   const addDestination = () =>
@@ -58,7 +74,7 @@ export function CanvasChrome() {
   };
 
   useShortcuts({
-    g: addGroup,
+    g: addTree,
     s: addSource,
     i: addInstrument,
     e: addEffect,
@@ -79,7 +95,7 @@ export function CanvasChrome() {
         className="@max-2xl/canvas:top-18"
         locked={locked}
         onToggleLock={toggleLock}
-        onAddGroup={addGroup}
+        onAddGroup={addTree}
         onAddSource={addSource}
         onAddInstrument={addInstrument}
         onAddEffect={addEffect}
