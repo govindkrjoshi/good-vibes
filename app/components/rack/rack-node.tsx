@@ -1,4 +1,4 @@
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import type { NodeProps } from "@xyflow/react";
 import { ChevronRight, Piano } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { cn } from "cn";
@@ -15,6 +15,7 @@ import {
   CollapsibleTrigger,
 } from "../ui/collapsible";
 import { Separator } from "../ui/separator";
+import { JackBay } from "../canvas/jack-bay";
 import { EnvelopeCurve } from "./envelope-curve";
 import { EventEditor, EventRow } from "./event-editor";
 import { ParamControl } from "./param-control";
@@ -57,26 +58,18 @@ export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
       data-testid="rack-node"
       style={{ width: rackNodeWidth }}
       className={cn(
-        "gap-0 py-0 transition-shadow",
+        "gap-0 overflow-visible py-0 transition-shadow",
         selected ? "ring-2 ring-ring" : "shadow-sm",
       )}
     >
-      {data.jacks.map((jack) => (
-        <Handle
-          key={jack.id}
-          id={jack.id}
-          type={jack.direction === "in" ? "target" : "source"}
-          position={jack.direction === "in" ? Position.Left : Position.Right}
-          style={{ top: 22 }}
-        />
-      ))}
-
-      <CardHeader className="flex h-11 cursor-grab flex-row items-center gap-2 border-b active:cursor-grabbing">
+      <CardHeader className="flex h-11 cursor-grab flex-row items-center gap-2 not-last:border-b active:cursor-grabbing">
         <Piano aria-hidden className="size-4 shrink-0 text-muted-foreground" />
         <CardTitle as="h2" className="truncate">
           {data.name}
         </CardTitle>
       </CardHeader>
+
+      <JackBay jacks={data.jacks} />
 
       <CardContent className="nodrag cursor-default px-0">
         {paramGroup === undefined ? null : <ParamPanel group={paramGroup} />}

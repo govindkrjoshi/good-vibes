@@ -41,7 +41,7 @@ test("adds a destination that only takes input", async ({ page }) => {
   await page.getByTestId("add-destination").click();
 
   const destination = blocks(page);
-  await expect(destination).toHaveText("Destination");
+  await expect(destination.getByRole("heading")).toHaveText("Destination");
   await expect(destination.locator("[data-handleid$=':in']")).toHaveCount(1);
   await expect(destination.locator("[data-handleid$=':out']")).toHaveCount(0);
 });

@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "vitest";
 import { Effect } from "effect";
 import { useStore } from ".";
 import { catalogue } from "../catalogue";
-import { makeBlock } from "../rack/model";
+import { makeBlock, type Rack } from "../rack/model";
 
 const initial = useStore.getState();
 const store = () => useStore.getState().rack;
@@ -322,4 +322,114 @@ test("resets to an empty root tree", () => {
   expect(Object.keys(store().racks)).toEqual(["root"]);
   expect(children("root")).toEqual([]);
   expect(store().patches).toEqual({});
+});
+
+const tree = (id: string): Rack => ({
+  ...makeBlock(id, "root", "tree"),
+  jackIds: [],
+});
+
+test("moves a rack into a tree and back out", () => {
+  store().addRack(tree("t"), "root");
+  store().addRack(makeBlock("a", "root", "leaf"), "root");
+
+  store().moveRack("a", "t");
+  expect(children("root")).toEqual(["t"]);
+  expect(children("t")).toEqual(["a"]);
+  expect(store().racks.a?.parentId).toBe("t");
+
+  store().moveRack("a", "root");
+  expect(children("root")).toEqual(["t", "a"]);
+  expect(children("t")).toEqual([]);
+  expect(store().racks.a?.parentId).toBe("root");
+});
+
+test("moving a rack to the parent it has changes nothing", () => {
+  store().addRack(makeBlock("a", "root", "leaf"), "root");
+
+  store().moveRack("a", "root");
+
+  expect(children("root")).toEqual(["a"]);
+  expect(store().errors).toEqual([]);
+});
+
+test.each([
+  ["the root", "root", "t"],
+  ["a tree into itself", "t", "t"],
+  ["a tree into one inside it", "t", "inner"],
+  ["a rack into a leaf", "t", "a"],
+  ["a rack that doesn't exist", "ghost", "t"],
+])("won't move %s", (_name, rackId, parentId) => {
+  store().addRack(tree("t"), "root");
+  store().addRack(tree("inner"), "t");
+  store().addRack(makeBlock("a", "root", "leaf"), "root");
+  const before = store().racks;
+
+  store().moveRack(rackId, parentId);
+
+  expect(store().racks).toEqual(before);
+  expect(store().errors).toEqual([`${rackId} can't be moved to ${parentId}`]);
+});
+
+test("adds numbered jacks to a tree", () => {
+  store().addRack(tree("t"), "root");
+
+  store().addJack("t", "in");
+  store().addJack("t", "in");
+  store().addJack("t", "out");
+
+  const jacks = store().racks.t?.jackIds.map((id) => store().jacks[id]);
+  expect(jacks?.map((jack) => [jack?.name, jack?.direction])).toEqual([
+    ["In 1", "in"],
+    ["In 2", "in"],
+    ["Out 1", "out"],
+  ]);
+  expect(jacks?.every((jack) => jack?.belongToBlockId === "t")).toBe(true);
+});
+
+test("reuses the number of a removed jack", () => {
+  store().addRack(tree("t"), "root");
+  store().addJack("t", "in");
+  store().addJack("t", "in");
+  const [first = ""] = store().racks.t?.jackIds ?? [];
+
+  store().removeJack(first);
+  store().addJack("t", "in");
+
+  expect(store().racks.t?.jackIds.map((id) => store().jacks[id]?.name)).toEqual(
+    ["In 2", "In 1"],
+  );
+});
+
+test("removes a jack with the patches wired to it", () => {
+  store().addRack(tree("t"), "root");
+  store().addJack("t", "out");
+  store().addJack("t", "out");
+  const [jackId = "", other = ""] = store().racks.t?.jackIds ?? [];
+  const wired = { id: "p", name: "p", from: jackId, to: "x:in" };
+  const spared = { id: "q", name: "q", from: other, to: "x:in" };
+  useStore.setState((state) => {
+    state.rack.patches = { p: wired, q: spared };
+    const root = state.rack.racks.root;
+    if (root?.type === "tree") root.patches = ["p", "q"];
+  });
+
+  store().removeJack(jackId);
+
+  expect(store().jacks[jackId]).toBeUndefined();
+  expect(store().racks.t?.jackIds).toEqual([other]);
+  expect(Object.keys(store().patches)).toEqual(["q"]);
+  expect(patchesOf("root")).toEqual(["q"]);
+});
+
+test("won't change the jacks of a leaf", () => {
+  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  const before = store().racks.D?.jackIds;
+
+  store().addJack("D", "in");
+  store().removeJack("D:in");
+
+  expect(store().racks.D?.jackIds).toEqual(before);
+  expect(store().jacks["D:in"]).toBeDefined();
+  expect(store().errors).toHaveLength(2);
 });

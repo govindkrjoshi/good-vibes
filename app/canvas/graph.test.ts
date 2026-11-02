@@ -1,7 +1,9 @@
 import { expect, test } from "vitest";
 import {
+  fitTrees,
   syncNodesFromRack,
   toFlowEdges,
+  treeAt,
   type BlockNodeType as BlockNode,
   type CanvasNode,
 } from ".";
@@ -54,7 +56,7 @@ const held = (id: string, overrides: Partial<BlockNode> = {}): BlockNode => ({
   position: { x: 100, y: 200 },
   measured: { width: 176, height: 44 },
   selected: true,
-  data: { name: "stale", kind: "leaf", jacks: [] },
+  data: { name: "stale", jacks: [] },
   ...overrides,
 });
 
@@ -69,10 +71,7 @@ test("gives every block under the root a node", () => {
   const nodes = sync(rack([leaf, group]));
 
   expect(nodes.map((flow) => flow.id)).toEqual(["a", "b"]);
-  expect(
-    nodes.map((flow) => (flow.type === "block" ? flow.data.kind : undefined)),
-  ).toEqual(["leaf", "tree"]);
-  expect(nodes.every((flow) => flow.type === "block")).toBe(true);
+  expect(nodes.map((flow) => flow.type)).toEqual(["block", "tree"]);
 });
 
 test("starts a new block at the origin", () => {
@@ -271,4 +270,158 @@ test("gives a block whose param group holds params a panel of controls", () => {
 
   expect(box.type).toBe("block");
   expect(panel.type).toBe("rack");
+});
+
+const nested = () => {
+  const tree = {
+    ...makeBlock("t", "root", "tree"),
+    children: ["a"],
+  } as Rack;
+  const leaf = makeBlock("a", "t", "leaf");
+  return {
+    root: { ...rootRack, children: ["t"] },
+    t: tree,
+    a: leaf,
+  };
+};
+
+test("draws a rack inside a tree after the tree, as its child", () => {
+  const nodes = sync(nested());
+
+  expect(nodes.map((node) => [node.id, node.parentId])).toEqual([
+    ["t", undefined],
+    ["a", "t"],
+  ]);
+});
+
+test("gives a tree the room to hold racks and counts what it holds", () => {
+  const [tree] = sync(nested());
+
+  expect(tree?.width).toBe(420);
+  expect(tree?.height).toBe(280);
+  expect(tree?.type === "tree" && tree.data.childCount).toBe(1);
+});
+
+test("keeps a rack in place on the canvas when it moves into a tree", () => {
+  const tree = sync(nested())[0] as CanvasNode;
+  const nodes = sync(nested(), [
+    { ...tree, position: { x: 50, y: 60 } },
+    held("a", { position: { x: 150, y: 200 } }),
+  ]);
+
+  expect(nodes[1]?.position).toEqual({ x: 100, y: 140 });
+});
+
+test("keeps a rack in place on the canvas when it moves out of a tree", () => {
+  const tree = sync(nested())[0] as CanvasNode;
+  const blocks = {
+    root: { ...rootRack, children: ["t", "a"] },
+    t: { ...nested().t, children: [] } as Rack,
+    a: makeBlock("a", "root", "leaf"),
+  };
+  const nodes = sync(blocks, [
+    { ...tree, position: { x: 50, y: 60 } },
+    held("a", { parentId: "t", position: { x: 100, y: 140 } }),
+  ]);
+
+  expect(nodes[1]?.position).toEqual({ x: 150, y: 200 });
+  expect(nodes[1]?.parentId).toBeUndefined();
+});
+
+test("grows a tree around its children but never shrinks it", () => {
+  const tree = sync(nested())[0] as CanvasNode;
+  const child = held("a", {
+    parentId: "t",
+    position: { x: 400, y: 100 },
+    measured: { width: 100, height: 20 },
+  });
+
+  const [fitted] = fitTrees([tree, child]);
+
+  expect(fitted?.width).toBe(524);
+  expect(fitted?.height).toBe(280);
+});
+
+test("keeps children clear of a tree's edges and header", () => {
+  const tree = sync(nested())[0] as CanvasNode;
+  const child = held("a", { parentId: "t", position: { x: -10, y: 5 } });
+
+  expect(fitTrees([tree, child])[1]?.position).toEqual({ x: 24, y: 56 });
+});
+
+test("grows a tree around a nested tree that grew", () => {
+  const outer = sync(nested())[0] as CanvasNode;
+  const inner = {
+    ...outer,
+    id: "inner",
+    parentId: "t",
+    position: { x: 24, y: 56 },
+  };
+  const leaf = held("a", {
+    parentId: "inner",
+    position: { x: 500, y: 56 },
+    measured: { width: 100, height: 20 },
+  });
+
+  const [fittedOuter, fittedInner] = fitTrees([outer, inner, leaf]);
+
+  expect(fittedInner?.width).toBe(624);
+  expect(fittedOuter?.width).toBe(672);
+});
+
+test("finds the innermost tree under a point", () => {
+  const outer = sync(nested())[0] as CanvasNode;
+  const inner = {
+    ...outer,
+    id: "inner",
+    parentId: "t",
+    position: { x: 24, y: 56 },
+  };
+  const nodes = [outer, inner];
+
+  expect(treeAt(nodes, { x: 30, y: 60 }, {}, [])).toBe("inner");
+  expect(treeAt(nodes, { x: 10, y: 10 }, {}, [])).toBe("t");
+  expect(treeAt(nodes, { x: 900, y: 10 }, {}, [])).toBeUndefined();
+});
+
+test("won't drop a tree into itself or a tree inside it", () => {
+  const outer = sync(nested())[0] as CanvasNode;
+  const inner = {
+    ...outer,
+    id: "inner",
+    parentId: "t",
+    position: { x: 24, y: 56 },
+  };
+  const racks = {
+    t: makeBlock("t", "root", "tree"),
+    inner: makeBlock("inner", "t", "tree"),
+  };
+
+  expect(
+    treeAt([outer, inner], { x: 30, y: 60 }, racks, ["t"]),
+  ).toBeUndefined();
+});
+
+test("grows a tree to list its jacks", () => {
+  const tree = sync(nested())[0] as CanvasNode;
+  const jacks = Array.from({ length: 12 }, (_, i) => jack(`j${i}`, "t", "in"));
+
+  const [fitted] = fitTrees([
+    { ...tree, data: { name: "Group", jacks, childCount: 0 } } as CanvasNode,
+  ]);
+
+  expect(fitted?.height).toBe(56 + 12 * 28);
+});
+
+test("keeps children below a tree's jacks", () => {
+  const tree = sync(nested())[0] as CanvasNode;
+  const jacks = [jack("j", "t", "in"), jack("k", "t", "in")];
+  const child = held("a", { parentId: "t", position: { x: 30, y: 60 } });
+
+  const fitted = fitTrees([
+    { ...tree, data: { name: "Group", jacks, childCount: 1 } } as CanvasNode,
+    child,
+  ]);
+
+  expect(fitted[1]?.position).toEqual({ x: 30, y: 56 + 2 * 28 });
 });

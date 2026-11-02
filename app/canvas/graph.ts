@@ -1,14 +1,28 @@
 import type { Connection, Edge, XYPosition } from "@xyflow/react";
 import {
   canPatch,
+  isInside,
   type Jack,
   type ParamGroup,
   type Patch,
   type Rack,
 } from "../rack";
-import type { CanvasNode } from "./nodes";
+import {
+  treeHeaderHeight,
+  treeInset,
+  treeJackRowHeight,
+  treeNodeHeight,
+  treeNodeWidth,
+  type CanvasNode,
+  type TreeNodeData,
+} from "./nodes";
 
 const origin: XYPosition = { x: 0, y: 0 };
+
+const subtract = (a: XYPosition, b: XYPosition): XYPosition => ({
+  x: a.x - b.x,
+  y: a.y - b.y,
+});
 
 // The two jacks a React Flow connection or edge joins, when it names both.
 export const jackIds = (connection: Connection | Edge) =>
@@ -31,6 +45,87 @@ const hasControls = (block: Rack, paramGroups: Record<string, ParamGroup>) =>
   (block.paramGroupId !== undefined &&
     hasParams(paramGroups[block.paramGroupId]));
 
+const nodeWidth = (node: CanvasNode) => node.width ?? node.measured?.width ?? 0;
+const nodeHeight = (node: CanvasNode) =>
+  node.height ?? node.measured?.height ?? 0;
+
+// React Flow keeps a child's position relative to its parent.
+const absolutePosition = (
+  id: string | undefined,
+  nodes: ReadonlyMap<string, CanvasNode>,
+): XYPosition => {
+  const node = id === undefined ? undefined : nodes.get(id);
+  if (node === undefined) return origin;
+  const parent = absolutePosition(node.parentId, nodes);
+  return { x: node.position.x + parent.x, y: node.position.y + parent.y };
+};
+
+// A tree's jacks sit in a band under its header, as tall as its longer side.
+const jacksHeight = ({ jacks }: TreeNodeData) => {
+  const inputs = jacks.filter((jack) => jack.direction === "in").length;
+  const rows = Math.max(inputs, jacks.length - inputs);
+  return treeHeaderHeight + rows * treeJackRowHeight;
+};
+
+// Keeps each tree's children clear of its edges, header and jacks, and grows the tree
+// around them and its jacks. A tree never shrinks by itself. Nodes come parents first, so
+// walking them backwards fits a nested tree before the one holding it.
+export const fitTrees = (nodes: readonly CanvasNode[]): CanvasNode[] => {
+  const fitted = new Map(nodes.map((node) => [node.id, node]));
+
+  for (const { id, type } of nodes.toReversed()) {
+    const tree = fitted.get(id);
+    if (type !== "tree" || tree?.type !== "tree") continue;
+
+    let width = nodeWidth(tree);
+    let height = Math.max(nodeHeight(tree), jacksHeight(tree.data));
+    for (const { id: childId, parentId } of nodes) {
+      const child = fitted.get(childId);
+      if (parentId !== id || child === undefined) continue;
+
+      const x = Math.max(child.position.x, treeInset);
+      const y = Math.max(child.position.y, jacksHeight(tree.data));
+      if (x !== child.position.x || y !== child.position.y) {
+        fitted.set(childId, { ...child, position: { x, y } });
+      }
+      width = Math.max(width, x + nodeWidth(child) + treeInset);
+      height = Math.max(height, y + nodeHeight(child) + treeInset);
+    }
+    if (width !== nodeWidth(tree) || height !== nodeHeight(tree)) {
+      fitted.set(id, { ...tree, width, height });
+    }
+  }
+
+  return nodes.flatMap((node) => fitted.get(node.id) ?? []);
+};
+
+// The innermost tree under a point that the dragged racks can go into: not one
+// of them, and not inside one of them.
+export const treeAt = (
+  nodes: readonly CanvasNode[],
+  point: XYPosition,
+  racks: Readonly<Record<string, Rack>>,
+  draggedIds: readonly string[],
+): string | undefined => {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+
+  return nodes.findLast((node) => {
+    if (
+      node.type !== "tree" ||
+      draggedIds.some((id) => id === node.id || isInside(racks, node.id, id))
+    ) {
+      return false;
+    }
+    const { x, y } = absolutePosition(node.id, byId);
+    return (
+      point.x >= x &&
+      point.x <= x + nodeWidth(node) &&
+      point.y >= y &&
+      point.y <= y + nodeHeight(node)
+    );
+  })?.id;
+};
+
 export const syncNodesFromRack = (
   currentNodes: readonly CanvasNode[],
   blocks: Record<string, Rack>,
@@ -38,32 +133,68 @@ export const syncNodesFromRack = (
   paramGroups: Record<string, ParamGroup>,
   rootId: string,
 ): CanvasNode[] => {
-  const root = blocks[rootId];
-  if (root === undefined || root.type !== "tree") return [];
-
   const held = new Map(currentNodes.map((node) => [node.id, node]));
 
-  return root.children.flatMap((id): CanvasNode[] => {
-    const block = blocks[id];
-    if (block === undefined) return [];
+  // Parents go before their children, as React Flow requires.
+  const nodesUnder = (treeId: string): CanvasNode[] => {
+    const tree = blocks[treeId];
+    if (tree === undefined || tree.type !== "tree") return [];
 
-    const blockJacks = block.jackIds.flatMap((jackId) => jacks[jackId] ?? []);
-    const base = held.get(id) ?? { id: block.id, position: origin };
+    const parentId = treeId === rootId ? undefined : treeId;
 
-    return [
-      hasControls(block, paramGroups)
-        ? {
-            ...base,
-            type: "rack",
-            data: { blockId: block.id, name: block.name, jacks: blockJacks },
-          }
-        : {
-            ...base,
-            type: "block",
-            data: { name: block.name, kind: block.type, jacks: blockJacks },
+    return tree.children.flatMap((id): CanvasNode[] => {
+      const block = blocks[id];
+      if (block === undefined) return [];
+
+      const blockJacks = block.jackIds.flatMap((jackId) => jacks[jackId] ?? []);
+      const current = held.get(id);
+      const base = current ?? { id: block.id, position: origin };
+      // A rack changing parents stays where it is on the canvas.
+      const position =
+        current === undefined || current.parentId === parentId
+          ? base.position
+          : subtract(
+              absolutePosition(id, held),
+              absolutePosition(parentId, held),
+            );
+      const placed = { ...base, position, parentId };
+
+      if (block.type === "tree") {
+        return [
+          {
+            width: treeNodeWidth,
+            height: treeNodeHeight,
+            // Behind other racks, so a new tree doesn't cover them.
+            zIndex: -1,
+            ...placed,
+            type: "tree",
+            data: {
+              name: block.name,
+              jacks: blockJacks,
+              childCount: block.children.length,
+            },
           },
-    ];
-  });
+          ...nodesUnder(id),
+        ];
+      }
+
+      return [
+        hasControls(block, paramGroups)
+          ? {
+              ...placed,
+              type: "rack",
+              data: { blockId: block.id, name: block.name, jacks: blockJacks },
+            }
+          : {
+              ...placed,
+              type: "block",
+              data: { name: block.name, jacks: blockJacks },
+            },
+      ];
+    });
+  };
+
+  return fitTrees(nodesUnder(rootId));
 };
 
 export const toFlowEdges = (

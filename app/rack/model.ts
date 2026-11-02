@@ -357,6 +357,19 @@ export const canPatch = (root: TreeBlock, from: Jack, to: Jack): boolean =>
   root.children.includes(from.belongToBlockId) &&
   root.children.includes(to.belongToBlockId);
 
+// Whether a rack sits somewhere under another rack, however deep.
+export const isInside = (
+  racks: Readonly<Record<string, Rack>>,
+  rackId: string,
+  ancestorId: string,
+): boolean => {
+  const parentId = racks[rackId]?.parentId;
+  return (
+    parentId !== undefined &&
+    (parentId === ancestorId || isInside(racks, parentId, ancestorId))
+  );
+};
+
 export const makeBlock = (
   id: string,
   parentId: string,

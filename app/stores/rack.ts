@@ -5,6 +5,7 @@ import type { CatalogueItem } from "../catalogue";
 import {
   canPatch,
   flattenParams,
+  isInside,
   rackParams,
   rootRack,
   type AutomationEvent,
@@ -33,6 +34,9 @@ type Actions = {
     parentId: string,
     id?: string,
   ) => void;
+  readonly moveRack: (rackId: string, parentId: string) => void;
+  readonly addJack: (rackId: string, direction: Jack["direction"]) => void;
+  readonly removeJack: (jackId: string) => void;
   readonly canConnectJacks: (fromJackId: string, toJackId: string) => boolean;
   readonly connectJacks: (fromJackId: string, toJackId: string) => void;
   readonly removeRacks: (rackIds: readonly string[]) => void;
@@ -140,6 +144,93 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       },
       false,
       "rack/addRack",
+    ),
+  // Patches stay as they are: they are not modelled across trees yet.
+  moveRack: (rackId, parentId) =>
+    set(
+      (state) => {
+        const { racks } = state.rack;
+        const rack = racks[rackId];
+        const parent = racks[parentId];
+        if (
+          rack === undefined ||
+          rack.isRoot ||
+          parent?.type !== "tree" ||
+          rackId === parentId ||
+          isInside(racks as Record<string, Rack>, parentId, rackId)
+        ) {
+          state.rack.errors.push(`${rackId} can't be moved to ${parentId}`);
+          return;
+        }
+        if (rack.parentId === parentId) return;
+
+        const held =
+          rack.parentId === undefined ? undefined : racks[rack.parentId];
+        if (held?.type === "tree") {
+          held.children = held.children.filter((id) => id !== rackId);
+        }
+        rack.parentId = parentId;
+        parent.children.push(rackId);
+      },
+      false,
+      "rack/moveRack",
+    ),
+  // Only a tree's jacks are the user's to change: a leaf's are what its code has.
+  addJack: (rackId, direction) =>
+    set(
+      (state) => {
+        const rack = state.rack.racks[rackId];
+        if (rack?.type !== "tree") {
+          state.rack.errors.push(
+            `${rackId} is not a tree rack, so its jacks can't change`,
+          );
+          return;
+        }
+        const label = direction === "in" ? "In" : "Out";
+        const taken = new Set(
+          rack.jackIds.map((id) => state.rack.jacks[id]?.name),
+        );
+        let number = 1;
+        while (taken.has(`${label} ${number}`)) number += 1;
+
+        const id = `${rackId}:${direction}:${crypto.randomUUID()}`;
+        state.rack.jacks[id] = {
+          id,
+          name: `${label} ${number}`,
+          belongToBlockId: rackId,
+          direction,
+        };
+        rack.jackIds.push(id);
+      },
+      false,
+      "rack/addJack",
+    ),
+  // Every patch to the jack goes with it.
+  removeJack: (jackId) =>
+    set(
+      (state) => {
+        const { jacks, patches, racks } = state.rack;
+        const jack = jacks[jackId];
+        const rack = jack && racks[jack.belongToBlockId];
+        if (rack?.type !== "tree") {
+          state.rack.errors.push(`${jackId} is not a jack on a tree rack`);
+          return;
+        }
+        rack.jackIds = rack.jackIds.filter((id) => id !== jackId);
+        delete jacks[jackId];
+
+        const gone = Object.values(patches)
+          .filter((patch) => patch.from === jackId || patch.to === jackId)
+          .map((patch) => patch.id);
+        for (const id of gone) delete patches[id];
+        for (const held of Object.values(racks)) {
+          if (held.type === "tree") {
+            held.patches = held.patches.filter((id) => !gone.includes(id));
+          }
+        }
+      },
+      false,
+      "rack/removeJack",
     ),
   canConnectJacks: (_fromJackId, _toJackId) => false,
   connectJacks: (_fromJackId, _toJackId) =>
