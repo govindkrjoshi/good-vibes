@@ -2,7 +2,9 @@ import {
   KeyRound,
   PanelLeftClose,
   PanelLeftOpen,
+  Play,
   Settings,
+  Square,
   UserRound,
 } from "lucide-react";
 import { cn } from "cn";
@@ -36,6 +38,7 @@ export function TopBar({
   readonly className?: string;
 }) {
   const bpm = useStore((state) => state.rack.transport.bpm);
+  const playing = useStore((state) => state.rack.transport.playing);
   const setTransport = useStore((state) => state.rack.setTransport);
   const { changeKey } = useGoodVibesAgent();
 
@@ -70,6 +73,18 @@ export function TopBar({
         aria-label="Transport"
         className="flex items-center gap-2"
       >
+        <Hint label={playing ? "Stop" : "Play"}>
+          <Button
+            variant="ghost"
+            size="icon"
+            data-testid="run-rack"
+            aria-label={playing ? "Stop" : "Play"}
+            aria-pressed={playing}
+            onClick={() => setTransport({ playing: !playing })}
+          >
+            {playing ? <Square /> : <Play />}
+          </Button>
+        </Hint>
         <div className="flex items-center gap-2">
           <Label htmlFor="transport-bpm" className="max-sm:sr-only">
             BPM

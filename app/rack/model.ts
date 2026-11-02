@@ -1,24 +1,5 @@
-import { Context, Data, Effect, Schema } from "effect";
-import type * as ToneJs from "tone";
+import { Schema } from "effect";
 import { inputJack, outputJack } from "../catalogue/common";
-
-type ToneNode = ToneJs.ToneAudioNode;
-
-// What leaf code renders with, handed to it as a service. `tone` is the
-// Tone.js module: the browser provides the real module; tests provide the
-// same module running on a node audio context.
-export class RenderContext extends Context.Service<
-  RenderContext,
-  { readonly tone: typeof ToneJs }
->()("RenderContext") {}
-
-export class LeafError extends Data.TaggedError("LeafError")<{
-  readonly message: string;
-}> {}
-
-// What a leaf block runs to make its Tone.js node. Param values are applied
-// by the renderer afterwards, so the code only has to construct the node.
-export type LeafCode = Effect.Effect<ToneNode, LeafError, RenderContext>;
 
 const JackSchema = Schema.Struct({
   id: Schema.String,
@@ -123,13 +104,9 @@ const ParamGroupSchema: Schema.Codec<ParamGroup> = Schema.Struct({
   ),
 });
 
-const CodeSchema = Schema.declare(
-  (input): input is LeafCode => Effect.isEffect(input),
-  {
-    title: "Code",
-    description: "The Effect that builds a leaf's Tone.js node",
-  },
-);
+// The source of the Effect that builds a leaf's Tone.js node. It stays text so
+// the rack can cross into the sandbox, which evals it. See rack/renderer.ts.
+const CodeSchema = Schema.String;
 
 const MethodArgKindSchema = Schema.Literals([
   "boolean",
@@ -258,7 +235,10 @@ const RackEventSchema = Schema.Union([
 
 export const isRackEvent = Schema.is(RackEventSchema);
 
-const TransportSchema = Schema.Struct({ bpm: Schema.Number });
+const TransportSchema = Schema.Struct({
+  bpm: Schema.Number,
+  playing: Schema.Boolean,
+});
 
 export type Rack = Schema.Schema.Type<typeof RackSchema>;
 export type LeafRack = Schema.Schema.Type<typeof LeafRack>;
@@ -426,7 +406,7 @@ export const makeBlock = (
         type: "leaf",
         // A new leaf has no Tone.js node until the editor gives it code, so
         // rendering it fails rather than silently producing nothing.
-        code: Effect.fail(new LeafError({ message: "Leaf has no code" })),
+        code: `Effect.fail(new LeafError({ message: "Leaf has no code" }))`,
       });
 };
 

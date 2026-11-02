@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import { RenderContext, type ParamGroup, type Jack } from "../../rack/model";
+import { type ParamGroup, type Jack } from "../../rack/model";
 import { byId, inputJack, outputJack, type CatalogueItem } from "../common";
 
 const name: string = "AMOscillator";
@@ -24,10 +23,10 @@ export const item: CatalogueItem = {
     isRoot: false,
     // An oscillator makes no sound until started, and has no trigger
     // method to start it later, so it runs from the moment it is built.
-    code: Effect.gen(function* () {
+    code: `Effect.gen(function* () {
       const { tone } = yield* RenderContext;
       return new tone.AMOscillator().start();
-    }),
+    })`,
   },
   paramGroup,
   methods: {},

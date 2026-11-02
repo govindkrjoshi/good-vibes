@@ -1,5 +1,4 @@
 import { beforeEach, expect, test } from "vitest";
-import { Effect } from "effect";
 import { useStore } from ".";
 import { catalogue } from "../catalogue";
 import { makeBlock, type Rack } from "../rack/model";
@@ -68,11 +67,11 @@ test("gives a new block an input and an output jack", () => {
   expect(Object.keys(store().jacks)).toEqual([`${id}:in`, `${id}:out`]);
 });
 
-test("gives a new leaf code that is an Effect", () => {
-  store().addBlock("leaf", "root");
-  const leaf = store().racks[children("root")?.[0] ?? ""];
+test("gives a new leaf code that fails when it runs", () => {
+  store().addRack(makeBlock("leaf", "root", "leaf"), "root");
+  const leaf = store().racks.leaf;
 
-  expect(leaf?.type === "leaf" && Effect.isEffect(leaf.code)).toBe(true);
+  expect(leaf?.type === "leaf" && leaf.code).toContain("Effect.fail");
 });
 
 test("adds a catalogue item with everything it owns", () => {
@@ -310,7 +309,7 @@ test("removes an event from the store and its rack", () => {
 test("sets the tempo", () => {
   store().setTransport({ bpm: 90 });
 
-  expect(store().transport).toEqual({ bpm: 90 });
+  expect(store().transport).toEqual({ bpm: 90, playing: false });
 });
 
 test("resets to an empty root tree", () => {

@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import { RenderContext, type ParamGroup, type Jack } from "../../rack/model";
+import { type ParamGroup, type Jack } from "../../rack/model";
 import { byId, inputJack, type CatalogueItem } from "../common";
 
 const name: string = "Destination";
@@ -23,10 +22,10 @@ export const item: CatalogueItem = {
     eventIds: [],
     methodIds: [],
     isRoot: false,
-    code: Effect.gen(function* () {
+    code: `Effect.gen(function* () {
       const { tone } = yield* RenderContext;
       return tone.getDestination();
-    }),
+    })`,
   },
   paramGroup,
   methods: {},

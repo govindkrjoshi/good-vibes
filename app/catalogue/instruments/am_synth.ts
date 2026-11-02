@@ -1,6 +1,4 @@
-import { Effect } from "effect";
 import {
-  RenderContext,
   type ParamGroup,
   type Method,
   type RackEvent,
@@ -136,10 +134,10 @@ export const item: CatalogueItem = {
     eventIds: events.map((i) => i.id),
     methodIds: methods.map((i) => i.id),
     isRoot: false,
-    code: Effect.gen(function* () {
+    code: `Effect.gen(function* () {
       const { tone } = yield* RenderContext;
       return new tone.AMSynth();
-    }),
+    })`,
   },
   paramGroup: paramGroup,
   methods: byId(methods),

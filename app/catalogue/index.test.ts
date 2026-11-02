@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
+import { Effect } from "effect";
 import { catalogue } from ".";
+import { evalLeafCode } from "../rack/renderer";
 
 test("files every item under its category and name", () => {
   expect(
@@ -18,7 +20,18 @@ test("files every item under its category and name", () => {
   }
 });
 
-// Every string in plain data, skipping anything else, like a rack's code.
+// Text can't be typechecked, so this is what catches a typo in a rack's code.
+test("gives every leaf code that evals to an Effect", () => {
+  for (const items of Object.values(catalogue)) {
+    for (const { rack } of Object.values(items)) {
+      if (rack.type === "leaf") {
+        expect(Effect.isEffect(evalLeafCode(rack.code))).toBe(true);
+      }
+    }
+  }
+});
+
+// Every string in plain data.
 const strings = (value: unknown): string[] => {
   if (typeof value === "string") return [value];
   if (Array.isArray(value)) return value.flatMap(strings);

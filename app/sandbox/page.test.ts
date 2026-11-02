@@ -14,10 +14,17 @@ test("serves the sandbox with security headers", async () => {
   expect(html).toContain('window.origin !== "null"');
 });
 
-test("grants the sandbox no eval, blob or worker privileges", async () => {
+test("inlines the runtime without closing its own script tag", async () => {
+  const html = await sandboxResponse().text();
+
+  expect(html.match(/<\/script>/g)).toHaveLength(3);
+  expect(html.indexOf("window.Worker")).toBeLessThan(html.indexOf("AMSynth"));
+});
+
+test("grants the sandbox eval, for rack code, but no blob or worker privileges", async () => {
   const csp = sandboxResponse().headers.get("Content-Security-Policy") ?? "";
 
-  expect(csp).not.toContain("unsafe-eval");
+  expect(csp).toContain("'unsafe-eval'");
   expect(csp).not.toContain("blob:");
   expect(csp).not.toContain("worker-src");
 });

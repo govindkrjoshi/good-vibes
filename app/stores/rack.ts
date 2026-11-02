@@ -61,7 +61,8 @@ type Actions = {
     settings: Partial<EventSettings>,
   ) => void;
   readonly removeEvent: (eventId: string) => void;
-  readonly setTransport: (transport: Transport) => void;
+  readonly setTransport: (transport: Partial<Transport>) => void;
+  readonly reportError: (message: string) => void;
   readonly reset: () => void;
 };
 
@@ -76,14 +77,14 @@ const initialState: State = {
   automations: {},
   patches: {},
   events: {},
-  transport: { bpm: 120 },
+  transport: { bpm: 120, playing: false },
   rootId: "root",
   errors: [],
 };
 
 // Every id a catalogue item owns starts with its rack's id, so swapping that
-// prefix gives a copy that can sit beside other copies of the same item. Only
-// plain objects and arrays are walked, which leaves the rack's code alone.
+// prefix gives a copy that can sit beside other copies of the same item. A
+// rack's code is text that never starts with an id, so it stays as written.
 const rekey = (value: unknown, from: string, to: string): unknown => {
   if (typeof value === "string") {
     return value === from || value.startsWith(`${from}:`)
@@ -382,13 +383,21 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       false,
       "rack/removeEvent",
     ),
-  setTransport: ({ bpm }) =>
+  setTransport: (transport) =>
     set(
       (state) => {
-        state.rack.transport = { bpm };
+        Object.assign(state.rack.transport, transport);
       },
       false,
       "rack/setTransport",
+    ),
+  reportError: (message) =>
+    set(
+      (state) => {
+        state.rack.errors.push(message);
+      },
+      false,
+      "rack/reportError",
     ),
   addRackFromCatalogue: (
     category,
