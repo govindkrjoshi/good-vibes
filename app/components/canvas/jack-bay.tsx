@@ -7,7 +7,8 @@ import {
 } from "@xyflow/react";
 import { X } from "lucide-react";
 import { cn } from "cn";
-import { treeJackRowHeight } from "../../canvas";
+import { useCanvasStore } from "./lock-store";
+import { insideHandleId, treeJackRowHeight } from "../../canvas";
 import type { Jack } from "../../rack";
 
 type RemoveProps = {
@@ -17,17 +18,31 @@ type RemoveProps = {
 
 const rowStyle = { height: treeJackRowHeight };
 
+// At the inner end of the row, clear of the label. Cables leave it downward,
+// towards the racks in the tree.
+const insideStyle = {
+  in: { top: "50%", bottom: "auto", left: "auto", right: 12 },
+  out: { top: "50%", bottom: "auto", left: 12, right: "auto" },
+};
+
 // A socket on the rack's edge. An input is an open ring waiting for a cable and
 // an output is solid, so direction reads without the label. The socket is small,
 // so an invisible margin around it takes the pointer.
-const socket = { in: "bg-card!", out: "bg-foreground!" };
+const socket = cn(
+  "size-1.5! min-h-0! min-w-0! border! border-foreground! transition-shadow after:absolute after:-inset-2 after:content-[''] hover:ring-2 hover:ring-ring motion-reduce:transition-none [&.valid]:ring-2 [&.valid]:ring-ring",
+);
+const ring = "bg-card!";
+const solid = "bg-foreground!";
 
 function JackRow({
   jack,
+  inside,
   rackName,
   onRemove,
-}: RemoveProps & { readonly jack: Jack }) {
+}: RemoveProps & { readonly jack: Jack; readonly inside: boolean }) {
   const isInput = jack.direction === "in";
+  // A handle stays connectable on a locked canvas unless it is told otherwise.
+  const locked = useCanvasStore((state) => state.locked);
 
   return (
     <div
@@ -40,13 +55,26 @@ function JackRow({
     >
       <Handle
         id={jack.id}
+        isConnectable={!locked}
         type={isInput ? "target" : "source"}
         position={isInput ? Position.Left : Position.Right}
-        className={cn(
-          "size-1.5! min-h-0! min-w-0! border! border-foreground! transition-shadow after:absolute after:-inset-2 after:content-[''] hover:ring-2 hover:ring-ring motion-reduce:transition-none [&.valid]:ring-2 [&.valid]:ring-ring",
-          isInput ? socket.in : socket.out,
-        )}
+        className={cn(socket, isInput ? ring : solid)}
       />
+      {inside && (
+        // Seen from inside the tree the jack flips: an input emits to the racks
+        // in the tree, and an output takes what they emit.
+        <Handle
+          id={insideHandleId(jack.id)}
+          isConnectable={!locked}
+          type={isInput ? "source" : "target"}
+          position={Position.Bottom}
+          style={{
+            ...(isInput ? insideStyle.in : insideStyle.out),
+            transform: "translateY(-50%)",
+          }}
+          className={cn(socket, isInput ? solid : ring)}
+        />
+      )}
       <span className="truncate">{jack.name}</span>
       {onRemove !== undefined && (
         <button
@@ -66,9 +94,13 @@ function JackRow({
 // and outputs against the right.
 export function JackBay({
   jacks,
+  inside = false,
   rackName,
   onRemove,
-}: RemoveProps & { readonly jacks: readonly Jack[] }) {
+}: RemoveProps & {
+  readonly jacks: readonly Jack[];
+  readonly inside?: boolean;
+}) {
   const nodeId = useNodeId();
   const updateNodeInternals = useUpdateNodeInternals();
 
@@ -94,6 +126,7 @@ export function JackBay({
               <JackRow
                 key={jack.id}
                 jack={jack}
+                inside={inside}
                 {...(rackName === undefined ? {} : { rackName })}
                 onRemove={onRemove}
               />

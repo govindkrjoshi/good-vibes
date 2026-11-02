@@ -148,7 +148,16 @@ function RackReactFlowSync() {
   const rootId = useStore((state) => state.rack.rootId);
 
   useEffect(() => {
-    setEdges(toFlowEdges(racks, jacks, patches, rootId));
+    // The edges are rebuilt, and a selected one has to stay selected to be
+    // deleted.
+    setEdges((current) => {
+      const selected = new Set(
+        current.filter((edge) => edge.selected === true).map((edge) => edge.id),
+      );
+      return toFlowEdges(racks, jacks, patches, rootId).map((edge) =>
+        selected.has(edge.id) ? { ...edge, selected: true } : edge,
+      );
+    });
     setNodes((current) =>
       syncNodesFromRack(current, racks, jacks, paramGroups, rootId),
     );

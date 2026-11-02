@@ -350,12 +350,39 @@ export const hasOutputJack = (
 ): boolean =>
   block.isRoot || block.jackIds.some((id) => jacks[id]?.direction === "out");
 
-export const canPatch = (root: TreeBlock, from: Jack, to: Jack): boolean =>
-  from.direction === "out" &&
-  to.direction === "in" &&
-  from.belongToBlockId !== to.belongToBlockId &&
-  root.children.includes(from.belongToBlockId) &&
-  root.children.includes(to.belongToBlockId);
+// The tree that holds a patch between two jacks, if they can be patched. Signal
+// goes from a rack's output to a sibling's input. Seen from inside a tree its
+// jacks flip: its inputs feed its children, and its children feed its outputs.
+export const patchScope = (
+  racks: Readonly<Record<string, Rack>>,
+  from: Jack,
+  to: Jack,
+): string | undefined => {
+  const fromRack = racks[from.belongToBlockId];
+  const toRack = racks[to.belongToBlockId];
+  if (fromRack === undefined || toRack === undefined || fromRack === toRack) {
+    return undefined;
+  }
+
+  if (from.direction === "out" && to.direction === "in") {
+    return fromRack.parentId === toRack.parentId
+      ? fromRack.parentId
+      : undefined;
+  }
+  if (from.direction === "in" && to.direction === "in") {
+    return toRack.parentId === fromRack.id ? fromRack.id : undefined;
+  }
+  if (from.direction === "out" && to.direction === "out") {
+    return fromRack.parentId === toRack.id ? toRack.id : undefined;
+  }
+  return undefined;
+};
+
+export const canPatch = (
+  racks: Readonly<Record<string, Rack>>,
+  from: Jack,
+  to: Jack,
+): boolean => patchScope(racks, from, to) !== undefined;
 
 // Whether a rack sits somewhere under another rack, however deep.
 export const isInside = (

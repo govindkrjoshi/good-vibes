@@ -24,6 +24,17 @@ const subtract = (a: XYPosition, b: XYPosition): XYPosition => ({
   y: a.y - b.y,
 });
 
+// A tree's jack has a second socket facing the racks inside the tree. It is the
+// same jack, so only React Flow sees this id.
+const insidePrefix = "inside:";
+
+export const insideHandleId = (jackId: string) => `${insidePrefix}${jackId}`;
+
+const jackIdOf = (handleId: string) =>
+  handleId.startsWith(insidePrefix)
+    ? handleId.slice(insidePrefix.length)
+    : handleId;
+
 // The two jacks a React Flow connection or edge joins, when it names both.
 export const jackIds = (connection: Connection | Edge) =>
   connection.sourceHandle === null ||
@@ -31,7 +42,10 @@ export const jackIds = (connection: Connection | Edge) =>
   connection.targetHandle === null ||
   connection.targetHandle === undefined
     ? undefined
-    : ([connection.sourceHandle, connection.targetHandle] as const);
+    : ([
+        jackIdOf(connection.sourceHandle),
+        jackIdOf(connection.targetHandle),
+      ] as const);
 
 const hasParams = (group: ParamGroup | undefined): boolean =>
   group !== undefined &&
@@ -203,32 +217,41 @@ export const toFlowEdges = (
   patches: Record<string, Patch>,
   rootId: string,
 ): Edge[] => {
-  const root = blocks[rootId];
-  if (root === undefined || root.type !== "tree") return [];
+  const edgesUnder = (treeId: string): Edge[] => {
+    const tree = blocks[treeId];
+    if (tree === undefined || tree.type !== "tree") return [];
 
-  return root.patches.flatMap((id) => {
-    const patch = patches[id];
-    if (patch === undefined) return [];
+    const edges = tree.patches.flatMap((id) => {
+      const patch = patches[id];
+      if (patch === undefined) return [];
 
-    const source = jacks[patch.from];
-    const target = jacks[patch.to];
+      const source = jacks[patch.from];
+      const target = jacks[patch.to];
 
-    if (
-      source === undefined ||
-      target === undefined ||
-      !canPatch(root, source, target)
-    ) {
-      return [];
-    }
+      if (
+        source === undefined ||
+        target === undefined ||
+        !canPatch(blocks, source, target)
+      ) {
+        return [];
+      }
 
-    return [
-      {
-        id: patch.id,
-        source: source.belongToBlockId,
-        sourceHandle: source.id,
-        target: target.belongToBlockId,
-        targetHandle: target.id,
-      },
-    ];
-  });
+      // Signal only leaves an input, or arrives at an output, inside a tree.
+      return [
+        {
+          id: patch.id,
+          source: source.belongToBlockId,
+          sourceHandle:
+            source.direction === "in" ? insideHandleId(source.id) : source.id,
+          target: target.belongToBlockId,
+          targetHandle:
+            target.direction === "out" ? insideHandleId(target.id) : target.id,
+        },
+      ];
+    });
+
+    return [...edges, ...tree.children.flatMap(edgesUnder)];
+  };
+
+  return edgesUnder(rootId);
 };

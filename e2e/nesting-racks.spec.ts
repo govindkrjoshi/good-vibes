@@ -1,23 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { blocks, boxOf, canvas } from "./helpers";
-
-// React Flow spends the pointer's first move on starting the drag, so that
-// move is a small one and the rest of the distance is exact.
-async function drag(
-  page: Page,
-  box: { x: number; y: number; width: number; height: number },
-  dx: number,
-  dy: number,
-) {
-  const x = box.x + box.width / 2;
-  const y = box.y + box.height / 2;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 3, y);
-  await page.mouse.move(x + dx + 3, y + dy, { steps: 10 });
-  await page.mouse.up();
-}
+import { blocks, boxOf, canvas, dragExactly as drag } from "./helpers";
 
 const trees = (page: Page) => page.getByTestId("tree-node");
 
@@ -152,7 +135,10 @@ test("nests a group in a group but not in itself", async ({ page }) => {
 test("adds and removes a group's jacks", async ({ page }) => {
   await page.getByTestId("add-group").click();
   const tree = trees(page);
-  const handles = tree.locator(".react-flow__handle");
+  // The sockets on the frame, without the ones facing inside it.
+  const handles = tree.locator(
+    '.react-flow__handle:not([data-handleid^="inside:"])',
+  );
   await expect(handles).toHaveCount(0);
 
   await tree.getByRole("button", { name: "Add input to Group" }).click();
@@ -208,7 +194,7 @@ test("jacks look the same on every kind of rack", async ({ page }) => {
   const looks = await Promise.all(
     racks.map(async (rack) => {
       const row = rack.getByTestId("jack").first();
-      const socket = row.locator(".react-flow__handle");
+      const socket = row.locator(".react-flow__handle").first();
       const size = await boxOf(socket, "socket");
       return {
         size: [size.width, size.height],

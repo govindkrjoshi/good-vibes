@@ -44,6 +44,23 @@ export async function drag(
   await page.mouse.up();
 }
 
+// React Flow spends the pointer's first move on starting the drag, so that
+// move is a small one and the rest of the distance is exact.
+export async function dragExactly(
+  page: Page,
+  box: { x: number; y: number; width: number; height: number },
+  dx: number,
+  dy: number,
+) {
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 3, y);
+  await page.mouse.move(x + dx + 3, y + dy, { steps: 10 });
+  await page.mouse.up();
+}
+
 export async function connect(page: Page, from: Locator, to: Locator) {
   const start = await boxOf(from, "source handle");
   const end = await boxOf(to, "target handle");

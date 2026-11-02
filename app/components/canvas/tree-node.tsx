@@ -72,6 +72,7 @@ export function TreeNode({ id, data, selected }: NodeProps<TreeNodeType>) {
       </CardHeader>
 
       <JackBay
+        inside
         jacks={data.jacks}
         rackName={data.name}
         onRemove={locked ? undefined : removeJack}

@@ -6,6 +6,7 @@ import {
   canPatch,
   flattenParams,
   isInside,
+  patchScope,
   rackParams,
   rootRack,
   type AutomationEvent,
@@ -127,6 +128,17 @@ const addToParent = (
   return true;
 };
 
+// Takes patches out of the store and out of the trees that hold them.
+const dropPatches = (state: Draft<Store>, patchIds: readonly string[]) => {
+  if (patchIds.length === 0) return;
+  for (const id of patchIds) delete state.rack.patches[id];
+  for (const rack of Object.values(state.rack.racks)) {
+    if (rack.type === "tree") {
+      rack.patches = rack.patches.filter((id) => !patchIds.includes(id));
+    }
+  }
+};
+
 export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
   ...initialState,
   reset: () =>
@@ -145,7 +157,7 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       false,
       "rack/addRack",
     ),
-  // Patches stay as they are: they are not modelled across trees yet.
+  // A patch that can't reach across the rack's new place goes.
   moveRack: (rackId, parentId) =>
     set(
       (state) => {
@@ -171,6 +183,23 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
         }
         rack.parentId = parentId;
         parent.children.push(rackId);
+
+        const { jacks, patches } = state.rack;
+        const stale = Object.values(patches).filter((patch) => {
+          const from = jacks[patch.from];
+          const to = jacks[patch.to];
+          return (
+            (from?.belongToBlockId === rackId ||
+              to?.belongToBlockId === rackId) &&
+            (from === undefined ||
+              to === undefined ||
+              !canPatch(racks as Record<string, Rack>, from, to))
+          );
+        });
+        dropPatches(
+          state,
+          stale.map((patch) => patch.id),
+        );
       },
       false,
       "rack/moveRack",
@@ -219,27 +248,68 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
         rack.jackIds = rack.jackIds.filter((id) => id !== jackId);
         delete jacks[jackId];
 
-        const gone = Object.values(patches)
-          .filter((patch) => patch.from === jackId || patch.to === jackId)
-          .map((patch) => patch.id);
-        for (const id of gone) delete patches[id];
-        for (const held of Object.values(racks)) {
-          if (held.type === "tree") {
-            held.patches = held.patches.filter((id) => !gone.includes(id));
-          }
-        }
+        dropPatches(
+          state,
+          Object.values(patches)
+            .filter((patch) => patch.from === jackId || patch.to === jackId)
+            .map((patch) => patch.id),
+        );
       },
       false,
       "rack/removeJack",
     ),
-  canConnectJacks: (_fromJackId, _toJackId) => false,
-  connectJacks: (_fromJackId, _toJackId) =>
-    set((state) => state, false, "rack/connectJacks"),
+  canConnectJacks: (fromJackId, toJackId) => {
+    const { jacks, racks } = get().rack;
+    const from = jacks[fromJackId];
+    const to = jacks[toJackId];
+    return from !== undefined && to !== undefined && canPatch(racks, from, to);
+  },
+  // A jack takes any number of patches, but only one between the same two jacks.
+  connectJacks: (fromJackId, toJackId) =>
+    set(
+      (state) => {
+        const { jacks, patches, racks } = state.rack;
+        const from = jacks[fromJackId];
+        const to = jacks[toJackId];
+        const scopeId =
+          from === undefined || to === undefined
+            ? undefined
+            : patchScope(racks as Record<string, Rack>, from, to);
+        const scope = scopeId === undefined ? undefined : racks[scopeId];
+        if (from === undefined || to === undefined || scope?.type !== "tree") {
+          state.rack.errors.push(
+            `${fromJackId} can't be patched to ${toJackId}`,
+          );
+          return;
+        }
+        const taken = Object.values(patches).some(
+          (patch) => patch.from === from.id && patch.to === to.id,
+        );
+        if (taken) return;
+
+        const id = crypto.randomUUID();
+        patches[id] = {
+          id,
+          name: `${from.name} to ${to.name}`,
+          from: from.id,
+          to: to.id,
+        };
+        scope.patches.push(id);
+      },
+      false,
+      "rack/connectJacks",
+    ),
   // A tree takes everything under it along, and every patch to a removed
   // rack goes with it. The root rack is never removed.
   removeRacks: (_rackIds) => set((state) => state, false, "rack/removeRacks"),
-  removePatches: (_patchIds) =>
-    set((state) => state, false, "rack/removePatches"),
+  removePatches: (patchIds) =>
+    set(
+      (state) => {
+        dropPatches(state, patchIds);
+      },
+      false,
+      "rack/removePatches",
+    ),
   setParamValue: (paramId, value) =>
     set(
       (state) => {

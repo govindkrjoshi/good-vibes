@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import {
   fitTrees,
+  jackIds,
   syncNodesFromRack,
   toFlowEdges,
   treeAt,
@@ -424,4 +425,50 @@ test("keeps children below a tree's jacks", () => {
   ]);
 
   expect(fitted[1]?.position).toEqual({ x: 30, y: 56 + 2 * 28 });
+});
+
+test("draws a tree's patches to its children from the sockets inside it", () => {
+  const blocks: Record<string, Rack> = {
+    root: { ...rootRack, children: ["t"] },
+    t: {
+      ...makeBlock("t", "root", "tree"),
+      type: "tree",
+      children: ["a"],
+      patches: ["in", "out"],
+    } as Rack,
+    a: makeBlock("a", "t", "leaf"),
+  };
+  const jacks = {
+    tIn: jack("tIn", "t", "in"),
+    tOut: jack("tOut", "t", "out"),
+    aIn: jack("aIn", "a", "in"),
+    aOut: jack("aOut", "a", "out"),
+  };
+  const patches = {
+    in: patch("in", "tIn", "aIn"),
+    out: patch("out", "aOut", "tOut"),
+  };
+
+  const edges = toFlowEdges(blocks, jacks, patches, "root");
+
+  expect(edges).toEqual([
+    {
+      id: "in",
+      source: "t",
+      sourceHandle: "inside:tIn",
+      target: "a",
+      targetHandle: "aIn",
+    },
+    {
+      id: "out",
+      source: "a",
+      sourceHandle: "aOut",
+      target: "t",
+      targetHandle: "inside:tOut",
+    },
+  ]);
+  expect(edges.map(jackIds)).toEqual([
+    ["tIn", "aIn"],
+    ["aOut", "tOut"],
+  ]);
 });

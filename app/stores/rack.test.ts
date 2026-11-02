@@ -158,9 +158,8 @@ test("keeps one patch when the same jacks are connected again", () => {
 
 test("refuses connections that do not go out of one rack into another", () => {
   synthIntoSpeakers();
-  store().addBlock("tree", "root");
-  const group = children("root")?.[2] ?? "";
-  store().addRackFromCatalogue("output", "Destination", group, "G");
+  store().addRack(tree("t"), "root");
+  store().addRackFromCatalogue("output", "Destination", "t", "G");
 
   expect(store().canConnectJacks("S:out", "D:in")).toBe(true);
   expect(store().canConnectJacks("D:in", "S:out")).toBe(false);
@@ -175,13 +174,12 @@ test("refuses connections that do not go out of one rack into another", () => {
 });
 
 test("patches racks inside a group in that group", () => {
-  store().addBlock("tree", "root");
-  const group = children("root")?.[0] ?? "";
-  store().addRackFromCatalogue("instruments", "AMSynth", group, "S");
-  store().addRackFromCatalogue("output", "Destination", group, "D");
+  store().addRack(tree("t"), "root");
+  store().addRackFromCatalogue("instruments", "AMSynth", "t", "S");
+  store().addRackFromCatalogue("output", "Destination", "t", "D");
   store().connectJacks("S:out", "D:in");
 
-  expect(patchesOf(group)).toHaveLength(1);
+  expect(patchesOf("t")).toHaveLength(1);
   expect(patchesOf("root")).toEqual([]);
 });
 
@@ -432,4 +430,111 @@ test("won't change the jacks of a leaf", () => {
   expect(store().racks.D?.jackIds).toEqual(before);
   expect(store().jacks["D:in"]).toBeDefined();
   expect(store().errors).toHaveLength(2);
+});
+
+// A group `t` with one input and one output, holding a synth `S`.
+const groupAroundSynth = () => {
+  store().addRack(tree("t"), "root");
+  store().addJack("t", "in");
+  store().addJack("t", "out");
+  store().addRackFromCatalogue("instruments", "AMSynth", "t", "S");
+  const [input = "", output = ""] = store().racks.t?.jackIds ?? [];
+  return { input, output };
+};
+
+test("patches a group's input to a child inside the group", () => {
+  const { input } = groupAroundSynth();
+
+  expect(store().canConnectJacks(input, "S:in")).toBe(true);
+  store().connectJacks(input, "S:in");
+
+  expect(patchesOf("t")).toHaveLength(1);
+  expect(patchesOf("root")).toEqual([]);
+});
+
+test("patches a child to its group's output inside the group", () => {
+  const { output } = groupAroundSynth();
+
+  expect(store().canConnectJacks("S:out", output)).toBe(true);
+  store().connectJacks("S:out", output);
+
+  expect(patchesOf("t")).toHaveLength(1);
+});
+
+test("patches a group to a sibling in the tree that holds them", () => {
+  const { output } = groupAroundSynth();
+  store().addRackFromCatalogue("output", "Destination", "root", "D");
+
+  store().connectJacks(output, "D:in");
+
+  expect(patchesOf("root")).toHaveLength(1);
+  expect(patchesOf("t")).toEqual([]);
+});
+
+test("patches through a group nested in a group", () => {
+  const { input } = groupAroundSynth();
+  store().addRack(tree("inner"), "t");
+  store().addJack("inner", "in");
+  const [innerInput = ""] = store().racks.inner?.jackIds ?? [];
+  store().addRackFromCatalogue("output", "Destination", "inner", "D");
+
+  store().connectJacks(input, innerInput);
+  store().connectJacks(innerInput, "D:in");
+
+  expect(patchesOf("t")).toHaveLength(1);
+  expect(patchesOf("inner")).toHaveLength(1);
+});
+
+test("refuses patches that skip a level or stay on one rack", () => {
+  const { input, output } = groupAroundSynth();
+  store().addRackFromCatalogue("output", "Destination", "root", "D");
+
+  // Into a rack in a group from outside it, and out of one the same way.
+  expect(store().canConnectJacks("S:out", "D:in")).toBe(false);
+  // A child doesn't feed its group's input, or its output feed the child.
+  expect(store().canConnectJacks("S:out", input)).toBe(false);
+  expect(store().canConnectJacks(output, "S:in")).toBe(false);
+  // A group's input doesn't go straight to its own output.
+  expect(store().canConnectJacks(input, output)).toBe(false);
+});
+
+test("lets a jack take many patches in both directions", () => {
+  store().addRackFromCatalogue("instruments", "AMSynth", "root", "A");
+  store().addRackFromCatalogue("instruments", "AMSynth", "root", "B");
+  store().addRackFromCatalogue("output", "Destination", "root", "C");
+  store().addRackFromCatalogue("output", "Destination", "root", "D");
+
+  store().connectJacks("A:out", "C:in");
+  store().connectJacks("A:out", "D:in");
+  store().connectJacks("B:out", "C:in");
+
+  expect(patchesOf("root")).toHaveLength(3);
+  expect(store().errors).toEqual([]);
+});
+
+test("moving a rack drops the patches it can no longer make", () => {
+  const { input, output } = groupAroundSynth();
+  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("instruments", "AMSynth", "root", "R");
+  store().connectJacks(input, "S:in");
+  store().connectJacks("S:out", output);
+  store().connectJacks("R:out", "D:in");
+
+  store().moveRack("S", "root");
+
+  expect(Object.values(store().patches).map((patch) => patch.from)).toEqual([
+    "R:out",
+  ]);
+  expect(patchesOf("t")).toEqual([]);
+  expect(patchesOf("root")).toHaveLength(1);
+});
+
+test("moving a group keeps the patches inside it", () => {
+  const { input } = groupAroundSynth();
+  store().addRack(tree("other"), "root");
+  store().connectJacks(input, "S:in");
+
+  store().moveRack("t", "other");
+
+  expect(patchesOf("t")).toHaveLength(1);
 });
