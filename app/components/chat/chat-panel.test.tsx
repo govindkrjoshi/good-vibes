@@ -309,7 +309,7 @@ test("offers Stop while the agent is replying", () => {
 });
 
 test("explains a message that could not be sent, with the way to a key", async () => {
-  agent.prompt.mockRejectedValue(new Error("No OpenRouter API key was given"));
+  agent.prompt.mockRejectedValue(new Error("No API key was given"));
   render();
   type("hello");
   press("Enter");
@@ -317,7 +317,7 @@ test("explains a message that could not be sent, with the way to a key", async (
 
   const alert = container.querySelector('[role="alert"]');
   expect(alert?.textContent).toContain(
-    "The agent needs an OpenRouter key before it can reply.",
+    "The agent needs an API key before it can reply.",
   );
   expect(
     alert?.querySelector('[data-testid="chat-change-key"]'),

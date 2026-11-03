@@ -4,7 +4,9 @@ import { Effect, PubSub, Stream } from "effect";
 import { act, StrictMode, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { apiKeyStorageKey } from "../../agent/key";
+import { noKeyGiven } from "../../agent/explain";
+import { knownCredential, storeCredential } from "../../agent/key";
+import type { Credential } from "../../agent/providers";
 import { PromptError, type GoodVibesMessage } from "../../agent/types";
 import { GoodVibesAgentProvider, useGoodVibesAgent } from "./agent-provider";
 
@@ -69,8 +71,15 @@ function render(children: ReactNode) {
 const flush = () => act(async () => {});
 
 // The key the agent would send with its next request.
-const agentKey = () =>
-  (createGoodVibesAgent.mock.calls[0]?.[0] as (() => string) | undefined)?.();
+const agentCredential = () =>
+  (
+    createGoodVibesAgent.mock.calls[0]?.[0] as (() => Credential) | undefined
+  )?.();
+const agentKey = () => agentCredential()?.key;
+
+const saveKey = (key: string) =>
+  storeCredential({ provider: "openrouter", key });
+const savedKey = () => knownCredential()?.key;
 
 const keyInput = () =>
   document.querySelector<HTMLInputElement>('input[type="password"]');
@@ -115,7 +124,7 @@ afterEach(() => {
 });
 
 test("uses the key saved in local storage without asking", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   render(<Probe />);
 
   await expect(current?.prompt("hello")).resolves.toBeUndefined();
@@ -140,8 +149,40 @@ test("asks for a key when none is known, then saves it", async () => {
   await expect(done).resolves.toBeUndefined();
   expect(agentKey()).toBe("sk-or-typed");
   expect(agent.prompt).toHaveBeenCalledWith("hello");
-  expect(localStorage.getItem(apiKeyStorageKey)).toBe("sk-or-typed");
+  expect(savedKey()).toBe("sk-or-typed");
   expect(keyInput()).toBeNull();
+});
+
+test("tells the service from the key, and lets the user pick another", async () => {
+  render(<Probe />);
+  let done: Promise<void> | undefined;
+  act(() => {
+    done = current?.prompt("hello");
+  });
+
+  enterKey("sk-ant-typed");
+  await flush();
+  await done;
+  expect(agentCredential()).toEqual({
+    provider: "anthropic",
+    key: "sk-ant-typed",
+  });
+
+  act(() => current?.changeKey());
+  act(() =>
+    document
+      .querySelector<HTMLButtonElement>(
+        '[data-testid="api-key-provider-openrouter"]',
+      )
+      ?.click(),
+  );
+  enterKey("sk-proj-typed");
+
+  expect(agentCredential()).toEqual({
+    provider: "openrouter",
+    key: "sk-proj-typed",
+  });
+  expect(knownCredential()?.provider).toBe("openrouter");
 });
 
 test("prompts waiting on the key share one dialog and one agent", async () => {
@@ -165,7 +206,7 @@ test("prompts waiting on the key share one dialog and one agent", async () => {
 });
 
 test("keeps one agent across prompts", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   render(<Probe />);
 
   await current?.prompt("one");
@@ -184,7 +225,7 @@ test("rejects when the user declines to give a key", async () => {
   });
   act(() => button("Not now").click());
 
-  await expect(done).rejects.toThrow("No OpenRouter API key was given");
+  await expect(done).rejects.toThrow(noKeyGiven);
   expect(createGoodVibesAgent).not.toHaveBeenCalled();
   expect(keyInput()).toBeNull();
 
@@ -195,7 +236,7 @@ test("rejects when the user declines to give a key", async () => {
 });
 
 test("keeps the conversation as it streams in", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   render(<Probe />);
 
   await act(() => current?.prompt("hello"));
@@ -207,7 +248,7 @@ test("keeps the conversation as it streams in", async () => {
 });
 
 test("is busy from sending until the reply ends", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   let finish!: () => void;
   render(<Probe />);
   agent.prompt.mockImplementationOnce(() =>
@@ -229,7 +270,7 @@ test("is busy from sending until the reply ends", async () => {
 });
 
 test("shows why a reply failed", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   agent.prompt.mockImplementationOnce(() =>
     Effect.fail(new PromptError({ message: "401 Unauthorized" })),
   );
@@ -246,7 +287,7 @@ test("shows why a reply failed", async () => {
 });
 
 test("stops the running reply", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   render(<Probe />);
   await act(() => current?.prompt("hello"));
 
@@ -257,7 +298,7 @@ test("stops the running reply", async () => {
 });
 
 test("uses a key changed in settings for the running agent", async () => {
-  localStorage.setItem(apiKeyStorageKey, "sk-or-saved");
+  saveKey("sk-or-saved");
   render(<Probe />);
   await act(() => current?.prompt("hello"));
 
@@ -265,7 +306,7 @@ test("uses a key changed in settings for the running agent", async () => {
   enterKey("sk-or-new");
 
   expect(agentKey()).toBe("sk-or-new");
-  expect(localStorage.getItem(apiKeyStorageKey)).toBe("sk-or-new");
+  expect(savedKey()).toBe("sk-or-new");
   expect(createGoodVibesAgent).toHaveBeenCalledTimes(1);
 });
 

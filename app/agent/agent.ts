@@ -4,6 +4,8 @@ import {
   type StreamFn,
 } from "@earendil-works/pi-agent-core";
 import { createModels, type Api, type Model } from "@earendil-works/pi-ai";
+import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
+import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { Effect, PubSub, Stream, type Scope } from "effect";
 import {
@@ -13,20 +15,13 @@ import {
   describeRackTree,
   patchRule,
 } from "./tools";
+import { providerOf, type ProviderId } from "./providers";
 import {
   PromptError,
   type ApiKey,
   type GoodVibesMessage,
   type RackStore,
 } from "./types";
-
-// A model made for coding agents and reliable tool calls, at a low price: it
-// reads the rack and the catalogue often and writes code of its own. It has
-// to be one pi-ai reaches over OpenRouter's chat-completions API: Anthropic
-// models go through its Anthropic-style endpoint, whose headers OpenRouter's
-// CORS rejects, so the browser cannot call them. Others that fit the same
-// bill: deepseek/deepseek-v4.1-flash, openai/gpt-6-luna, qwen/qwen3-coder-next.
-export const goodVibesModelId = "z-ai/glm-5.3-flash";
 
 export const systemPrompt = `You are the assistant inside Good Vibes, a browser-based modular \
 synthesizer where people wire racks together on a canvas to make sound. You can read the rack \
@@ -73,9 +68,12 @@ Leaf code: ${codeHelp}`;
 
 const models = createModels();
 models.setProvider(openrouterProvider());
+models.setProvider(anthropicProvider());
+models.setProvider(openaiProvider());
 
-export const goodVibesModel = () =>
-  models.getModel("openrouter", goodVibesModelId);
+// The model the agent uses on a service; see ./providers.
+export const goodVibesModel = (provider: ProviderId) =>
+  models.getModel(provider, providerOf(provider).modelId);
 
 export type GoodVibesAgent = {
   // Sends one prompt and finishes once the agent has finished replying. The
@@ -143,6 +141,7 @@ export type AgentOptions = {
   // on from. It is told the page reloaded with its next prompt.
   readonly history?: readonly AgentMessage[];
   // Another model and way of reaching it, for tests that script the replies.
+  // It is kept whichever service the key is for.
   readonly model?: Model<Api>;
   readonly streamFn?: StreamFn;
 };
@@ -156,12 +155,17 @@ export const createGoodVibesAgent = (
   options: AgentOptions = {},
 ): Effect.Effect<GoodVibesAgent, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const model = options.model ?? goodVibesModel();
-    if (model === undefined) {
-      return yield* Effect.die(
-        new Error(`Unknown OpenRouter model ${goodVibesModelId}`),
-      );
-    }
+    // The model for the service the key is for, made again when the user
+    // switches to a key for another. pi-ai carries the conversation across.
+    const modelFor = (provider: ProviderId): Model<Api> => {
+      if (options.model !== undefined) return options.model;
+      const model = goodVibesModel(provider);
+      if (model === undefined)
+        throw new Error(
+          `Unknown ${provider} model ${providerOf(provider).modelId}`,
+        );
+      return model;
+    };
 
     const watch = createErrorWatch(store);
     const tools = createRackTools(store, watch);
@@ -174,14 +178,16 @@ export const createGoodVibesAgent = (
       // sends it nothing, so it would go back to its default.
       initialState: {
         systemPrompt,
-        model,
+        model: modelFor(apiKey().provider),
         tools,
         thinkingLevel: "low",
         messages: [...(options.history ?? [])],
       },
       streamFn: options.streamFn ?? models.streamSimple.bind(models),
-      getApiKey: (provider) =>
-        provider === "openrouter" ? apiKey() : undefined,
+      getApiKey: (provider) => {
+        const credential = apiKey();
+        return provider === credential.provider ? credential.key : undefined;
+      },
       // "Add, then connect" in one reply has to run in that order.
       toolExecution: "sequential",
     });
@@ -293,6 +299,7 @@ export const createGoodVibesAgent = (
           ];
           resumed = false;
           pending = [];
+          agent.state.model = modelFor(apiKey().provider);
           return agent.prompt([...notes, asked]);
         },
         catch: (error) =>

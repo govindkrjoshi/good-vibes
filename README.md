@@ -59,12 +59,17 @@ The chat panel on the home page talks to an agent (`app/agent/`, built on
 changes the rack with tools, one for each thing a user can do by hand, and
 can write a rack of its own from Tone.js code when the catalogue has nothing
 that fits; see `docs/agent-tools.md`. The agent runs in the browser and calls
-OpenRouter directly, using the first key it finds:
+OpenRouter, Anthropic or OpenAI directly, whichever the key is for, using the
+first key it finds:
 
-1. **Dev server only:** `OPENROUTER_API_KEY` from the shell or a `.env` file.
-   `pnpm dev` hands it to the browser for testing.
+1. **Dev server only:** `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY` or
+   `OPENAI_API_KEY` (the first set, in that order) from the shell or a `.env`
+   file. `pnpm dev` hands it to the browser for testing.
 2. A key the user saved earlier, in local storage.
-3. Otherwise it asks the user for one and saves it to local storage.
+3. Otherwise it asks the user for one and saves it to local storage. The
+   service is worked out from the key's prefix, and the user can change it.
+
+Each service has one model, set in `app/agent/providers.ts`.
 
 ```sh
 OPENROUTER_API_KEY=sk-or-... pnpm dev
@@ -73,8 +78,8 @@ OPENROUTER_API_KEY=sk-or-... pnpm dev
 The conversation is kept in local storage too, so a reload carries on where
 it left off; "New conversation" in the chat's header clears it.
 
-Production builds never embed a key, even when `OPENROUTER_API_KEY` is set
-while building, so users always bring their own.
+Production builds never embed a key, even when one of those is set while
+building, so users always bring their own.
 
 ## End-to-end tests
 

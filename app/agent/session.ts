@@ -2,7 +2,8 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Effect, Exit, Scope, Stream } from "effect";
 import { explainError } from "./explain";
 import { clearChat, loadChat, settledTranscript, storeChat } from "./history";
-import { knownApiKey, storeApiKey } from "./key";
+import { knownCredential, storeCredential } from "./key";
+import type { Credential } from "./providers";
 import type { ApiKey, ChatMessage, GoodVibesMessage, RackStore } from "./types";
 import type { GoodVibesAgent } from "./agent";
 
@@ -21,9 +22,12 @@ export type Session = {
   readonly abort: () => void;
   // Forgets the conversation, here and in storage, stopping any reply.
   readonly reset: () => void;
-  // Remembers a key the user gave: for this page load, and in storage when
-  // storage allows. The running agent reads it on its next request.
-  readonly setKey: (key: string) => void;
+  // Remembers a key the user gave, and the service it is for: for this page
+  // load, and in storage when storage allows. The running agent reads it on
+  // its next request.
+  readonly setKey: (credential: Credential) => void;
+  // The key in use, if one is known yet.
+  readonly currentKey: () => Credential | undefined;
   // Shuts the agent down. Prompts after this fail.
   readonly close: () => Promise<void>;
 };
@@ -42,7 +46,7 @@ export type CreateAgent = (
 export type SessionOptions = {
   // Called when a prompt needs a key and none is known. Rejecting fails the
   // prompt; the next prompt asks again.
-  readonly askForKey: () => Promise<string>;
+  readonly askForKey: () => Promise<Credential>;
   // The store the agent reads the rack from and changes it in.
   readonly store: RackStore;
   // How the agent is made. By default the agent module is loaded on first
@@ -62,7 +66,7 @@ const loadAgent: CreateAgent = (apiKey, store, options) =>
 // Runs one agent for as long as the session lives, so the conversation
 // carries over between prompts, and keeps what was said for the chat and in
 // this browser's storage, so a reload carries on the same conversation. The
-// OpenRouter key comes from the dev server's environment, then from local
+// key comes from the dev server's environment, then from local
 // storage, and failing both the session asks for one.
 export const createSession = ({
   askForKey,
@@ -89,9 +93,9 @@ export const createSession = ({
   const scope = Effect.runSync(Scope.make());
 
   // Kept for this page load in case local storage refuses to save it.
-  let enteredKey: string | undefined;
+  let enteredKey: Credential | undefined;
   // Prompts that arrive while the user is being asked share the one answer.
-  let pendingKey: Promise<string> | undefined;
+  let pendingKey: Promise<Credential> | undefined;
   let agent: Promise<GoodVibesAgent> | undefined;
   let running = 0;
   let nextId = 0;
@@ -101,21 +105,22 @@ export const createSession = ({
   // the conversation it belonged to over the fresh one.
   let conversation = 0;
 
-  const currentKey = (): string | undefined => enteredKey ?? knownApiKey();
+  const currentKey = (): Credential | undefined =>
+    enteredKey ?? knownCredential();
 
-  const setKey = (key: string) => {
-    enteredKey = key;
-    storeApiKey(key);
+  const setKey = (credential: Credential) => {
+    enteredKey = credential;
+    storeCredential(credential);
   };
 
-  const apiKey = (): Promise<string> => {
+  const apiKey = (): Promise<Credential> => {
     const known = currentKey();
     if (known !== undefined) return Promise.resolve(known);
 
     pendingKey ??= askForKey()
-      .then((key) => {
-        setKey(key);
-        return key;
+      .then((credential) => {
+        setKey(credential);
+        return credential;
       })
       .finally(() => {
         pendingKey = undefined;
@@ -150,7 +155,10 @@ export const createSession = ({
 
   // Shown on the reply that failed, or on its own when nothing arrived.
   const failReply = (raw: string) => {
-    const { message: error, recover } = explainError(raw);
+    const { message: error, recover } = explainError(
+      raw,
+      currentKey()?.provider,
+    );
     const failure = recover === undefined ? { error } : { error, recover };
     setMessages((list) => {
       const last = list.at(-1);
@@ -181,11 +189,11 @@ export const createSession = ({
   // key, the next prompt tries again.
   const getAgent = (): Promise<GoodVibesAgent> => {
     agent ??= (async () => {
-      await apiKey();
+      const given = await apiKey();
       // Read on every request, so a key changed in settings applies at once.
       const created = await Effect.runPromise(
         Effect.gen(function* () {
-          const made = yield* createAgent(() => currentKey() ?? "", store, {
+          const made = yield* createAgent(() => currentKey() ?? given, store, {
             history,
           });
           yield* Stream.runForEach(made.messages, (said) =>
@@ -269,6 +277,7 @@ export const createSession = ({
     abort,
     reset,
     setKey,
+    currentKey,
     close,
   };
 };

@@ -4,7 +4,9 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Effect, PubSub, Stream } from "effect";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GoodVibesAgent } from "./agent";
+import { noKeyGiven } from "./explain";
 import { chatStorageKey } from "./history";
+import type { Credential } from "./providers";
 import { createSession, type CreateAgent, type Session } from "./session";
 import { useStore } from "../stores";
 import { PromptError, type GoodVibesMessage } from "./types";
@@ -58,13 +60,13 @@ const fakeAgent = () => {
 
 let agent: ReturnType<typeof fakeAgent>;
 const createAgent = vi.fn<CreateAgent>();
-const askForKey = vi.fn<() => Promise<string>>();
+const askForKey = vi.fn<() => Promise<Credential>>();
 
 const session = (): Session =>
   createSession({ askForKey, store: useStore, createAgent });
 
 // The key the agent would send with its next request.
-const agentKey = () => createAgent.mock.calls[0]?.[0]();
+const agentKey = () => createAgent.mock.calls[0]?.[0]().key;
 
 // Lets pending promises settle.
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -72,7 +74,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 beforeEach(() => {
   agent = fakeAgent();
   createAgent.mockImplementation(() => Effect.succeed(agent as GoodVibesAgent));
-  askForKey.mockResolvedValue("sk-or-typed");
+  askForKey.mockResolvedValue({ provider: "openrouter", key: "sk-or-typed" });
 });
 
 afterEach(() => {
@@ -112,12 +114,10 @@ test("keeps one agent across prompts", async () => {
 });
 
 test("fails the prompt when no key is given, and asks again next time", async () => {
-  askForKey.mockRejectedValueOnce(new Error("No OpenRouter API key was given"));
+  askForKey.mockRejectedValueOnce(new Error(noKeyGiven));
   const chat = session();
 
-  await expect(chat.prompt("hello")).rejects.toThrow(
-    "No OpenRouter API key was given",
-  );
+  await expect(chat.prompt("hello")).rejects.toThrow(noKeyGiven);
   expect(createAgent).not.toHaveBeenCalled();
   expect(chat.getState().messages).toEqual([]);
 
@@ -387,9 +387,9 @@ test("uses a key changed later for the running agent", async () => {
   const chat = session();
   await chat.prompt("hello");
 
-  chat.setKey("sk-or-new");
+  chat.setKey({ provider: "openai", key: "sk-new" });
 
-  expect(agentKey()).toBe("sk-or-new");
+  expect(agentKey()).toBe("sk-new");
   expect(createAgent).toHaveBeenCalledTimes(1);
 });
 

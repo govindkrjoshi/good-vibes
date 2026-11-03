@@ -9,9 +9,17 @@ export {
   type SessionOptions,
   type SessionState,
 } from "./session";
-export { apiKeyStorageKey, knownApiKey, storeApiKey } from "./key";
+export { credentialStorageKey, knownCredential, storeCredential } from "./key";
+export {
+  detectProvider,
+  providerOf,
+  providers,
+  type Credential,
+  type Provider,
+  type ProviderId,
+} from "./providers";
 export { chatStorageKey } from "./history";
-export { explainError, type Explanation } from "./explain";
+export { explainError, noKeyGiven, type Explanation } from "./explain";
 export {
   PromptError,
   type ApiKey,

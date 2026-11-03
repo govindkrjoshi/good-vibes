@@ -9,7 +9,9 @@ import {
 } from "react";
 import {
   createSession,
+  noKeyGiven,
   type ChatMessage,
+  type Credential,
   type SessionState,
 } from "../../agent";
 import { useStore } from "../../stores";
@@ -38,15 +40,15 @@ const GoodVibesAgentContext = createContext<
 const beforeHydration: SessionState = { messages: [], busy: false };
 
 type KeyRequest = {
-  readonly promise: Promise<string>;
-  readonly resolve: (key: string) => void;
+  readonly promise: Promise<Credential>;
+  readonly resolve: (credential: Credential) => void;
   readonly reject: (error: Error) => void;
 };
 
 const keyRequest = (): KeyRequest => {
-  let resolve!: (key: string) => void;
+  let resolve!: (credential: Credential) => void;
   let reject!: (error: Error) => void;
-  const promise = new Promise<string>((res, rej) => {
+  const promise = new Promise<Credential>((res, rej) => {
     resolve = res;
     reject = rej;
   });
@@ -104,18 +106,19 @@ export function GoodVibesAgentProvider({
       {children}
       {request !== undefined && (
         <ApiKeyDialog
-          onSubmit={(key) => answer((asked) => asked.resolve(key))}
+          onSubmit={(credential) =>
+            answer((asked) => asked.resolve(credential))
+          }
           onCancel={() =>
-            answer((asked) =>
-              asked.reject(new Error("No OpenRouter API key was given")),
-            )
+            answer((asked) => asked.reject(new Error(noKeyGiven)))
           }
         />
       )}
       {changingKey && request === undefined && (
         <ApiKeyDialog
-          onSubmit={(key) => {
-            session.setKey(key);
+          initialProvider={session.currentKey()?.provider}
+          onSubmit={(credential) => {
+            session.setKey(credential);
             setChangingKey(false);
           }}
           onCancel={() => setChangingKey(false)}

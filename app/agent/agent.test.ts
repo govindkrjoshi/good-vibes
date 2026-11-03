@@ -26,7 +26,7 @@ const scripted = async (
   const said: GoodVibesMessage[] = [];
   const agent = await Effect.runPromise(
     Effect.gen(function* () {
-      const made = yield* createGoodVibesAgent(() => "key", useStore, {
+      const made = yield* createGoodVibesAgent(() => credential, useStore, {
         model: faux.getModel(),
         streamFn: models.streamSimple.bind(models),
       });
@@ -53,15 +53,28 @@ const texts = (messages: Message[]) =>
     );
   });
 
+const credential = { provider: "openrouter", key: "key" } as const;
+
 const initial = useStore.getState();
 beforeEach(() => {
   useStore.setState(initial, true);
 });
 
 test("uses a model the browser can reach through OpenRouter's CORS", () => {
-  expect(goodVibesModel()).toMatchObject({
+  expect(goodVibesModel("openrouter")).toMatchObject({
     provider: "openrouter",
     api: "openai-completions",
+  });
+});
+
+test("has a model on each service a key can be for", () => {
+  expect(goodVibesModel("anthropic")).toMatchObject({
+    provider: "anthropic",
+    api: "anthropic-messages",
+  });
+  expect(goodVibesModel("openai")).toMatchObject({
+    provider: "openai",
+    api: "openai-responses",
   });
 });
 
@@ -201,7 +214,7 @@ test("carries on a kept conversation and says the page was reloaded", async () =
   ]);
   const scope = Effect.runSync(Scope.make());
   const agent = await Effect.runPromise(
-    createGoodVibesAgent(() => "key", useStore, {
+    createGoodVibesAgent(() => credential, useStore, {
       model: faux.getModel(),
       streamFn: models.streamSimple.bind(models),
       history,

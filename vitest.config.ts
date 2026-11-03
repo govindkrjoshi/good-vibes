@@ -3,7 +3,7 @@ import { sandboxRuntime } from "./app/sandbox/vite-plugin.ts";
 
 export default defineConfig({
   plugins: [sandboxRuntime()],
-  define: { __DEV_OPENROUTER_API_KEY__: JSON.stringify("") },
+  define: { __DEV_AGENT_CREDENTIAL__: "null" },
   test: {
     environment: "node",
     // Playwright specs in e2e/ match Vitest's default *.spec.ts glob.

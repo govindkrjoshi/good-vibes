@@ -4,8 +4,11 @@ import { toolbar } from "./helpers";
 export { expect };
 
 // The key the app finds in local storage, so it never stops to ask for one.
-const fakeApiKey = "sk-or-e2e";
-const apiKeyStorageKey = "good-vibes:openrouter-api-key";
+const fakeCredential = JSON.stringify({
+  provider: "openrouter",
+  key: "sk-or-e2e",
+});
+const credentialStorageKey = "good-vibes:agent-credential";
 
 const fallbackReply = "Hello from Good Vibes.";
 
@@ -96,7 +99,7 @@ export const test = base.extend<Options>({
           // Opaque-origin documents, like the sandbox, have no storage.
         }
       },
-      [apiKeyStorageKey, fakeApiKey] as const,
+      [credentialStorageKey, fakeCredential] as const,
     );
     await context.route("https://openrouter.ai/**", (route) =>
       route.fulfill({

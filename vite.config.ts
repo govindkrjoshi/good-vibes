@@ -3,18 +3,35 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, loadEnv } from "vite";
 import { sandboxRuntime } from "./app/sandbox/vite-plugin.ts";
 
+const devCredential = (env: Record<string, string>) => {
+  const keys = [
+    ["openrouter", env.OPENROUTER_API_KEY],
+    ["anthropic", env.ANTHROPIC_API_KEY],
+    ["openai", env.OPENAI_API_KEY],
+  ] as const;
+  const [provider, key] = keys.find(([, key]) => key?.trim()) ?? [];
+  return provider === undefined ? null : { provider, key: key?.trim() };
+};
+
 export default defineConfig(({ command, mode }) => ({
   // Matches `basename` in react-router.config.ts; set for GitHub Pages builds.
   base: process.env.BASE_PATH ?? "/",
   plugins: [tailwindcss(), reactRouter(), sandboxRuntime()],
   define: {
-    // The dev server hands its OpenRouter key (from the shell or a .env file)
-    // to the browser for testing. Builds never embed one; users enter their
-    // own. See app/agent-key.ts.
-    __DEV_OPENROUTER_API_KEY__: JSON.stringify(
+    // The dev server hands its key (from the shell or a .env file) to the
+    // browser for testing: OpenRouter's, Anthropic's or OpenAI's, the first
+    // it finds. Builds never embed one; users enter their own. See
+    // app/agent/key.ts.
+    __DEV_AGENT_CREDENTIAL__: JSON.stringify(
       command === "serve"
-        ? (loadEnv(mode, process.cwd(), "OPENROUTER_").OPENROUTER_API_KEY ?? "")
-        : "",
+        ? devCredential(
+            loadEnv(mode, process.cwd(), [
+              "OPENROUTER_",
+              "ANTHROPIC_",
+              "OPENAI_",
+            ]),
+          )
+        : null,
     ),
   },
   // Pre-bundle these at startup instead of letting Vite discover them on the

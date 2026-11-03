@@ -1,15 +1,17 @@
 import { Data } from "effect";
 import type { StoreApi } from "zustand";
 import type { Store } from "../stores";
+import type { Credential } from "./providers";
 
 // The app's store, as far as the agent reads and changes it. Its tools call
 // the rack slice's actions, the same ones the canvas does.
 export type RackStore = Pick<StoreApi<Store>, "getState" | "subscribe">;
 
-// Reads the OpenRouter key for a request. The browser has no environment to
-// resolve a key from, so the agent is handed one of these and calls it on
-// every request, letting the user change the key mid-conversation.
-export type ApiKey = () => string;
+// Reads the key for a request, and the service it is for. The browser has no
+// environment to resolve a key from, so the agent is handed one of these and
+// calls it on every request, letting the user change the key, or the
+// service, mid-conversation.
+export type ApiKey = () => Credential;
 
 // What the agent says, in its own words. One reply can produce several of
 // these: a message for each text part, a brief when it says what it is about
