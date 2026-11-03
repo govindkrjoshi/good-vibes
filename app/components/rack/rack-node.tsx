@@ -27,22 +27,22 @@ import { timeArg, type Method, type Param, type ParamGroup } from "../../rack";
 // panel of its controls. The header is the only part that drags the node:
 // everything under it is a control, marked `nodrag` so React Flow leaves
 // pointer gestures on sliders and fields alone.
-export function RackNode({ data, selected }: NodeProps<RackNodeType>) {
+export function RackNode({ id, data, selected }: NodeProps<RackNodeType>) {
   const paramGroup = useStore((state) => {
-    const id = state.rack.racks[data.blockId]?.paramGroupId;
-    return id === undefined ? undefined : state.rack.paramGroups[id];
+    const groupId = state.rack.racks[id]?.paramGroupId;
+    return groupId === undefined ? undefined : state.rack.paramGroups[groupId];
   });
   const methods = useStore(
     useShallow((state) =>
-      (state.rack.racks[data.blockId]?.methodIds ?? []).flatMap(
-        (id) => state.rack.methods[id] ?? [],
+      (state.rack.racks[id]?.methodIds ?? []).flatMap(
+        (methodId) => state.rack.methods[methodId] ?? [],
       ),
     ),
   );
   const events = useStore(
     useShallow((state) =>
-      (state.rack.racks[data.blockId]?.eventIds ?? []).flatMap(
-        (id) => state.rack.events[id] ?? [],
+      (state.rack.racks[id]?.eventIds ?? []).flatMap(
+        (eventId) => state.rack.events[eventId] ?? [],
       ),
     ),
   );

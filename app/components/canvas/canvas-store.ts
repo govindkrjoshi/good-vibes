@@ -1,12 +1,12 @@
 import { create } from "zustand";
 
-export type CanvasState = {
+type CanvasState = {
   readonly locked: boolean;
   // The tree a dragged rack would land in if it were dropped now.
   readonly dropTargetId: string | undefined;
 };
 
-export type CanvasStore = CanvasState & {
+type CanvasStore = CanvasState & {
   readonly toggleLock: () => void;
   readonly setDropTarget: (id: string | undefined) => void;
 };

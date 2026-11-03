@@ -11,7 +11,6 @@ export type BlockNodeType = Node<BlockNodeData, "block">;
 
 // A block with params or methods: a panel of its controls.
 export type RackNodeData = {
-  readonly blockId: string;
   readonly name: string;
   readonly jacks: readonly Jack[];
 };

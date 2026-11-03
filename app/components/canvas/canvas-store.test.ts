@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "vitest";
-import { useCanvasStore } from "./lock-store";
+import { useCanvasStore } from "./canvas-store";
 
 const initial = useCanvasStore.getState();
 

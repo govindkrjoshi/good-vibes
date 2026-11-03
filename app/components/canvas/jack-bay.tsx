@@ -7,7 +7,7 @@ import {
 } from "@xyflow/react";
 import { X } from "lucide-react";
 import { cn } from "cn";
-import { useCanvasStore } from "./lock-store";
+import { useCanvasStore } from "./canvas-store";
 import { insideHandleId, treeJackRowHeight } from "../../canvas";
 import type { Jack } from "../../rack";
 

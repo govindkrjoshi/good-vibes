@@ -3,7 +3,7 @@ import { Group, Plus } from "lucide-react";
 import { cn } from "cn";
 import { Card, CardHeader, CardTitle } from "../ui/card";
 import { JackBay } from "./jack-bay";
-import { useCanvasStore } from "./lock-store";
+import { useCanvasStore } from "./canvas-store";
 import { useStore } from "../../stores";
 import type { Jack } from "../../rack";
 import type { TreeNodeType } from "../../canvas";
@@ -48,7 +48,7 @@ export function TreeNode({ id, data, selected }: NodeProps<TreeNodeType>) {
       className={cn(
         "size-full gap-0 overflow-visible py-0 transition-colors motion-reduce:transition-none",
         isDropTarget ? "bg-muted/70" : "bg-card/40",
-        (selected === true || isDropTarget) && "ring-2 ring-ring",
+        (selected || isDropTarget) && "ring-2 ring-ring",
       )}
     >
       <CardHeader className="flex h-11 flex-row items-center gap-2 not-last:border-b">
@@ -81,7 +81,9 @@ export function TreeNode({ id, data, selected }: NodeProps<TreeNodeType>) {
       <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-center text-sm text-muted-foreground">
         {isDropTarget
           ? `Drop to add to ${data.name}`
-          : data.childCount === 0 && "Drag a rack here"}
+          : data.childCount === 0
+            ? "Drag a rack here"
+            : null}
       </div>
     </Card>
   );

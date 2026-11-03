@@ -4,7 +4,7 @@ import { ReactFlowProvider, type NodeProps } from "@xyflow/react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, test } from "vitest";
-import { initialCanvasState, useCanvasStore } from "./lock-store";
+import { initialCanvasState, useCanvasStore } from "./canvas-store";
 import { TreeNode } from "./tree-node";
 import type { TreeNodeType } from "../../canvas";
 

@@ -192,7 +192,7 @@ export const syncNodesFromRack = (
           ? {
               ...placed,
               type: "rack",
-              data: { blockId: block.id, name: block.name, jacks: blockJacks },
+              data: { name: block.name, jacks: blockJacks },
             }
           : {
               ...placed,

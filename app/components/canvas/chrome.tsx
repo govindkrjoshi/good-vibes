@@ -4,9 +4,9 @@ import { HelpButton } from "./help-button";
 import { RackToolbar } from "./rack-toolbar";
 import { ViewportControls } from "./viewport-controls";
 import { useShortcuts } from "../../hooks/useShortcuts";
-import { useCanvasStore } from "./lock-store";
+import { useCanvasStore } from "./canvas-store";
 import { useStore } from "../../stores";
-import type { TreeRack } from "../../rack/model";
+import { newTree } from "../../rack";
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
@@ -28,23 +28,7 @@ export function CanvasChrome() {
   );
   const canDelete = !locked && hasSelection;
 
-  // A new tree has no jacks, params, methods or events, so the rack itself is
-  // all there is to add.
-  const addTree = () => {
-    const tree: TreeRack = {
-      id: crypto.randomUUID(),
-      name: "Group",
-      type: "tree",
-      isRoot: false,
-      parentId: rootId,
-      jackIds: [],
-      methodIds: [],
-      eventIds: [],
-      children: [],
-      patches: [],
-    };
-    addRack(tree, rootId);
-  };
+  const addTree = () => addRack(newTree(crypto.randomUUID(), rootId), rootId);
 
   // Sources, effects, signals and events have no block type in the store yet,
   // so their tools add nothing until one lands.

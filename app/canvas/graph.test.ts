@@ -253,7 +253,7 @@ test("gives a block with params or methods a panel of controls", () => {
 
   expect(box.type).toBe("block");
   expect(panel.type).toBe("rack");
-  expect(panel.data).toEqual({ blockId: "b", name: "AMSynth", jacks: [] });
+  expect(panel.data).toEqual({ name: "AMSynth", jacks: [] });
 });
 
 test("gives a block whose param group holds params a panel of controls", () => {

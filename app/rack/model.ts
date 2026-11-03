@@ -377,6 +377,22 @@ export const isInside = (
   );
 };
 
+// A new tree has no jacks, params, methods or events, so the rack itself is
+// all there is to add.
+export const newTree = (id: string, parentId: string): TreeBlock =>
+  TreeRack.make({
+    id,
+    name: "Group",
+    type: "tree",
+    isRoot: false,
+    parentId,
+    jackIds: [],
+    methodIds: [],
+    eventIds: [],
+    children: [],
+    patches: [],
+  });
+
 export const makeBlock = (
   id: string,
   parentId: string,

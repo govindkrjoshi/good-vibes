@@ -19,7 +19,7 @@ import { isInside } from "../../rack";
 import { BlockNode } from "./block-node";
 import { TreeNode } from "./tree-node";
 import { RackNode } from "../rack/rack-node";
-import { useCanvasStore } from "./lock-store";
+import { useCanvasStore } from "./canvas-store";
 import { useStore } from "../../stores";
 
 // React Flow re-registers every node type when this object changes identity,
@@ -48,44 +48,35 @@ function useRackDrop() {
   const setDropTarget = useCanvasStore((state) => state.setDropTarget);
   const moveRack = useStore((state) => state.rack.moveRack);
 
-  const targetOf = useCallback(
-    (event: DragEvent, dragged: readonly CanvasNode[]) => {
-      const pointer = pointerOf(event);
-      if (pointer === undefined) return undefined;
-      return treeAt(
-        getNodes(),
-        screenToFlowPosition({ x: pointer.clientX, y: pointer.clientY }),
-        useStore.getState().rack.racks,
-        dragged.map((node) => node.id),
-      );
-    },
-    [getNodes, screenToFlowPosition],
-  );
+  const targetOf = (event: DragEvent, dragged: readonly CanvasNode[]) => {
+    const pointer = pointerOf(event);
+    if (pointer === undefined) return undefined;
+    return treeAt(
+      getNodes(),
+      screenToFlowPosition({ x: pointer.clientX, y: pointer.clientY }),
+      useStore.getState().rack.racks,
+      dragged.map((node) => node.id),
+    );
+  };
 
-  const onDrag = useCallback(
-    (event: DragEvent, dragged: readonly CanvasNode[]) =>
-      setDropTarget(targetOf(event, dragged)),
-    [setDropTarget, targetOf],
-  );
+  const onDrag = (event: DragEvent, dragged: readonly CanvasNode[]) =>
+    setDropTarget(targetOf(event, dragged));
 
-  const onDragStop = useCallback(
-    (event: DragEvent, dragged: readonly CanvasNode[]) => {
-      setDropTarget(undefined);
-      const { racks, rootId } = useStore.getState().rack;
-      const parentId = targetOf(event, dragged) ?? rootId;
-      const moving = dragged.filter(
-        ({ id }) =>
-          racks[id]?.parentId !== parentId &&
-          !dragged.some((other) => isInside(racks, id, other.id)),
-      );
+  const onDragStop = (event: DragEvent, dragged: readonly CanvasNode[]) => {
+    setDropTarget(undefined);
+    const { racks, rootId } = useStore.getState().rack;
+    const parentId = targetOf(event, dragged) ?? rootId;
+    const moving = dragged.filter(
+      ({ id }) =>
+        racks[id]?.parentId !== parentId &&
+        !dragged.some((other) => isInside(racks, id, other.id)),
+    );
 
-      for (const { id } of moving) moveRack(id, parentId);
-      // A move syncs from the store, which fits the trees. A rack that stayed
-      // in its tree changes nothing there, so its tree is fitted here.
-      if (moving.length === 0) setNodes(fitTrees);
-    },
-    [moveRack, setDropTarget, setNodes, targetOf],
-  );
+    for (const { id } of moving) moveRack(id, parentId);
+    // A move syncs from the store, which fits the trees. A rack that stayed
+    // in its tree changes nothing there, so its tree is fitted here.
+    if (moving.length === 0) setNodes(fitTrees);
+  };
 
   return { onDrag, onDragStop };
 }
@@ -147,9 +138,9 @@ function RackReactFlowSync() {
   const patches = useStore((state) => state.rack.patches);
   const rootId = useStore((state) => state.rack.rootId);
 
+  // The edges are rebuilt, and a selected one has to stay selected to be
+  // deleted.
   useEffect(() => {
-    // The edges are rebuilt, and a selected one has to stay selected to be
-    // deleted.
     setEdges((current) => {
       const selected = new Set(
         current.filter((edge) => edge.selected === true).map((edge) => edge.id),
@@ -158,10 +149,13 @@ function RackReactFlowSync() {
         selected.has(edge.id) ? { ...edge, selected: true } : edge,
       );
     });
+  }, [setEdges, racks, jacks, patches, rootId]);
+
+  useEffect(() => {
     setNodes((current) =>
       syncNodesFromRack(current, racks, jacks, paramGroups, rootId),
     );
-  }, [setNodes, setEdges, racks, jacks, paramGroups, patches, rootId]);
+  }, [setNodes, racks, jacks, paramGroups, rootId]);
 
   return null;
 }
