@@ -1,5 +1,4 @@
 import { Maximize, Menu, Scan } from "lucide-react";
-import { cn } from "cn";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -12,16 +11,11 @@ import { Island } from "../ui/island";
 type CanvasMenuProps = {
   readonly onFitView: () => void;
   readonly onResetZoom: () => void;
-  readonly className?: string;
 };
 
-export function CanvasMenu({
-  onFitView,
-  onResetZoom,
-  className,
-}: CanvasMenuProps) {
+export function CanvasMenu({ onFitView, onResetZoom }: CanvasMenuProps) {
   return (
-    <Island className={cn("absolute top-4 left-4 z-10", className)}>
+    <Island className="absolute top-4 left-4 z-10">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={

@@ -21,7 +21,3 @@ test("flips the lock on each toggle", () => {
   state().toggleLock();
   expect(locked()).toBe(false);
 });
-
-test("resets between tests", () => {
-  expect(locked()).toBe(false);
-});

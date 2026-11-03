@@ -1,5 +1,4 @@
 import { Minus, Plus, Redo2, Undo2 } from "lucide-react";
-import { cn } from "cn";
 import { Hint } from "../ui/hint";
 import { Button } from "../ui/button";
 import { Island } from "../ui/island";
@@ -11,7 +10,6 @@ type ViewportControlsProps = {
   readonly onResetZoom: () => void;
   readonly onUndo?: () => void;
   readonly onRedo?: () => void;
-  readonly className?: string;
 };
 
 const iconButton = "rounded-lg [&_svg:not([class*='size-'])]:size-4";
@@ -23,15 +21,9 @@ export function ViewportControls({
   onResetZoom,
   onUndo,
   onRedo,
-  className,
 }: ViewportControlsProps) {
   return (
-    <div
-      className={cn(
-        "absolute bottom-4 left-4 z-10 flex items-center gap-2",
-        className,
-      )}
-    >
+    <div className="absolute bottom-4 left-4 z-10 flex items-center gap-2">
       <Island className="flex items-center gap-1">
         <Hint label="Zoom out" side="top">
           <Button

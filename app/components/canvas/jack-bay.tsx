@@ -13,7 +13,7 @@ import type { Jack } from "../../rack";
 
 type RemoveProps = {
   readonly rackName?: string;
-  readonly onRemove?: ((jackId: string) => void) | undefined;
+  readonly onRemove?: (jackId: string) => void;
 };
 
 const rowStyle = { height: treeJackRowHeight };
@@ -21,16 +21,27 @@ const rowStyle = { height: treeJackRowHeight };
 // At the inner end of the row, clear of the label. Cables leave it downward,
 // towards the racks in the tree.
 const insideStyle = {
-  in: { top: "50%", bottom: "auto", left: "auto", right: 12 },
-  out: { top: "50%", bottom: "auto", left: 12, right: "auto" },
+  in: {
+    top: "50%",
+    bottom: "auto",
+    left: "auto",
+    right: 12,
+    transform: "translateY(-50%)",
+  },
+  out: {
+    top: "50%",
+    bottom: "auto",
+    left: 12,
+    right: "auto",
+    transform: "translateY(-50%)",
+  },
 };
 
 // A socket on the rack's edge. An input is an open ring waiting for a cable and
 // an output is solid, so direction reads without the label. The socket is small,
 // so an invisible margin around it takes the pointer.
-const socket = cn(
-  "size-1.5! min-h-0! min-w-0! border! border-foreground! transition-shadow after:absolute after:-inset-2 after:content-[''] hover:ring-2 hover:ring-ring motion-reduce:transition-none [&.valid]:ring-2 [&.valid]:ring-ring",
-);
+const socket =
+  "size-1.5! min-h-0! min-w-0! border! border-foreground! transition-shadow after:absolute after:-inset-2 after:content-[''] hover:ring-2 hover:ring-ring motion-reduce:transition-none [&.valid]:ring-2 [&.valid]:ring-ring";
 const ring = "bg-card!";
 const solid = "bg-foreground!";
 
@@ -68,10 +79,7 @@ function JackRow({
           isConnectable={!locked}
           type={isInput ? "source" : "target"}
           position={Position.Bottom}
-          style={{
-            ...(isInput ? insideStyle.in : insideStyle.out),
-            transform: "translateY(-50%)",
-          }}
+          style={isInput ? insideStyle.in : insideStyle.out}
           className={cn(socket, isInput ? solid : ring)}
         />
       )}
@@ -127,7 +135,7 @@ export function JackBay({
                 key={jack.id}
                 jack={jack}
                 inside={inside}
-                {...(rackName === undefined ? {} : { rackName })}
+                rackName={rackName}
                 onRemove={onRemove}
               />
             ))}

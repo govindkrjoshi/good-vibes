@@ -1,4 +1,4 @@
-import * as ReactFlow from "@xyflow/react";
+import { useReactFlow, useStore as useFlowStore } from "@xyflow/react";
 import { CanvasMenu } from "./menu";
 import { HelpButton } from "./help-button";
 import { RackToolbar } from "./rack-toolbar";
@@ -16,19 +16,18 @@ export function CanvasChrome() {
   );
   const addRack = useStore((state) => state.rack.addRack);
   const rootId = useStore((state) => state.rack.rootId);
-  const removeBlocks = useStore((state) => state.rack.removeRacks);
+  const removeRacks = useStore((state) => state.rack.removeRacks);
   const removePatches = useStore((state) => state.rack.removePatches);
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
-    ReactFlow.useReactFlow();
-  const zoom = ReactFlow.useStore((state) => state.transform[2]);
-  const hasSelection = ReactFlow.useStore(
+    useReactFlow();
+  const zoom = useFlowStore((state) => state.transform[2]);
+  const hasSelection = useFlowStore(
     (state) =>
       state.nodes.some((node) => node.selected === true) ||
       state.edges.some((edge) => edge.selected === true),
   );
   const canDelete = !locked && hasSelection;
 
-  const addLeaf = () => {};
   // A new tree has no jacks, params, methods or events, so the rack itself is
   // all there is to add.
   const addTree = () => {
@@ -47,17 +46,20 @@ export function CanvasChrome() {
     addRack(tree, rootId);
   };
 
-  // The rack only models leaves and trees so far, so each typed tool adds the
-  // closest of the two until its own block type lands in the store.
-  const addSource = addLeaf;
+  // Sources, effects, signals and events have no block type in the store yet,
+  // so their tools add nothing until one lands.
+  const noBlockYet = () => {};
+  const addSource = noBlockYet;
   const addInstrument = () =>
     addRackFromCatalogue("instruments", "AMSynth", rootId);
-  const addEffect = addLeaf;
+  const addEffect = noBlockYet;
   const addComponent = addTree;
-  const addSignal = addLeaf;
-  const addEvent = addLeaf;
+  const addSignal = noBlockYet;
+  const addEvent = noBlockYet;
   const addDestination = () =>
     addRackFromCatalogue("output", "Destination", rootId);
+
+  const resetZoom = () => zoomTo(1);
 
   const deleteSelection = () => {
     if (!canDelete) return;
@@ -66,7 +68,7 @@ export function CanvasChrome() {
         .filter((edge) => edge.selected === true)
         .map((edge) => edge.id),
     );
-    removeBlocks(
+    removeRacks(
       getNodes()
         .filter((node) => node.selected === true)
         .map((node) => node.id),
@@ -88,7 +90,7 @@ export function CanvasChrome() {
 
   return (
     <>
-      <CanvasMenu onFitView={() => fitView()} onResetZoom={() => zoomTo(1)} />
+      <CanvasMenu onFitView={() => fitView()} onResetZoom={resetZoom} />
 
       {/* Drops below the menu island wherever the two would meet. */}
       <RackToolbar
@@ -111,7 +113,7 @@ export function CanvasChrome() {
         zoom={zoom}
         onZoomIn={() => zoomIn()}
         onZoomOut={() => zoomOut()}
-        onResetZoom={() => zoomTo(1)}
+        onResetZoom={resetZoom}
       />
 
       <HelpButton />

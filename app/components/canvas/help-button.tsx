@@ -1,5 +1,4 @@
 import { CircleQuestionMark } from "lucide-react";
-import { cn } from "cn";
 import { Button } from "../ui/button";
 import { Island } from "../ui/island";
 import { Kbd } from "../ui/kbd";
@@ -23,9 +22,9 @@ const shortcuts = [
   { keys: "⌫", action: "Delete selection" },
 ] as const;
 
-export function HelpButton({ className }: { readonly className?: string }) {
+export function HelpButton() {
   return (
-    <Island className={cn("absolute right-4 bottom-4 z-10", className)}>
+    <Island className="absolute right-4 bottom-4 z-10">
       <Popover>
         <PopoverTrigger
           render={

@@ -36,16 +36,10 @@ const jackIdOf = (handleId: string) =>
     : handleId;
 
 // The two jacks a React Flow connection or edge joins, when it names both.
-export const jackIds = (connection: Connection | Edge) =>
-  connection.sourceHandle === null ||
-  connection.sourceHandle === undefined ||
-  connection.targetHandle === null ||
-  connection.targetHandle === undefined
+export const jackIds = ({ sourceHandle, targetHandle }: Connection | Edge) =>
+  sourceHandle == null || targetHandle == null
     ? undefined
-    : ([
-        jackIdOf(connection.sourceHandle),
-        jackIdOf(connection.targetHandle),
-      ] as const);
+    : ([jackIdOf(sourceHandle), jackIdOf(targetHandle)] as const);
 
 const hasParams = (group: ParamGroup | undefined): boolean =>
   group !== undefined &&
@@ -87,9 +81,9 @@ const jacksHeight = ({ jacks }: TreeNodeData) => {
 export const fitTrees = (nodes: readonly CanvasNode[]): CanvasNode[] => {
   const fitted = new Map(nodes.map((node) => [node.id, node]));
 
-  for (const { id, type } of nodes.toReversed()) {
+  for (const { id } of nodes.toReversed()) {
     const tree = fitted.get(id);
-    if (type !== "tree" || tree?.type !== "tree") continue;
+    if (tree?.type !== "tree") continue;
 
     let width = nodeWidth(tree);
     let height = Math.max(nodeHeight(tree), jacksHeight(tree.data));
@@ -110,7 +104,8 @@ export const fitTrees = (nodes: readonly CanvasNode[]): CanvasNode[] => {
     }
   }
 
-  return nodes.flatMap((node) => fitted.get(node.id) ?? []);
+  // Replacing a node keeps its place, so the map is still in the input's order.
+  return [...fitted.values()];
 };
 
 // The innermost tree under a point that the dragged racks can go into: not one
