@@ -1,6 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { blocks, boxOf, canvas, connect, dragExactly } from "./helpers";
+import {
+  addBlock,
+  blocks,
+  boxOf,
+  canvas,
+  connect,
+  dragExactly,
+} from "./helpers";
 
 const edges = (page: Page) => page.locator(".react-flow__edge");
 const panel = (page: Page) => page.getByTestId("rack-node");
@@ -20,7 +27,7 @@ const outerSocket = (direction: "in" | "out") => (rack: Locator) =>
 // A synth with a Destination clear of it for each count asked for. Racks all
 // start in the same spot.
 async function synthAndDestinations(page: Page, count: number) {
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   await expect(panel(page)).toBeVisible();
   for (let index = 0; index < count; index += 1) {
     await page.getByTestId("add-destination").click();
@@ -41,7 +48,7 @@ async function groupAroundSynth(page: Page) {
   await tree(page).getByRole("button", { name: "Add output to Group" }).click();
   // Those clicks selected the group, which would lift it over the new rack.
   await canvas(page).click({ position: { x: 5, y: 5 } });
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   await expect(panel(page)).toBeVisible();
   await dragExactly(
     page,

@@ -1,11 +1,11 @@
 import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { blockAt, boxOf, drag } from "./helpers";
+import { addBlock, blockAt, boxOf, drag } from "./helpers";
 
 const instrument = (page: Page) => page.getByTestId("rack-node");
 
 async function addSynth(page: Page) {
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   await expect(instrument(page)).toHaveCount(1);
   return instrument(page);
 }

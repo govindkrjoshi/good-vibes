@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, test, vi } from "vitest";
-import { RackToolbar } from "./rack-toolbar";
+import { RackToolbar, type CatalogueSection } from "./rack-toolbar";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -11,60 +11,47 @@ let root: Root;
 const handlers = () => ({
   onToggleLock: vi.fn(),
   onAddGroup: vi.fn(),
-  onAddSource: vi.fn(),
-  onAddInstrument: vi.fn(),
-  onAddEffect: vi.fn(),
-  onAddComponent: vi.fn(),
-  onAddSignal: vi.fn(),
-  onAddEvent: vi.fn(),
   onAddDestination: vi.fn(),
   onDelete: vi.fn(),
+  onClear: vi.fn(),
+  onPick: vi.fn(),
 });
 
-const typedTools = [
+const item = (name: string, description: string) => ({
+  key: `tone/${name}`,
+  name,
+  description,
+  plugin: "Tone.js",
+  inputs: 1,
+  params: 0,
+  outputs: 1,
+});
+
+const catalogue: CatalogueSection[] = [
   {
-    testId: "add-source",
-    label: "Add source",
-    key: "S",
-    handler: "onAddSource",
+    category: "sources",
+    label: "Sources",
+    items: [item("Noise", "Hiss of every kind.")],
   },
   {
-    testId: "add-instrument",
-    label: "Add instrument",
-    key: "I",
-    handler: "onAddInstrument",
+    category: "effects",
+    label: "Effects",
+    items: [
+      item("Chorus", "Copies with wavering delays."),
+      item("FeedbackDelay", "An echo that fades."),
+      item("Freeverb", "A reverb built from comb filters."),
+    ],
   },
   {
-    testId: "add-effect",
-    label: "Add effect",
-    key: "E",
-    handler: "onAddEffect",
+    category: "components",
+    label: "Components",
+    items: [item("Filter", "Cuts some frequencies.")],
   },
-  {
-    testId: "add-component",
-    label: "Add component",
-    key: "C",
-    handler: "onAddComponent",
-  },
-  {
-    testId: "add-signal",
-    label: "Add signal",
-    key: "L",
-    handler: "onAddSignal",
-  },
-  { testId: "add-event", label: "Add event", key: "V", handler: "onAddEvent" },
-  {
-    testId: "add-destination",
-    label: "Add destination",
-    key: "D",
-    handler: "onAddDestination",
-  },
-] as const;
+];
 
 function render(
   props: ReturnType<typeof handlers>,
-  locked = false,
-  canDelete = true,
+  { locked = false, canDelete = true, canClear = true } = {},
 ) {
   container = document.createElement("div");
   document.body.append(container);
@@ -72,19 +59,43 @@ function render(
 
   act(() =>
     root.render(
-      <RackToolbar locked={locked} canDelete={canDelete} {...props} />,
+      <RackToolbar
+        locked={locked}
+        canDelete={canDelete}
+        canClear={canClear}
+        catalogue={catalogue}
+        {...props}
+      />,
     ),
   );
 
-  const button = (testId: string) => {
-    const found = container.querySelector<HTMLButtonElement>(
-      `[data-testid="${testId}"]`,
-    );
-    if (found === null) throw new Error(`no toolbar button ${testId}`);
+  const find = <E extends HTMLElement>(testId: string) => {
+    const found = document.querySelector<E>(`[data-testid="${testId}"]`);
+    if (found === null) throw new Error(`no ${testId}`);
     return found;
   };
+  const search = () => find<HTMLInputElement>("catalogue-search");
+  const options = () =>
+    [...document.querySelectorAll('[role="option"]')].map(
+      (option) => option.querySelector("span")?.textContent,
+    );
+  const type = (text: string) =>
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(search(), text);
+      search().dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  const press = (key: string) =>
+    act(() => {
+      search().dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true }),
+      );
+    });
+  const focusSearch = () => act(() => search().focus());
 
-  return { button };
+  return { find, search, options, type, press, focusSearch };
 }
 
 afterEach(() => {
@@ -101,94 +112,156 @@ test("renders a labelled toolbar", () => {
   expect(toolbar?.getAttribute("aria-label")).toBe("Rack tools");
 });
 
-test("names each button for screen readers", () => {
-  const { button } = render(handlers());
+test("names each tool for screen readers", () => {
+  const { find } = render(handlers());
 
-  expect(button("add-group").getAttribute("aria-label")).toBe("Add group");
-  expect(button("toggle-lock").getAttribute("aria-label")).toBe("Lock canvas");
-  expect(button("delete-selection").getAttribute("aria-label")).toBe(
+  expect(find("toggle-lock").getAttribute("aria-label")).toBe("Lock canvas");
+  expect(find("catalogue-search").getAttribute("aria-label")).toBe(
+    "Find a module",
+  );
+  expect(find("add-group").getAttribute("aria-label")).toBe("Add group");
+  expect(find("add-destination").getAttribute("aria-label")).toBe(
+    "Add destination",
+  );
+  expect(find("delete-selection").getAttribute("aria-label")).toBe(
     "Delete selection",
   );
-  for (const tool of typedTools) {
-    expect(button(tool.testId).getAttribute("aria-label")).toBe(tool.label);
-  }
+  expect(find("clear-canvas").getAttribute("aria-label")).toBe("Clear canvas");
 });
 
-test("shows the shortcut hint next to each block tool", () => {
-  const { button } = render(handlers());
+test("shows the shortcut hint on the tools that have one", () => {
+  const { find } = render(handlers());
 
-  expect(button("add-group").textContent).toContain("G");
-  for (const tool of typedTools) {
-    expect(button(tool.testId).textContent).toContain(tool.key);
-  }
+  expect(find("add-group").textContent).toContain("G");
+  expect(find("add-destination").textContent).toContain("D");
 });
 
-test("marks the lock button active and relabels it while locked", () => {
-  const { button } = render(handlers(), true);
-
-  expect(button("toggle-lock").dataset.active).toBe("true");
-  expect(button("toggle-lock").getAttribute("aria-pressed")).toBe("true");
-  expect(button("toggle-lock").getAttribute("aria-label")).toBe(
-    "Unlock canvas",
-  );
-});
-
-test("announces the lock as a toggle and the block tools as plain buttons", () => {
-  const { button } = render(handlers());
-
-  expect(button("toggle-lock").getAttribute("aria-pressed")).toBe("false");
-  expect(button("add-group").hasAttribute("aria-pressed")).toBe(false);
-  for (const tool of typedTools) {
-    expect(button(tool.testId).hasAttribute("aria-pressed")).toBe(false);
-  }
-});
-
-test("calls the matching handler once per click", () => {
-  const props = handlers();
-  const { button } = render(props);
-
-  act(() => button("add-group").click());
-  expect(props.onAddGroup).toHaveBeenCalledTimes(1);
-  expect(props.onToggleLock).not.toHaveBeenCalled();
-  expect(props.onDelete).not.toHaveBeenCalled();
-
-  act(() => button("delete-selection").click());
-  expect(props.onDelete).toHaveBeenCalledTimes(1);
-
-  act(() => button("toggle-lock").click());
-  expect(props.onToggleLock).toHaveBeenCalledTimes(1);
-});
-
-test("calls each typed tool's own handler", () => {
-  const props = handlers();
-  const { button } = render(props);
-
-  for (const tool of typedTools) {
-    act(() => button(tool.testId).click());
-    expect(props[tool.handler]).toHaveBeenCalledTimes(1);
-  }
-  expect(props.onAddGroup).not.toHaveBeenCalled();
-});
-
-test("puts the typed tools, add group and delete in groups of their own", () => {
+test("puts the adding tools and the removing tools in groups of their own", () => {
   render(handlers());
 
   const groups = [...container.querySelectorAll('[data-slot="toolbar-group"]')];
   expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
-    "Add blocks",
-    "Add group",
+    "Add",
     "Edit",
   ]);
-  expect(groups[1]?.querySelector('[data-testid="add-group"]')).not.toBeNull();
+  expect(groups[0]?.querySelector('[data-testid="add-group"]')).not.toBeNull();
   expect(
-    groups[2]?.querySelector('[data-testid="delete-selection"]'),
+    groups[1]?.querySelector('[data-testid="clear-canvas"]'),
   ).not.toBeNull();
 });
 
-test("disables delete while there is nothing to delete", () => {
-  const props = handlers();
-  const { button } = render(props, false, false);
+test("marks the lock button active and relabels it while locked", () => {
+  const { find } = render(handlers(), { locked: true });
 
-  act(() => button("delete-selection").click());
+  expect(find("toggle-lock").dataset.active).toBe("true");
+  expect(find("toggle-lock").getAttribute("aria-pressed")).toBe("true");
+  expect(find("toggle-lock").getAttribute("aria-label")).toBe("Unlock canvas");
+});
+
+test("calls the matching handler once per click", () => {
+  const props = handlers();
+  const { find } = render(props);
+
+  act(() => find("add-group").click());
+  act(() => find("add-destination").click());
+  act(() => find("delete-selection").click());
+  act(() => find("toggle-lock").click());
+
+  expect(props.onAddGroup).toHaveBeenCalledTimes(1);
+  expect(props.onAddDestination).toHaveBeenCalledTimes(1);
+  expect(props.onDelete).toHaveBeenCalledTimes(1);
+  expect(props.onToggleLock).toHaveBeenCalledTimes(1);
+});
+
+test("disables delete and clear while there is nothing to take away", () => {
+  const props = handlers();
+  const { find } = render(props, { canDelete: false, canClear: false });
+
+  act(() => find("delete-selection").click());
+  act(() => find("clear-canvas").click());
   expect(props.onDelete).not.toHaveBeenCalled();
+  expect(document.querySelector('[data-testid="confirm-clear"]')).toBeNull();
+});
+
+test("clears the canvas only once it is confirmed", () => {
+  const props = handlers();
+  const { find } = render(props);
+
+  act(() => find("clear-canvas").click());
+  expect(props.onClear).not.toHaveBeenCalled();
+
+  act(() => find("confirm-clear").click());
+  expect(props.onClear).toHaveBeenCalledTimes(1);
+});
+
+test("drops the catalogue down when the search takes focus", () => {
+  const { focusSearch, search, options } = render(handlers());
+  expect(options()).toEqual([]);
+
+  focusSearch();
+
+  expect(search().getAttribute("aria-expanded")).toBe("true");
+  expect(options()).toEqual(["Noise"]);
+});
+
+test("browses a category picked from the side list", () => {
+  const { focusSearch, find, options } = render(handlers());
+  focusSearch();
+
+  act(() => find("catalogue-effects").click());
+
+  expect(options()).toEqual(["Chorus", "FeedbackDelay", "Freeverb"]);
+});
+
+test("searches every category, names before descriptions", () => {
+  const { focusSearch, type, options } = render(handlers());
+  focusSearch();
+
+  type("filter");
+  expect(options()).toEqual(["Filter", "Freeverb"]);
+
+  type("echo");
+  expect(options()).toEqual(["FeedbackDelay"]);
+});
+
+test("says what to try when nothing matches", () => {
+  const { focusSearch, type, options } = render(handlers());
+  focusSearch();
+
+  type("theremin");
+
+  expect(options()).toEqual([]);
+  expect(document.body.textContent).toContain("No module matches");
+});
+
+test("adds the highlighted module on Enter and closes the list", () => {
+  const props = handlers();
+  const { focusSearch, type, press, search } = render(props);
+  focusSearch();
+
+  type("e");
+  press("ArrowDown");
+  press("Enter");
+
+  expect(props.onPick).toHaveBeenCalledWith("tone/FeedbackDelay");
+  expect(search().getAttribute("aria-expanded")).toBe("false");
+  expect(search().value).toBe("");
+});
+
+test("closes the list on Escape", () => {
+  const { focusSearch, press, search } = render(handlers());
+  focusSearch();
+
+  press("Escape");
+
+  expect(search().getAttribute("aria-expanded")).toBe("false");
+});
+
+test("tells a screen reader what each module connects by", () => {
+  const { focusSearch } = render(handlers());
+  focusSearch();
+
+  expect(
+    document.querySelector('[role="option"]')?.getAttribute("aria-description"),
+  ).toBe("Hiss of every kind. 1 input, 1 output.");
 });

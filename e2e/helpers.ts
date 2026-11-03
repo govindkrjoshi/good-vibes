@@ -78,9 +78,9 @@ export async function connect(page: Page, from: Locator, to: Locator) {
 }
 
 // Adds a catalogue item by its key (`pluginId/name`) through the toolbar's
-// catalogue menu, as a user picking a particular one would.
+// search, browsing to its category as a user picking one would.
 export async function addBlock(page: Page, category: string, itemKey: string) {
-  await page.getByTestId("open-catalogue").click();
+  await page.getByTestId("catalogue-search").click();
   await page.getByTestId(`catalogue-${category}`).click();
   await page.getByTestId(`catalogue-item-${itemKey}`).click();
 }

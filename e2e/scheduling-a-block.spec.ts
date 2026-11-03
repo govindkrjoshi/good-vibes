@@ -1,5 +1,6 @@
 import { type Locator, type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
+import { addBlock } from "./helpers";
 
 async function openEditor(page: Page, panel: Locator, action: string) {
   await panel.getByRole("button", { name: "Add event" }).click();
@@ -17,7 +18,7 @@ test("schedules a method as a sequence, edits a step and removes it", async ({
     if (message.type() === "error") errors.push(message.text());
   });
 
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   const panel = page.getByTestId("rack-node");
   await expect(panel).toHaveCount(1);
 
@@ -58,7 +59,7 @@ test("schedules a method as a sequence, edits a step and removes it", async ({
 });
 
 test("schedules a pattern and a part", async ({ page }) => {
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   const panel = page.getByTestId("rack-node");
   await expect(panel).toHaveCount(1);
 

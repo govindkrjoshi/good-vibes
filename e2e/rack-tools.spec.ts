@@ -6,20 +6,15 @@ test("names and groups every rack tool", async ({ page }) => {
     - toolbar "Rack tools":
       - button "Lock canvas"
       - separator
-      - group "Add blocks":
-        - button "Add source"
-        - button "Add instrument"
-        - button "Add effect"
-        - button "Add component"
-        - button "Add signal"
-        - button "Add event"
-        - button "Add destination"
+      - combobox "Find a module"
       - separator
-      - group "Add group":
+      - group "Add":
         - button "Add group"
+        - button "Add destination"
       - separator
       - group "Edit":
         - button "Delete selection" [disabled]
+        - button "Clear canvas" [disabled]
   `);
 });
 
@@ -31,9 +26,9 @@ test("puts the rack's own actions outside the tool island", async ({
 });
 
 test("hints at what a tool does on hover", async ({ page }) => {
-  await page.getByTestId("add-source").hover();
+  await page.getByTestId("add-group").hover();
 
   await expect(page.locator('[data-slot="tooltip-content"]')).toHaveText(
-    "Add source",
+    "Add group",
   );
 });

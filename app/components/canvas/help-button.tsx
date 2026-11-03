@@ -11,13 +11,8 @@ import {
 } from "../ui/popover";
 
 const shortcuts = [
+  { keys: "/", action: "Find a module" },
   { keys: "G", action: "Add group" },
-  { keys: "S", action: "Add source" },
-  { keys: "I", action: "Add instrument" },
-  { keys: "E", action: "Add effect" },
-  { keys: "C", action: "Add component" },
-  { keys: "L", action: "Add signal" },
-  { keys: "V", action: "Add event" },
   { keys: "D", action: "Add destination" },
   { keys: "⌫", action: "Delete selection" },
 ] as const;

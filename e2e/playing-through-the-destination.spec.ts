@@ -1,6 +1,6 @@
 import { type Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { blocks, connect } from "./helpers";
+import { addBlock, blocks, connect } from "./helpers";
 
 // A test cannot listen, so it counts what a note takes instead: every attack
 // and release moves an envelope with one of the browser's ramps. Building the
@@ -78,7 +78,7 @@ test("adds a destination that only takes input", async ({ page }) => {
 const audioNotStarted = "The AudioContext was not allowed to start";
 
 async function playRiff(page: Page) {
-  await page.keyboard.press("i");
+  await addBlock(page, "instruments", "tone/AMSynth");
   await page.keyboard.press("d");
   await expect(synth(page)).toHaveCount(1);
   await expect(blocks(page).getByRole("heading")).toHaveText("Destination");

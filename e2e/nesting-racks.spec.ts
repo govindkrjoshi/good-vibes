@@ -1,6 +1,12 @@
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures";
-import { blocks, boxOf, canvas, dragExactly as drag } from "./helpers";
+import {
+  addBlock,
+  blocks,
+  boxOf,
+  canvas,
+  dragExactly as drag,
+} from "./helpers";
 
 const trees = (page: Page) => page.getByTestId("tree-node");
 
@@ -79,7 +85,7 @@ test("a group carries the racks inside it", async ({ page }) => {
 test("a group grows to fit a panel dropped inside it", async ({ page }) => {
   await page.getByTestId("add-group").click();
   await expect(trees(page)).toHaveCount(1);
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   const panel = page.getByTestId("rack-node");
   await expect(panel).toBeVisible();
 
@@ -188,7 +194,7 @@ test("jacks look the same on every kind of rack", async ({ page }) => {
   await tree.getByRole("button", { name: "Add input to Group" }).click();
   await tree.getByRole("button", { name: "Add output to Group" }).click();
   await page.getByTestId("add-destination").click();
-  await page.getByTestId("add-instrument").click();
+  await addBlock(page, "instruments", "tone/AMSynth");
   const racks = [tree, blocks(page), page.getByTestId("rack-node")];
 
   const looks = await Promise.all(

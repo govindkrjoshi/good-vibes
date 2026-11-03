@@ -63,6 +63,8 @@ type Actions = {
   readonly setTransport: (transport: Partial<Transport>) => void;
   readonly reportError: (message: string) => void;
   readonly reset: () => void;
+  // Takes every rack and patch away, keeping the tempo.
+  readonly clear: () => void;
 };
 
 export type RackSlice = State & Actions;
@@ -120,6 +122,17 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       },
       false,
       "rack/reset",
+    ),
+  clear: () =>
+    set(
+      (state) => {
+        const { transport } = state.rack;
+        Object.assign(state.rack, initialState, {
+          transport: { ...transport, playing: false },
+        });
+      },
+      false,
+      "rack/clear",
     ),
   addRack: (rack, parentId) =>
     set(

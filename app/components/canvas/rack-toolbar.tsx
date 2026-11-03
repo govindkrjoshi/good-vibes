@@ -1,256 +1,185 @@
+import { useRef, useState, type RefObject } from "react";
 import {
-  Activity,
-  AudioWaveform,
-  Component,
+  BrushCleaning,
   Group,
-  Library,
   Lock,
   LockOpen,
-  Piano,
-  SlidersHorizontal,
   Speaker,
   Trash2,
-  Zap,
 } from "lucide-react";
 import { cn } from "cn";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "../ui/dropdown-menu";
+import { Button } from "../ui/button";
 import { Hint } from "../ui/hint";
+import {
+  Popover,
+  PopoverContent,
+  PopoverDescription,
+  PopoverHeader,
+  PopoverTitle,
+  PopoverTrigger,
+} from "../ui/popover";
 import {
   Toolbar,
   ToolbarButton,
   ToolbarGroup,
   ToolbarSeparator,
 } from "../ui/toolbar";
+import { useCatalogueSearch, type CatalogueSection } from "./catalogue-search";
 
-// What the catalogue menu lists: each category, its items grouped by the
-// plugin they come from.
-export type CatalogueSection = {
-  readonly category: string;
-  readonly label: string;
-  readonly plugins: readonly {
-    readonly name: string;
-    readonly items: readonly { readonly key: string; readonly name: string }[];
-  }[];
-};
+export type { CatalogueSection } from "./catalogue-search";
 
 type RackToolbarProps = {
   readonly locked: boolean;
   readonly onToggleLock: () => void;
   readonly onAddGroup: () => void;
-  readonly onAddSource: () => void;
-  readonly onAddInstrument: () => void;
-  readonly onAddEffect: () => void;
-  readonly onAddComponent: () => void;
-  readonly onAddSignal: () => void;
-  readonly onAddEvent: () => void;
   readonly onAddDestination: () => void;
   readonly canDelete: boolean;
   readonly onDelete: () => void;
+  readonly canClear?: boolean;
+  readonly onClear?: () => void;
   readonly catalogue?: readonly CatalogueSection[];
   readonly onPick?: (itemKey: string) => void;
+  // Set to what focuses the search field, for a shortcut to call.
+  readonly focusSearch?: RefObject<(() => void) | null>;
   readonly className?: string;
 };
 
+// The canvas's tools: the lock, a search over the whole catalogue, the two
+// racks that aren't modules, and the ways to take racks away.
 export function RackToolbar({
   locked,
   onToggleLock,
   onAddGroup,
-  onAddSource,
-  onAddInstrument,
-  onAddEffect,
-  onAddComponent,
-  onAddSignal,
-  onAddEvent,
   onAddDestination,
   canDelete,
   onDelete,
+  canClear = false,
+  onClear = () => {},
   catalogue = [],
-  onPick,
+  onPick = () => {},
+  focusSearch,
   className,
 }: RackToolbarProps) {
+  const within = useRef<HTMLDivElement>(null);
+  const search = useCatalogueSearch({ catalogue, onPick, within });
+  if (focusSearch !== undefined) focusSearch.current = search.focus;
+
   return (
-    <Toolbar
-      aria-label="Rack tools"
-      className={cn("absolute top-4 left-1/2 z-10 -translate-x-1/2", className)}
+    <div
+      ref={within}
+      className={cn(
+        "absolute top-4 left-1/2 z-10 flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 flex-col",
+        className,
+      )}
     >
-      <Hint label={locked ? "Unlock canvas" : "Lock canvas"}>
-        <ToolbarButton
-          active={locked}
-          data-testid="toggle-lock"
-          onClick={onToggleLock}
-        >
-          {locked ? <Lock /> : <LockOpen />}
-        </ToolbarButton>
-      </Hint>
-
-      <ToolbarSeparator />
-
-      <ToolbarGroup aria-label="Add blocks">
-        <Hint label="Add source">
+      <Toolbar aria-label="Rack tools" className="min-w-0">
+        <Hint label={locked ? "Unlock canvas" : "Lock canvas"}>
           <ToolbarButton
-            shortcut="S"
-            data-testid="add-source"
-            onClick={onAddSource}
+            active={locked}
+            data-testid="toggle-lock"
+            onClick={onToggleLock}
           >
-            <AudioWaveform />
+            {locked ? <Lock /> : <LockOpen />}
           </ToolbarButton>
         </Hint>
 
-        <Hint label="Add instrument">
-          <ToolbarButton
-            shortcut="I"
-            data-testid="add-instrument"
-            onClick={onAddInstrument}
-          >
-            <Piano />
-          </ToolbarButton>
-        </Hint>
+        <ToolbarSeparator />
 
-        <Hint label="Add effect">
-          <ToolbarButton
-            shortcut="E"
-            data-testid="add-effect"
-            onClick={onAddEffect}
-          >
-            <SlidersHorizontal />
-          </ToolbarButton>
-        </Hint>
+        {search.field}
 
-        <Hint label="Add component">
-          <ToolbarButton
-            shortcut="C"
-            data-testid="add-component"
-            onClick={onAddComponent}
-          >
-            <Component />
-          </ToolbarButton>
-        </Hint>
+        <ToolbarSeparator />
 
-        <Hint label="Add signal">
-          <ToolbarButton
-            shortcut="L"
-            data-testid="add-signal"
-            onClick={onAddSignal}
-          >
-            <Activity />
-          </ToolbarButton>
-        </Hint>
+        <ToolbarGroup aria-label="Add">
+          <Hint label="Add group">
+            <ToolbarButton
+              shortcut="G"
+              data-testid="add-group"
+              onClick={onAddGroup}
+            >
+              <Group />
+            </ToolbarButton>
+          </Hint>
 
-        <Hint label="Add event">
-          <ToolbarButton
-            shortcut="V"
-            data-testid="add-event"
-            onClick={onAddEvent}
-          >
-            <Zap />
-          </ToolbarButton>
-        </Hint>
+          <Hint label="Add destination">
+            <ToolbarButton
+              shortcut="D"
+              data-testid="add-destination"
+              onClick={onAddDestination}
+            >
+              <Speaker />
+            </ToolbarButton>
+          </Hint>
+        </ToolbarGroup>
 
-        <Hint label="Add destination">
-          <ToolbarButton
-            shortcut="D"
-            data-testid="add-destination"
-            onClick={onAddDestination}
-          >
-            <Speaker />
-          </ToolbarButton>
-        </Hint>
-      </ToolbarGroup>
+        <ToolbarSeparator />
 
-      <ToolbarSeparator />
+        <ToolbarGroup aria-label="Edit">
+          <Hint label="Delete selection">
+            <ToolbarButton
+              shortcut="⌫"
+              disabled={!canDelete}
+              data-testid="delete-selection"
+              onClick={onDelete}
+            >
+              <Trash2 />
+            </ToolbarButton>
+          </Hint>
 
-      <ToolbarGroup aria-label="Add group">
-        <Hint label="Add group">
-          <ToolbarButton
-            shortcut="G"
-            data-testid="add-group"
-            onClick={onAddGroup}
-          >
-            <Group />
-          </ToolbarButton>
-        </Hint>
+          <ClearButton disabled={!canClear} onClear={onClear} />
+        </ToolbarGroup>
+      </Toolbar>
 
-        {catalogue.length === 0 ? null : (
-          <CatalogueMenu catalogue={catalogue} onPick={onPick} />
-        )}
-      </ToolbarGroup>
-
-      <ToolbarSeparator />
-
-      <ToolbarGroup aria-label="Edit">
-        <Hint label="Delete selection">
-          <ToolbarButton
-            shortcut="⌫"
-            disabled={!canDelete}
-            data-testid="delete-selection"
-            onClick={onDelete}
-          >
-            <Trash2 />
-          </ToolbarButton>
-        </Hint>
-      </ToolbarGroup>
-    </Toolbar>
+      {search.list}
+    </div>
   );
 }
 
-// Every item the catalogue holds, a category to a submenu. Picking one adds it,
-// and the category's button adds it from then on.
-function CatalogueMenu({
-  catalogue,
-  onPick,
+// Clearing can't be undone, so it asks first.
+function ClearButton({
+  disabled,
+  onClear,
 }: {
-  readonly catalogue: readonly CatalogueSection[];
-  readonly onPick?: (itemKey: string) => void;
+  readonly disabled: boolean;
+  readonly onClear: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        render={
-          <ToolbarButton
-            aria-label="Add from catalogue"
-            data-testid="open-catalogue"
+    <Popover open={open} onOpenChange={setOpen}>
+      <Hint label="Clear canvas">
+        <PopoverTrigger
+          disabled={disabled}
+          render={
+            <ToolbarButton data-testid="clear-canvas" disabled={disabled}>
+              <BrushCleaning />
+            </ToolbarButton>
+          }
+        />
+      </Hint>
+      <PopoverContent align="end" sideOffset={10} className="w-64">
+        <PopoverHeader>
+          <PopoverTitle>Clear the canvas?</PopoverTitle>
+          <PopoverDescription>
+            Removes every rack and patch. This can’t be undone; the tempo stays.
+          </PopoverDescription>
+        </PopoverHeader>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+            Cancel
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            data-testid="confirm-clear"
+            onClick={() => {
+              onClear();
+              setOpen(false);
+            }}
           >
-            <Library />
-          </ToolbarButton>
-        }
-      />
-      <DropdownMenuContent align="center" className="w-44">
-        {catalogue.map((section) => (
-          <DropdownMenuSub key={section.category}>
-            <DropdownMenuSubTrigger
-              data-testid={`catalogue-${section.category}`}
-            >
-              {section.label}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-80 w-52 overflow-y-auto">
-              {section.plugins.map((plugin) => (
-                <DropdownMenuGroup key={plugin.name}>
-                  <DropdownMenuLabel>{plugin.name}</DropdownMenuLabel>
-                  {plugin.items.map((item) => (
-                    <DropdownMenuItem
-                      key={item.key}
-                      data-testid={`catalogue-item-${item.key}`}
-                      onClick={() => onPick?.(item.key)}
-                    >
-                      {item.name}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuGroup>
-              ))}
-            </DropdownMenuSubContent>
-          </DropdownMenuSub>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+            Clear canvas
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
