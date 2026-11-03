@@ -47,9 +47,9 @@ params are `rack:param:path`; methods are `rack:method:name`.
 | `set_transport` | `setTransport` |
 
 The agent picks rack ids (`bass`, `pad-filter`); one is made from the item's
-name when it doesn't. A new rack lands at the origin, so once a reply that
-changed which racks there are has finished, the canvas is laid out again
-(`agent-provider.tsx`).
+name when it doesn't. Where racks go on the canvas isn't the agent's
+concern: the canvas lays itself out whenever the racks or their cables
+change, whoever changed them (`AutoLayout` in `viewport.tsx`).
 
 ## Checking before the store
 

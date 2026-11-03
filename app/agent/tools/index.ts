@@ -23,13 +23,3 @@ export const createRackTools = (
   ...paramTools(store, watch),
   ...scheduleTools(store, watch),
 ];
-
-// The tools after which the canvas is laid out again, since a new rack lands
-// at the origin and a moved one has to be fitted.
-export const layoutTools: ReadonlySet<string> = new Set([
-  "add_rack",
-  "create_rack",
-  "add_group",
-  "move_rack",
-  "load_demo",
-]);

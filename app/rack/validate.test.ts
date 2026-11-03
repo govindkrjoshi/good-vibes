@@ -129,9 +129,8 @@ test("an event needs a method it can be scheduled on", () => {
   expect(eventProblems(start, sequence)).toEqual([
     "Start has no time argument, so it can't be scheduled",
   ]);
-  expect(eventProblems(release, { ...sequence, args: {} })).toEqual([
-    'Trigger Release has no note argument, so it can only be a loop (kind "event")',
-  ]);
+  // Each step is a hit when the method takes no note.
+  expect(eventProblems(release, { ...sequence, args: {} })).toEqual([]);
   expect(
     eventProblems(release, {
       kind: "event",
@@ -142,6 +141,29 @@ test("an event needs a method it can be scheduled on", () => {
       mute: false,
     }),
   ).toEqual([]);
+  // A loop has no steps, so a pitched method needs its note fixed.
+  const loop = {
+    kind: "event" as const,
+    start: "0",
+    loop: true,
+    loopEnd: "1m",
+    mute: false,
+  };
+  expect(eventProblems(trigger, { ...loop, args: { duration: "8n" } })).toEqual(
+    ["a loop on Trigger Attack Release needs a value or args.note for note"],
+  );
+  expect(
+    eventProblems(trigger, { ...loop, value: "C2", args: { duration: "8n" } }),
+  ).toEqual([]);
+  expect(
+    eventProblems(trigger, {
+      ...loop,
+      args: { duration: "8n", note: "C2" },
+    }),
+  ).toEqual([]);
+  expect(
+    eventProblems(trigger, { ...loop, args: { duration: "8n", note: true } }),
+  ).toEqual(["args: note takes a note name or a frequency"]);
 });
 
 test("an event's fixed args have to be the method's, and fit", () => {

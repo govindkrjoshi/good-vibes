@@ -122,6 +122,11 @@ test("reads the catalogue, filtered, and one item in full", async () => {
   expect(some.text).toContain("tone/FeedbackDelay");
   expect(some.text).not.toContain("tone/MonoSynth");
 
+  const several = await call("read_catalogue", { query: "kick snare limiter" });
+  expect(several.text).toContain("tone/MembraneSynth");
+  expect(several.text).toContain("tone/NoiseSynth");
+  expect(several.text).toContain("tone/Limiter");
+
   const none = await call("read_catalogue", { query: "theremin" });
   expect(none.text).toContain('Nothing in the catalogue matches "theremin"');
 
@@ -502,6 +507,20 @@ test("schedules, changes and removes events", async () => {
     loopEnd: "1m",
   });
   expect(loop.failed).toBe(false);
+
+  const unpitched = await call("add_event", {
+    methodId: "bass:method:triggerRelease",
+    kind: "sequence",
+    steps: [1, null, 1, null],
+  });
+  expect(unpitched.failed).toBe(false);
+
+  const silent = await call("add_event", {
+    methodId: "bass:method:triggerAttackRelease",
+    kind: "event",
+    args: { duration: "8n" },
+  });
+  expect(silent.text).toContain("needs a value or args.note");
 
   const removed = await call("remove_event", { eventId: id });
   expect(removed.text).toBe(`Removed event ${id}.`);

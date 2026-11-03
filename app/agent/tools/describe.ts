@@ -358,14 +358,16 @@ const itemLine = (item: CatalogueEntry) => {
   return `${item.key} — ${item.description} (${ports.join(", ")})`;
 };
 
+// An item matches when any word of the query is in it, so a search for
+// several things at once ("kick snare hat") finds them all.
 const matches = (item: CatalogueEntry, query: string) => {
   const haystack =
     `${item.key} ${item.name} ${item.category} ${item.description}`.toLowerCase();
-  return query
+  const words = query
     .toLowerCase()
     .split(/\s+/)
-    .filter((word) => word !== "")
-    .every((word) => haystack.includes(word));
+    .filter((word) => word !== "");
+  return words.length === 0 || words.some((word) => haystack.includes(word));
 };
 
 export const describeCatalogue = (

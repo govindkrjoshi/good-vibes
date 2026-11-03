@@ -12,6 +12,7 @@ import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./canvas-store";
 import { useStore } from "../../stores";
 import { newTree } from "../../rack";
+import { applyLayout, layoutNodes, type CanvasNode } from "../../canvas";
 import { demos, rackCount } from "../../demos";
 import {
   categories,
@@ -32,7 +33,6 @@ const categoryLabels: Record<Category, string> = {
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
-  const requestArrange = useCanvasStore((state) => state.requestArrange);
   const addRackFromCatalogue = useStore(
     (state) => state.rack.addRackFromCatalogue,
   );
@@ -47,8 +47,8 @@ export function CanvasChrome() {
   });
   const removeRacks = useStore((state) => state.rack.removeRacks);
   const removePatches = useStore((state) => state.rack.removePatches);
-  const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
-    useReactFlow();
+  const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges, setNodes } =
+    useReactFlow<CanvasNode>();
   const zoom = useFlowStore((state) => state.transform[2]);
   const hasSelection = useFlowStore(
     (state) =>
@@ -97,13 +97,18 @@ export function CanvasChrome() {
       })),
     [registry],
   );
-  // A demo arrives as a pile at the origin, so the canvas lays it out.
   const loadDemo = (demoId: string) => {
     const demo = demos.find((held) => held.id === demoId);
     if (demo === undefined) return;
     load(demo.build(registry));
-    requestArrange();
   };
+
+  // Puts racks that were dragged out of place back along their signal flow.
+  const arrange = () =>
+    void layoutNodes(getNodes(), getEdges()).then(({ nodes }) => {
+      setNodes((current) => applyLayout(current, nodes));
+      void fitView({ maxZoom: 1, padding: 0.1, duration: 300 });
+    });
 
   const resetZoom = () => zoomTo(1);
 
@@ -134,7 +139,7 @@ export function CanvasChrome() {
       <CanvasMenu
         onFitView={() => fitView()}
         onResetZoom={resetZoom}
-        onArrange={requestArrange}
+        onArrange={arrange}
       />
 
       {/* Drops below the menu island wherever the two would meet. */}

@@ -19,16 +19,26 @@ import {
   type RackStore,
 } from "./types";
 
-// Cheap and quick. It has to be a model pi-ai reaches over OpenRouter's
-// chat-completions API: Anthropic models go through its Anthropic-style
-// endpoint, whose headers OpenRouter's CORS rejects, so the browser cannot
-// call them.
-export const goodVibesModelId = "openai/gpt-5.4-mini";
+// A model made for coding agents and reliable tool calls, at a low price: it
+// reads the rack and the catalogue often and writes code of its own. It has
+// to be one pi-ai reaches over OpenRouter's chat-completions API: Anthropic
+// models go through its Anthropic-style endpoint, whose headers OpenRouter's
+// CORS rejects, so the browser cannot call them. Others that fit the same
+// bill: deepseek/deepseek-v4.1-flash, openai/gpt-6-luna, qwen/qwen3-coder-next.
+export const goodVibesModelId = "z-ai/glm-5.3-flash";
 
 export const systemPrompt = `You are the assistant inside Good Vibes, a browser-based modular \
 synthesizer where people wire racks together on a canvas to make sound. You can read the rack \
 and change it with your tools, the same changes the user makes by hand. Be warm, brief and \
-plain-spoken: a sentence or two around what you did, no lists of ids unless asked.
+plain-spoken, and no lists of ids unless asked.
+
+Work in small, visible steps. The user watches the rack change as you go, so:
+- Say what you're about to do in a few words, then do it; then the next thing. A short line \
+before each step beats a long plan up front or a long summary at the end.
+- Make a few changes at a time rather than everything in one go: place a rack, then patch it, \
+then set its sound. Each step should leave the rack in a state that makes sense on its own.
+- Keep every message to a sentence or two. When you've finished, one line on what's there \
+now and, if it fits, one thing they could try next.
 
 How the rack works:
 - The rack is a tree. The root is a tree; a tree (group) holds leaves and other trees. A leaf \
@@ -44,7 +54,9 @@ automations only play while the transport is playing. The user hears the rack as
 
 How to work:
 - Read before you change: read_rack for what is there, read_catalogue to find an item or see \
-its param paths. Use the ids you were shown; never guess one.
+its param paths. One read is usually enough: search the catalogue once with a few words, and \
+read an item in full only when you need its param paths. Use the ids you were shown; never \
+guess one.
 - Prefer a catalogue item. When none does what is needed, write a rack of your own with \
 create_rack, starting from a similar item's spec (read_catalogue with withCode). Keep the \
 code small and the params to what the node's set() accepts.
@@ -132,7 +144,10 @@ export const createGoodVibesAgent = (
 
     // Read per request, see ApiKey.
     const agent = new Agent({
-      initialState: { systemPrompt, model, tools },
+      // GLM reasons at length when left to itself, and a turn here is a few
+      // tool calls, not a proof. Low keeps it thinking but briefly; "off"
+      // sends it nothing, so it would go back to its default.
+      initialState: { systemPrompt, model, tools, thinkingLevel: "low" },
       streamFn: overrides.streamFn ?? models.streamSimple.bind(models),
       getApiKey: (provider) =>
         provider === "openrouter" ? apiKey() : undefined,

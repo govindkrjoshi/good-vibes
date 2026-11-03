@@ -6,20 +6,28 @@ import {
   boxOf,
   canvas,
   dragExactly as drag,
+  settle,
 } from "./helpers";
 
 const trees = (page: Page) => page.getByTestId("tree-node");
 
-// Leaves the rack clear of the tree it was added on top of, which it lands in
-// otherwise. Racks all start in the same spot.
+// The canvas lays the rack out beside the group, not in it.
 async function addGroupAndDestination(page: Page) {
   await page.getByTestId("add-group").click();
   await expect(trees(page)).toHaveText(/Drag a rack here/);
   await page.getByTestId("add-destination").click();
   await expect(blocks(page)).toHaveCount(1);
-  await drag(page, await boxOf(blocks(page), "block"), 420, 0);
+  await settle(page);
   await expect(trees(page)).toHaveText(/Drag a rack here/);
 }
+
+type Box = Awaited<ReturnType<typeof boxOf>>;
+
+const holds = (outer: Box, inner: Box) =>
+  inner.x >= outer.x &&
+  inner.y >= outer.y &&
+  inner.x + inner.width <= outer.x + outer.width &&
+  inner.y + inner.height <= outer.y + outer.height;
 
 test("adds an empty group that invites racks in", async ({ page }) => {
   await page.getByTestId("add-group").click();
@@ -47,16 +55,24 @@ test("drags a rack into a group and back out", async ({ page }) => {
   await expect(trees(page)).toHaveText(/1 rack/);
   await expect(trees(page)).not.toHaveText(/Drag a rack here/);
 
-  // The rack stays where it was dropped, under the pointer.
+  // The canvas lays the rack out inside the group it was dropped in.
+  await settle(page);
   const dropped = await boxOf(blocks(page), "block");
-  expect(Math.abs(dropped.x + dropped.width / 2 - to.x)).toBeLessThan(2);
-  expect(Math.abs(dropped.y + dropped.height / 2 - to.y)).toBeLessThan(2);
+  expect(holds(await boxOf(trees(page), "tree"), dropped)).toBe(true);
 
-  await drag(page, dropped, 350, 0);
+  const grown = await boxOf(trees(page), "tree");
+  await drag(
+    page,
+    dropped,
+    grown.x + grown.width + 100 - (dropped.x + dropped.width / 2),
+    0,
+  );
 
   await expect(trees(page)).toHaveText(/Drag a rack here/);
-  const out = await boxOf(blocks(page), "block");
-  expect(Math.abs(out.x - (dropped.x + 350))).toBeLessThan(2);
+  await settle(page);
+  expect(
+    holds(await boxOf(trees(page), "tree"), await boxOf(blocks(page), "block")),
+  ).toBe(false);
 });
 
 test("a group carries the racks inside it", async ({ page }) => {
@@ -70,6 +86,7 @@ test("a group carries the racks inside it", async ({ page }) => {
     tree.y + tree.height / 2 - (block.y + block.height / 2),
   );
   await expect(trees(page)).toHaveText(/1 rack/);
+  await settle(page);
   const inside = await boxOf(blocks(page), "block");
 
   const header = await boxOf(trees(page).getByRole("heading"), "header");
@@ -89,8 +106,6 @@ test("a group grows to fit a panel dropped inside it", async ({ page }) => {
   const panel = page.getByTestId("rack-node");
   await expect(panel).toBeVisible();
 
-  const header = await boxOf(panel.getByRole("heading").first(), "header");
-  await drag(page, header, 450, 0);
   const tree = await boxOf(trees(page), "tree");
   const moved = await boxOf(panel.getByRole("heading").first(), "header");
   await drag(
@@ -101,13 +116,11 @@ test("a group grows to fit a panel dropped inside it", async ({ page }) => {
   );
 
   await expect(trees(page)).toHaveText(/1 rack/);
-  await expect(async () => {
-    const grown = await boxOf(trees(page), "tree");
-    const held = await boxOf(panel, "panel");
-    expect(grown.width).toBeGreaterThan(tree.width);
-    expect(held.x + held.width).toBeLessThanOrEqual(grown.x + grown.width);
-    expect(held.y + held.height).toBeLessThanOrEqual(grown.y + grown.height);
-  }).toPass();
+  await settle(page);
+  const grown = await boxOf(trees(page), "tree");
+  // The view is fitted again, so the sizes are compared at one zoom.
+  expect(grown.height / grown.width).toBeGreaterThan(tree.height / tree.width);
+  expect(holds(grown, await boxOf(panel, "panel"))).toBe(true);
 });
 
 test("nests a group in a group but not in itself", async ({ page }) => {
@@ -115,9 +128,9 @@ test("nests a group in a group but not in itself", async ({ page }) => {
   await expect(trees(page)).toHaveCount(1);
   await page.getByTestId("add-group").click();
   await expect(trees(page)).toHaveCount(2);
+  // The canvas lays the second group out beside the first.
+  await settle(page);
 
-  const header = await boxOf(trees(page).nth(1).getByRole("heading"), "header");
-  await drag(page, header, 450, 0);
   const [a, b] = [
     await boxOf(trees(page).first(), "first"),
     await boxOf(trees(page).nth(1).getByRole("heading"), "second header"),
@@ -195,6 +208,7 @@ test("jacks look the same on every kind of rack", async ({ page }) => {
   await tree.getByRole("button", { name: "Add output to Group" }).click();
   await page.getByTestId("add-destination").click();
   await addBlock(page, "instruments", "tone/AMSynth");
+  await settle(page);
   const racks = [tree, blocks(page), page.getByTestId("rack-node")];
 
   const looks = await Promise.all(
@@ -202,9 +216,11 @@ test("jacks look the same on every kind of rack", async ({ page }) => {
       const row = rack.getByTestId("jack").first();
       const socket = row.locator(".react-flow__handle").first();
       const size = await boxOf(socket, "socket");
+      // The canvas is fitted to the racks, so sizes come at whatever zoom.
+      const round = (value: number) => Math.round(value * 100) / 100;
       return {
-        size: [size.width, size.height],
-        height: (await boxOf(row, "row")).height,
+        size: [round(size.width), round(size.height)],
+        height: round((await boxOf(row, "row")).height),
         border: await socket.evaluate((node) => getComputedStyle(node).border),
         label: await row.evaluate((node) => getComputedStyle(node).fontSize),
       };

@@ -61,7 +61,34 @@ export async function dragExactly(
   await page.mouse.up();
 }
 
+// Waits until the canvas stops moving: the racks are laid out again after
+// every change, and the view is fitted to them.
+export async function settle(page: Page) {
+  const snapshot = () =>
+    page
+      .locator(".react-flow")
+      .evaluate((flow) =>
+        [
+          ...flow.querySelectorAll<HTMLElement>(
+            ".react-flow__viewport, .react-flow__node",
+          ),
+        ]
+          .map(
+            ({ style }) => `${style.transform} ${style.width} ${style.height}`,
+          )
+          .join("|"),
+      );
+  let last = await snapshot();
+  for (let still = 0; still < 2;) {
+    await page.waitForTimeout(100);
+    const next = await snapshot();
+    still = next === last ? still + 1 : 0;
+    last = next;
+  }
+}
+
 export async function connect(page: Page, from: Locator, to: Locator) {
+  await settle(page);
   const start = await boxOf(from, "source handle");
   const end = await boxOf(to, "target handle");
 
@@ -83,4 +110,5 @@ export async function addBlock(page: Page, category: string, itemKey: string) {
   await page.getByTestId("catalogue-search").click();
   await page.getByTestId(`catalogue-${category}`).click();
   await page.getByTestId(`catalogue-item-${itemKey}`).click();
+  await settle(page);
 }

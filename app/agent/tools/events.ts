@@ -18,7 +18,7 @@ export const eventKinds = ["sequence", "event", "pattern", "part"] as const;
 export const eventFields = {
   kind: oneOf(eventKinds, {
     description:
-      "sequence: steps on a fixed subdivision, null for a rest. event: one trigger at start, looping every loopEnd when loop is true. pattern: values played in a pattern order every interval. part: steps at bars:beats:sixteenths times, looping every loopEnd when given.",
+      "sequence: steps on a fixed subdivision, null for a rest. event: one trigger at start, looping every loopEnd when loop is true. pattern: values played in a pattern order every interval. part: steps at bars:beats:sixteenths times, looping every loopEnd when given. A step is the note; on a method with no note argument each step is just a hit. A loop (event) has no steps, so give its note as value.",
   }),
   args: Type.Optional(
     Type.Record(Type.String(), ParamValue, {

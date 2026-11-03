@@ -2,9 +2,14 @@ import { expect, test } from "vitest";
 import { instantiate } from "../catalogue/instantiate";
 import { defineItem, output, toneCode } from "../catalogue/kit";
 import { newTree, rootRack, type Jack, type Patch, type Rack } from "../rack";
-import { arrange, layoutColumns, layoutGap } from "./layout";
-import { syncNodesFromRack } from "./graph";
-import { treeInset, treeNodeWidth, type CanvasNode } from "./nodes";
+import { applyLayout, layoutGap, layoutNodes } from "./layout";
+import { syncNodesFromRack, toFlowEdges } from "./graph";
+import {
+  treeInset,
+  treeNodeHeight,
+  treeNodeWidth,
+  type CanvasNode,
+} from "./nodes";
 
 const box = defineItem("components", "Box", {
   description: "Passes signal through.",
@@ -80,176 +85,205 @@ const build = (
   return { racks, jacks, patches };
 };
 
-// Nodes as React Flow would hold them once drawn, each measured 360 by `height`.
+// Nodes and edges as React Flow would hold them once drawn, each rack
+// measured 360 by `height`.
 const drawn = (
   state: ReturnType<typeof build>,
   heights: Readonly<Record<string, number>> = {},
-): CanvasNode[] =>
-  syncNodesFromRack([], state.racks, state.jacks, {}, "root").map((node) =>
-    node.type === "tree"
-      ? node
-      : { ...node, measured: { width: 360, height: heights[node.id] ?? 200 } },
+) => ({
+  nodes: syncNodesFromRack([], state.racks, state.jacks, {}, "root").map(
+    (node): CanvasNode =>
+      node.type === "tree"
+        ? node
+        : {
+            ...node,
+            measured: { width: 360, height: heights[node.id] ?? 200 },
+          },
+  ),
+  edges: toFlowEdges(state.racks, state.jacks, state.patches, "root"),
+});
+
+const layout = async (
+  state: ReturnType<typeof build>,
+  heights?: Readonly<Record<string, number>>,
+) => {
+  const { nodes, edges } = drawn(state, heights);
+  return layoutNodes(nodes, edges);
+};
+
+const byIdOf = (nodes: readonly CanvasNode[]) =>
+  Object.fromEntries(nodes.map((node) => [node.id, node]));
+
+const sizeOf = (node: CanvasNode) => ({
+  width: node.width ?? node.measured?.width ?? 0,
+  height: node.height ?? node.measured?.height ?? 0,
+});
+
+const overlap = (a: CanvasNode, b: CanvasNode) => {
+  const sa = sizeOf(a);
+  const sb = sizeOf(b);
+  return (
+    a.position.x < b.position.x + sb.width &&
+    b.position.x < a.position.x + sa.width &&
+    a.position.y < b.position.y + sb.height &&
+    b.position.y < a.position.y + sa.height
   );
+};
 
-const positions = (nodes: readonly CanvasNode[]) =>
-  Object.fromEntries(nodes.map((node) => [node.id, node.position]));
-
-test("puts each rack one column right of what feeds it", () => {
+test("puts each rack a column right of what feeds it", async () => {
   const state = build(
     [["s", "root", source], ["a"], ["b"], ["c"]],
     ["s>a", "a>b", "b>c"],
   );
 
-  const { nodes, bounds } = arrange(
-    drawn(state),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
-  const at = positions(nodes);
+  const { nodes, bounds } = await layout(state);
+  const at = byIdOf(nodes);
   const step = 360 + layoutGap.x;
 
-  expect(at.s).toEqual({ x: 0, y: 0 });
-  expect(at.a).toEqual({ x: step, y: 0 });
-  expect(at.b).toEqual({ x: 2 * step, y: 0 });
-  expect(at.c).toEqual({ x: 3 * step, y: 0 });
-  expect(bounds).toEqual({
-    x: 0,
-    y: 0,
-    width: 4 * step - layoutGap.x,
-    height: 200,
-  });
+  expect(at.s!.position.x).toBe(0);
+  expect(at.a!.position.x).toBe(step);
+  expect(at.b!.position.x).toBe(2 * step);
+  expect(at.c!.position.x).toBe(3 * step);
+  expect(bounds.width).toBe(4 * step - layoutGap.x);
 });
 
-test("stacks racks that share a column and centres the shorter columns", () => {
+test("stacks racks that share a column without overlapping", async () => {
   const state = build(
     [["s", "root", source], ["a"], ["b"], ["sum"]],
     ["s>a", "s>b", "a>sum", "b>sum"],
   );
 
-  const { nodes } = arrange(
-    drawn(state),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
-  const at = positions(nodes);
-  const middle = 200 + layoutGap.y;
+  const { nodes } = await layout(state);
+  const at = byIdOf(nodes);
 
-  expect(at.a).toEqual({ x: 360 + layoutGap.x, y: 0 });
-  expect(at.b).toEqual({ x: 360 + layoutGap.x, y: 200 + layoutGap.y });
-  // The lone racks sit level with the middle of the pair.
-  expect(at.s!.y).toBeCloseTo(middle / 2);
-  expect(at.sum!.y).toBeCloseTo(middle / 2);
+  expect(at.a!.position.x).toBe(at.b!.position.x);
+  expect(Math.abs(at.a!.position.y - at.b!.position.y)).toBeGreaterThanOrEqual(
+    200 + layoutGap.y,
+  );
+  expect(at.sum!.position.x).toBeGreaterThan(at.a!.position.x);
 });
 
-test("carries a long chain on in a row below", () => {
-  const ids = Array.from({ length: layoutColumns + 2 }, (_, i) => `r${i}`);
-  const state = build(
-    ids.map((id) => [id] as const),
-    ids.slice(1).map((id, i) => `${ids[i]}>${id}`),
-  );
+test("puts racks that aren't cabled side by side, in the order they came", async () => {
+  const state = build([["a"], ["b"], ["c"]], []);
 
-  const { nodes, bounds } = arrange(
-    drawn(state),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
-  const at = positions(nodes);
+  const { nodes } = await layout(state, { b: 400 });
+  const at = byIdOf(nodes);
   const step = 360 + layoutGap.x;
 
-  expect(at[`r${layoutColumns - 1}`]).toEqual({
-    x: (layoutColumns - 1) * step,
-    y: 0,
-  });
-  expect(at[`r${layoutColumns}`]).toEqual({ x: 0, y: 200 + layoutGap.y });
-  expect(at[`r${layoutColumns + 1}`]).toEqual({
-    x: step,
-    y: 200 + layoutGap.y,
-  });
-  expect(bounds.width).toBe(layoutColumns * step - layoutGap.x);
-  expect(bounds.height).toBe(2 * 200 + layoutGap.y);
+  expect(at.a!.position).toEqual({ x: 0, y: 0 });
+  expect(at.b!.position).toEqual({ x: step, y: 0 });
+  expect(at.c!.position).toEqual({ x: 2 * step, y: 0 });
 });
 
-test("keeps a loop from pushing a rack off into the distance", () => {
+test("puts a new rack right of a chain, ready to be cabled", async () => {
+  const state = build([["a"], ["b"], ["new"]], ["a>b"]);
+
+  const { nodes } = await layout(state);
+  const at = byIdOf(nodes);
+
+  expect(at.b!.position.x).toBeGreaterThan(at.a!.position.x);
+  expect(at.new!.position.x).toBeGreaterThan(at.b!.position.x + 360);
+});
+
+test("puts racks side by side inside a tree too", async () => {
+  const state = build(
+    [
+      ["a", "g"],
+      ["b", "g"],
+    ],
+    [],
+    ["g"],
+  );
+
+  const { nodes } = await layout(state);
+  const at = byIdOf(nodes);
+
+  expect(at.a!.position.y).toBe(at.b!.position.y);
+  expect(at.b!.position.x).toBe(at.a!.position.x + 360 + layoutGap.x);
+});
+
+test("lays out a loop", async () => {
   const state = build([["a"], ["b"]], ["a>b", "b>a"]);
 
-  const { nodes } = arrange(
-    drawn(state),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
-  const at = positions(nodes);
+  const { nodes } = await layout(state);
+  const at = byIdOf(nodes);
 
-  expect([at.a!.x, at.b!.x].sort((a, b) => a - b)).toEqual([
-    0,
-    360 + layoutGap.x,
-  ]);
-  expect([at.a!.y, at.b!.y]).toEqual([0, 0]);
+  expect(Math.abs(at.a!.position.x - at.b!.position.x)).toBe(360 + layoutGap.x);
 });
 
-test("lays a tree's children out inside it and grows the tree around them", () => {
+test("lays a tree's children out inside it and grows the tree around them", async () => {
   const state = build(
     [["a", "g"], ["b", "g"], ["d"]],
     ["g:in>a", "a>b", "b>g:out", "g>d"],
     ["g"],
   );
 
-  const { nodes } = arrange(
-    drawn(state, { a: 100, b: 300 }),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
-  const byId = Object.fromEntries(nodes.map((node) => [node.id, node]));
-  const tree = byId.g!;
+  const { nodes } = await layout(state, { a: 100, b: 300 });
+  const at = byIdOf(nodes);
+  const tree = at.g!;
   const top = 56 + 28;
 
   // Children sit past the inset, clear of the header and its jacks.
-  expect(byId.a!.position).toEqual({ x: treeInset, y: top + 100 });
-  expect(byId.b!.position).toEqual({
-    x: treeInset + 360 + layoutGap.x,
-    y: top,
-  });
-  expect(tree.width).toBe(treeInset + 2 * 360 + layoutGap.x + treeInset);
-  expect(tree.height).toBe(top + 300 + treeInset);
+  for (const id of ["a", "b"]) {
+    const child = at[id]!;
+    expect(child.parentId).toBe("g");
+    expect(child.position.x).toBeGreaterThanOrEqual(treeInset);
+    expect(child.position.y).toBeGreaterThanOrEqual(top);
+    expect(child.position.x + 360).toBeLessThanOrEqual(tree.width! - treeInset);
+    expect(child.position.y + sizeOf(child).height).toBeLessThanOrEqual(
+      tree.height! - treeInset,
+    );
+  }
+  // What comes in through the tree's input reaches the first child first.
+  expect(at.a!.position.x).toBeLessThan(at.b!.position.x);
   // The tree is a rack in its parent's layout, at its grown size.
-  expect(tree.position).toEqual({ x: 0, y: 0 });
-  expect(byId.d!.position.x).toBe(tree.width! + layoutGap.x);
+  expect(tree.width).toBeGreaterThanOrEqual(treeInset + 2 * 360 + layoutGap.x);
+  expect(at.d!.position.x).toBeGreaterThanOrEqual(
+    tree.position.x + tree.width! + layoutGap.x,
+  );
 });
 
-test("gives an empty tree its default size", () => {
+test("gives an empty tree its default size", async () => {
   const state = build([], [], ["g"]);
 
-  const { nodes } = arrange(
-    drawn(state),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
+  const { nodes } = await layout(state);
 
   expect(nodes[0]?.width).toBe(treeNodeWidth);
-  expect(nodes[0]?.height).toBe(280);
+  expect(nodes[0]?.height).toBe(treeNodeHeight);
 });
 
-test("keeps the nodes in the order it was given", () => {
+test("keeps racks that aren't cabled from overlapping", async () => {
+  const state = build([["a"], ["b"], ["c"], ["d", "g"], ["e", "g"]], [], ["g"]);
+
+  const { nodes } = await layout(state, { b: 400 });
+  const siblings = Object.groupBy(nodes, (node) => node.parentId ?? "root");
+
+  for (const group of Object.values(siblings)) {
+    for (const [i, a] of (group ?? []).entries()) {
+      for (const b of (group ?? []).slice(i + 1)) {
+        expect(overlap(a, b), `${a.id} overlaps ${b.id}`).toBe(false);
+      }
+    }
+  }
+});
+
+test("keeps the nodes in the order it was given", async () => {
   const state = build([["a"], ["b"], ["c"]], ["c>b", "b>a"]);
 
-  const { nodes } = arrange(
-    drawn(state),
-    state.racks,
-    state.jacks,
-    state.patches,
-    "root",
-  );
+  const { nodes } = await layout(state);
 
   expect(nodes.map((node) => node.id)).toEqual(["a", "b", "c"]);
+});
+
+test("moves the racks without undoing what changed while laying out", async () => {
+  const state = build([["a"], ["b"]], ["a>b"]);
+  const { nodes } = await layout(state);
+  const current = drawn(state).nodes.map((node) =>
+    node.id === "a" ? { ...node, selected: true } : node,
+  );
+
+  const applied = byIdOf(applyLayout(current, nodes));
+
+  expect(applied.a!.selected).toBe(true);
+  expect(applied.b!.position).toEqual(byIdOf(nodes).b!.position);
 });

@@ -5,12 +5,16 @@ import {
   ReactFlow,
   useNodesInitialized,
   useReactFlow,
+  useStore as useFlowStore,
   type Connection,
   type Edge,
+  type ReactFlowState,
 } from "@xyflow/react";
 import {
-  arrange,
+  applyLayout,
   fitTrees,
+  layoutNodes,
+  loadElk,
   jackIds,
   syncNodesFromRack,
   toFlowEdges,
@@ -131,7 +135,7 @@ export function CanvasViewport() {
       elementsSelectable={!locked}
     >
       <RackReactFlowSync />
-      <ArrangeOnRequest />
+      <AutoLayout />
       <Background variant={BackgroundVariant.Lines} />
     </ReactFlow>
   );
@@ -167,47 +171,51 @@ function RackReactFlowSync() {
   return null;
 }
 
-// Lays the racks out along their signal flow when asked, once every rack in
-// the store has been drawn and measured, then brings them all into view.
-// Asking is a counter, so the same request isn't answered twice when the
-// racks go on changing.
-function ArrangeOnRequest() {
-  const { getNodes, setNodes, fitBounds } = useReactFlow<CanvasNode>();
+// Which racks there are, where they sit and how they are cabled, as one string
+// to compare. Nothing else about them moves them.
+const shapeOf = ({ nodes, edges }: ReactFlowState) =>
+  [
+    ...nodes.map((node) => `${node.id}<${node.parentId ?? ""}`).sort(),
+    "|",
+    ...edges.map((edge) => `${edge.sourceHandle}>${edge.targetHandle}`).sort(),
+  ].join(",");
+
+const nodeSetOf = ({ nodes }: ReactFlowState) =>
+  nodes
+    .map((node) => node.id)
+    .sort()
+    .join(",");
+
+// Lays the racks out along their signal flow whenever which racks there are,
+// or how they are cabled, changes, once React Flow has measured them all. The
+// view is fitted to them when racks come or go, but not for a new cable.
+function AutoLayout() {
+  const { getNodes, getEdges, setNodes, fitView } = useReactFlow<CanvasNode>();
   const initialized = useNodesInitialized();
-  const request = useCanvasStore((state) => state.arrangeRequest);
-  const answered = useRef(0);
-  const racks = useStore((state) => state.rack.racks);
-  const jacks = useStore((state) => state.rack.jacks);
-  const patches = useStore((state) => state.rack.patches);
-  const rootId = useStore((state) => state.rack.rootId);
+  const shape = useFlowStore(shapeOf);
+  const nodeSet = useFlowStore(nodeSetOf);
+  const laidOut = useRef<string | undefined>(undefined);
+  const fitted = useRef<string | undefined>(undefined);
+
+  useEffect(() => void loadElk(), []);
 
   useEffect(() => {
-    if (request === answered.current || !initialized) return;
-    const nodes = getNodes();
-    const drawn = new Set(nodes.map((node) => node.id));
-    const settled =
-      Object.values(racks).every((rack) => rack.isRoot || drawn.has(rack.id)) &&
-      nodes.every(
-        (node) =>
-          racks[node.id] !== undefined && node.measured?.width !== undefined,
-      );
-    if (!settled) return;
-
-    answered.current = request;
-    const arranged = arrange(nodes, racks, jacks, patches, rootId);
-    setNodes(arranged.nodes);
-    void fitBounds(arranged.bounds, { padding: 0.1, duration: 300 });
-  }, [
-    request,
-    initialized,
-    racks,
-    jacks,
-    patches,
-    rootId,
-    getNodes,
-    setNodes,
-    fitBounds,
-  ]);
+    if (!initialized || shape === laidOut.current) return;
+    // A layout that finishes after the racks changed again is out of date.
+    let stale = false;
+    void layoutNodes(getNodes(), getEdges()).then(({ nodes }) => {
+      if (stale) return;
+      laidOut.current = shape;
+      setNodes((current) => applyLayout(current, nodes));
+      if (nodeSet !== fitted.current) {
+        fitted.current = nodeSet;
+        void fitView({ ...fitViewOptions, padding: 0.1, duration: 300 });
+      }
+    });
+    return () => {
+      stale = true;
+    };
+  }, [initialized, shape, nodeSet, getNodes, getEdges, setNodes, fitView]);
 
   return null;
 }

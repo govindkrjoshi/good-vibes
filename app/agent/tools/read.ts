@@ -39,7 +39,10 @@ export const readTools = (store: RackStore) => [
       "Reads the catalogue of items a rack can be made from. With no key: lists items as key — description, filtered by query words and category. With a key: that item in full, with its param paths, jacks and methods. Pass withCode to see its code, as a model for writing your own.",
     parameters: Type.Object({
       query: Type.Optional(
-        Type.String({ description: "Words that must all appear." }),
+        Type.String({
+          description:
+            "Words to look for; an item matches when any of them appears in its name or description.",
+        }),
       ),
       category: Type.Optional(oneOf(categories)),
       key: Type.Optional(

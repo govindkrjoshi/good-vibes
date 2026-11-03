@@ -132,13 +132,28 @@ export const eventProblems = (
   if (when === undefined) {
     return [`${method.name} has no time argument, so it can't be scheduled`];
   }
-  if (event.kind !== "event" && note === undefined) {
+  // A stepped event hands its step to the note argument, and on a method
+  // with no note argument each step is just a hit. A loop has no steps, so
+  // its note has to be fixed, as its value or in args.
+  const fixedNote = event.kind === "event" ? event.value : undefined;
+  if (
+    event.kind === "event" &&
+    note !== undefined &&
+    fixedNote === undefined &&
+    event.args[note.name] === undefined
+  ) {
     problems.push(
-      `${method.name} has no note argument, so it can only be a loop (kind "event")`,
+      `a loop on ${method.name} needs a value or args.${note.name} for ${note.name}`,
     );
   }
   for (const arg of method.args) {
-    if (arg === when || arg === note) continue;
+    if (arg === when || (arg === note && event.kind !== "event")) continue;
+    if (
+      arg === note &&
+      (fixedNote !== undefined || event.args[arg.name] === undefined)
+    ) {
+      continue;
+    }
     const value = event.args[arg.name];
     if (value === undefined) {
       if (arg.optional !== true && arg.defaultValue === undefined) {

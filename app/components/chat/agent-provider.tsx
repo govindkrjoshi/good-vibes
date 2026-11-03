@@ -2,16 +2,13 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { createSession, type ChatMessage } from "../../agent";
 import { useStore } from "../../stores";
-import { useCanvasStore } from "../canvas/canvas-store";
 import { ApiKeyDialog } from "./api-key-dialog";
 
 export type { ChatMessage } from "../../agent";
@@ -45,13 +42,6 @@ const keyRequest = (): KeyRequest => {
   return { promise, resolve, reject };
 };
 
-// Which racks there are and where, as one string to compare.
-const rackShape = () =>
-  Object.values(useStore.getState().rack.racks)
-    .map((rack) => `${rack.id}<${rack.parentId ?? ""}`)
-    .sort()
-    .join(",");
-
 // Runs one agent session in the browser for as long as the provider is
 // mounted, and shows the key dialog whenever the session asks for one.
 export function GoodVibesAgentProvider({
@@ -78,23 +68,6 @@ export function GoodVibesAgentProvider({
     session.getState,
     session.getState,
   );
-
-  // A rack the agent adds lands at the origin, so once it has finished a
-  // reply that changed which racks there are, or where, they are laid out.
-  const shapeAtStart = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (state.busy) {
-      shapeAtStart.current = rackShape();
-      return;
-    }
-    if (
-      shapeAtStart.current !== undefined &&
-      rackShape() !== shapeAtStart.current
-    ) {
-      useCanvasStore.getState().requestArrange();
-    }
-    shapeAtStart.current = undefined;
-  }, [state.busy]);
 
   const answer = (settle: (request: KeyRequest) => void) => {
     setRequest(undefined);

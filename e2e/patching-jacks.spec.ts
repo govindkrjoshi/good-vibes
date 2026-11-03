@@ -7,6 +7,7 @@ import {
   canvas,
   connect,
   dragExactly,
+  settle,
 } from "./helpers";
 
 const edges = (page: Page) => page.locator(".react-flow__edge");
@@ -24,21 +25,15 @@ const outerSocket = (direction: "in" | "out") => (rack: Locator) =>
     .getByTestId(`jacks-${direction}`)
     .locator('.react-flow__handle:not([data-handleid^="inside:"])');
 
-// A synth with a Destination clear of it for each count asked for. Racks all
-// start in the same spot.
+// A synth with a Destination for each count asked for, laid out clear of it.
 async function synthAndDestinations(page: Page, count: number) {
   await addBlock(page, "instruments", "tone/AMSynth");
   await expect(panel(page)).toBeVisible();
   for (let index = 0; index < count; index += 1) {
     await page.getByTestId("add-destination").click();
     await expect(blocks(page)).toHaveCount(index + 1);
-    await dragExactly(
-      page,
-      await boxOf(blocks(page).nth(index), "block"),
-      500,
-      index * 150,
-    );
   }
+  await settle(page);
 }
 
 // A group with an input and an output, holding a synth.
@@ -50,13 +45,19 @@ async function groupAroundSynth(page: Page) {
   await canvas(page).click({ position: { x: 5, y: 5 } });
   await addBlock(page, "instruments", "tone/AMSynth");
   await expect(panel(page)).toBeVisible();
+  const group = await boxOf(tree(page), "tree");
+  const header = await boxOf(
+    panel(page).getByRole("heading").first(),
+    "header",
+  );
   await dragExactly(
     page,
-    await boxOf(panel(page).getByRole("heading").first(), "header"),
-    0,
-    150,
+    header,
+    group.x + group.width / 2 - (header.x + header.width / 2),
+    group.y + group.height / 2 - (header.y + header.height / 2),
   );
   await expect(tree(page)).toHaveText(/1 rack/);
+  await settle(page);
 }
 
 test("patches an output into an input", async ({ page }) => {
@@ -125,7 +126,6 @@ test("refuses a patch into a rack in another group", async ({ page }) => {
   await groupAroundSynth(page);
   await page.getByTestId("add-destination").click();
   await expect(blocks(page)).toHaveCount(1);
-  await dragExactly(page, await boxOf(blocks(page), "block"), 600, 0);
 
   expect(
     await connect(page, socket(panel(page), "out"), socket(blocks(page), "in")),
@@ -142,17 +142,20 @@ test("selects a patch inside a group and deletes it", async ({ page }) => {
     socket(panel(page), "in"),
   );
   await expect(edges(page)).toHaveCount(1);
+  await settle(page);
 
   // A cable between sockets facing different ways isn't symmetric, so the
-  // middle of its box can miss it. The middle of its length can't.
-  const middle = await page
+  // middle of its box can miss it. A point along its length can't. The rack
+  // sits right under the group's jacks, and the cable bends round behind it
+  // to reach its input, so the point is in the gap between them.
+  const along = await page
     .locator(".react-flow__edge-path")
     .evaluate((node: SVGPathElement) => {
-      const point = node.getPointAtLength(node.getTotalLength() / 2);
+      const point = node.getPointAtLength(node.getTotalLength() / 4);
       const { x, y } = point.matrixTransform(node.getScreenCTM() ?? undefined);
       return { x, y };
     });
-  await page.mouse.click(middle.x, middle.y);
+  await page.mouse.click(along.x, along.y);
   await expect(edges(page)).toHaveClass(/selected/);
   await page.keyboard.press("Backspace");
 
