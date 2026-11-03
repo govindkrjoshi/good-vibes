@@ -1,19 +1,12 @@
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Effect, Exit, Scope, Stream } from "effect";
+import { explainError } from "./explain";
+import { clearChat, loadChat, settledTranscript, storeChat } from "./history";
 import { knownApiKey, storeApiKey } from "./key";
-import type { ApiKey, GoodVibesMessage, RackStore } from "./types";
+import type { ApiKey, ChatMessage, GoodVibesMessage, RackStore } from "./types";
 import type { GoodVibesAgent } from "./agent";
 
-// What the chat shows of one message: who said it and the text so far. The
-// agent's thoughts are its reasoning, shown apart from what it says; a tool
-// is something it did to the rack, pending until it is done.
-export type ChatMessage = {
-  readonly id: string;
-  readonly role: "user" | "assistant";
-  readonly kind: "message" | "thought" | "tool";
-  readonly text: string;
-  readonly pending?: boolean;
-  readonly error?: string;
-};
+export type { ChatMessage } from "./types";
 
 export type SessionState = {
   readonly messages: readonly ChatMessage[];
@@ -26,6 +19,8 @@ export type Session = {
   readonly subscribe: (listener: () => void) => () => void;
   readonly prompt: (text: string) => Promise<void>;
   readonly abort: () => void;
+  // Forgets the conversation, here and in storage, stopping any reply.
+  readonly reset: () => void;
   // Remembers a key the user gave: for this page load, and in storage when
   // storage allows. The running agent reads it on its next request.
   readonly setKey: (key: string) => void;
@@ -33,9 +28,15 @@ export type Session = {
   readonly close: () => Promise<void>;
 };
 
+export type CreateAgentOptions = {
+  // The model's side of a conversation kept from before a reload.
+  readonly history: readonly AgentMessage[];
+};
+
 export type CreateAgent = (
   apiKey: ApiKey,
   store: RackStore,
+  options: CreateAgentOptions,
 ) => Effect.Effect<GoodVibesAgent, never, Scope.Scope>;
 
 export type SessionOptions = {
@@ -51,15 +52,16 @@ export type SessionOptions = {
 
 let agentModule: Promise<typeof import("./agent")> | undefined;
 
-const loadAgent: CreateAgent = (apiKey, store) =>
+const loadAgent: CreateAgent = (apiKey, store, options) =>
   Effect.promise(() => (agentModule ??= import("./agent"))).pipe(
     Effect.flatMap(({ createGoodVibesAgent }) =>
-      createGoodVibesAgent(apiKey, store),
+      createGoodVibesAgent(apiKey, store, options),
     ),
   );
 
 // Runs one agent for as long as the session lives, so the conversation
-// carries over between prompts, and keeps what was said for the chat. The
+// carries over between prompts, and keeps what was said for the chat and in
+// this browser's storage, so a reload carries on the same conversation. The
 // OpenRouter key comes from the dev server's environment, then from local
 // storage, and failing both the session asks for one.
 export const createSession = ({
@@ -67,7 +69,13 @@ export const createSession = ({
   store,
   createAgent = loadAgent,
 }: SessionOptions): Session => {
-  let state: SessionState = { messages: [], busy: false };
+  const stored = loadChat();
+  let state: SessionState = { messages: stored?.messages ?? [], busy: false };
+  // The model's side of the conversation, handed to the agent when it is
+  // made, so the two sides match.
+  let history: readonly AgentMessage[] = settledTranscript(
+    stored?.transcript ?? [],
+  );
   const listeners = new Set<() => void>();
   const setState = (patch: Partial<SessionState>) => {
     state = { ...state, ...patch };
@@ -87,6 +95,11 @@ export const createSession = ({
   let agent: Promise<GoodVibesAgent> | undefined;
   let running = 0;
   let nextId = 0;
+  // Set by abort while a reply runs, so the reply is marked as stopped.
+  let stopping = false;
+  // Counts resets, so a reply that was running through one does not save
+  // the conversation it belonged to over the fresh one.
+  let conversation = 0;
 
   const currentKey = (): string | undefined => enteredKey ?? knownApiKey();
 
@@ -122,6 +135,8 @@ export const createSession = ({
       ...(said.type === "tool"
         ? {
             pending: !said.done,
+            args: said.args,
+            ...(said.result === undefined ? {} : { result: said.result }),
             ...(said.error === undefined ? {} : { error: said.error }),
           }
         : {}),
@@ -134,11 +149,13 @@ export const createSession = ({
   };
 
   // Shown on the reply that failed, or on its own when nothing arrived.
-  const failReply = (error: string) =>
+  const failReply = (raw: string) => {
+    const { message: error, recover } = explainError(raw);
+    const failure = recover === undefined ? { error } : { error, recover };
     setMessages((list) => {
       const last = list.at(-1);
       if (last?.role === "assistant")
-        return [...list.slice(0, -1), { ...last, error }];
+        return [...list.slice(0, -1), { ...last, ...failure }];
       return [
         ...list,
         {
@@ -146,9 +163,17 @@ export const createSession = ({
           role: "assistant",
           kind: "message",
           text: "",
-          error,
+          ...failure,
         },
       ];
+    });
+  };
+
+  const markStopped = () =>
+    setMessages((list) => {
+      const last = list.at(-1);
+      if (last?.role !== "assistant") return list;
+      return [...list.slice(0, -1), { ...last, stopped: true }];
     });
 
   // Made on the first prompt, once there is a key. The listener starts
@@ -160,7 +185,9 @@ export const createSession = ({
       // Read on every request, so a key changed in settings applies at once.
       const created = await Effect.runPromise(
         Effect.gen(function* () {
-          const made = yield* createAgent(() => currentKey() ?? "", store);
+          const made = yield* createAgent(() => currentKey() ?? "", store, {
+            history,
+          });
           yield* Stream.runForEach(made.messages, (said) =>
             Effect.sync(() => onMessage(said)),
           ).pipe(Effect.forkScoped({ startImmediately: true }));
@@ -175,11 +202,19 @@ export const createSession = ({
     return agent;
   };
 
+  // Keeps the conversation once the agent is quiet, both sides of it.
+  const save = async (ready: GoodVibesAgent) => {
+    history = settledTranscript(await Effect.runPromise(ready.transcript));
+    storeChat({ messages: state.messages, transcript: history });
+  };
+
   const prompt = async (text: string) => {
     running += 1;
     setState({ busy: true });
+    const started = conversation;
+    let ready: GoodVibesAgent | undefined;
     try {
-      const ready = await getAgent();
+      ready = await getAgent();
       setMessages((list) => [
         ...list,
         { id: `user-${nextId++}`, role: "user", kind: "message", text },
@@ -195,13 +230,29 @@ export const createSession = ({
       );
     } finally {
       running -= 1;
+      if (stopping && started === conversation) markStopped();
+      if (running === 0) stopping = false;
       setState({ busy: running > 0 });
+      if (ready !== undefined && running === 0 && started === conversation)
+        await save(ready);
     }
   };
 
   const abort = () => {
+    if (running > 0) stopping = true;
     agent
       ?.then((ready) => Effect.runPromise(ready.abort))
+      .catch(() => undefined);
+  };
+
+  const reset = () => {
+    conversation += 1;
+    stopping = false;
+    history = [];
+    setState({ messages: [] });
+    clearChat();
+    agent
+      ?.then((ready) => Effect.runPromise(ready.reset))
       .catch(() => undefined);
   };
 
@@ -216,6 +267,7 @@ export const createSession = ({
     },
     prompt,
     abort,
+    reset,
     setKey,
     close,
   };

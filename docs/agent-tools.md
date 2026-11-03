@@ -14,7 +14,16 @@ agent can make exactly the changes a user can and no others.
 - Tool calls in one reply run in order (`toolExecution: "sequential"`), so
   "add, then connect" works in a single turn.
 - A tool's result is text. Its first line is what the chat shows as a tool
-  row; a failure shows the whole message.
+  row; the row opens to the call's arguments and the whole result, and a
+  failure shows the whole message in view. An id the result writes in
+  brackets (`[bass]`) is shown as a chip; a rack's chip finds it on the
+  canvas.
+- The model's thinking is never shown. Instead it has `brief`
+  (`app/agent/tools/brief.ts`): one sentence on what it is about to do,
+  which changes nothing. The system prompt asks for one before each step, in
+  the same reply as the step's tool calls, so it costs no extra turn. The
+  chat shows the sentence as the heading of the run of tool rows that
+  follow it (`app/components/chat/tool-run.tsx`).
 
 ## Reading
 
@@ -99,12 +108,34 @@ added since whose method it still has. The spec's own events are replaced.
 A rack made this way has no `item`; one placed from the catalogue remembers
 its key on the rack.
 
+## Keeping the conversation
+
+The session (`app/agent/session.ts`) keeps both sides of the conversation
+in local storage under `good-vibes:chat` (`app/agent/history.ts`): the
+messages the chat shows and the model's own transcript, without the system
+prompt. Both are saved once the agent is quiet after each prompt, and a
+reload hands the transcript to the new agent as its `history`, so the model
+remembers what the user can see. A prompt that got no reply, or a reply
+that was stopped or failed, is left out of the transcript so it is not
+resumed half-way.
+
+The rack itself is not kept, so with the first prompt after a reload the
+agent is told the page reloaded and shown the rack as it is now
+(`reloadNote` in `agent.ts`). "New conversation" in the chat's header
+resets the agent and clears the storage.
+
+Failed requests are put in plain words by `app/agent/explain.ts`; when a
+new key is the fix, the chat offers the key dialog beside the message.
+
 ## Tests
 
 - `app/agent/tools/tools.test.ts` runs every tool against the real store.
 - `app/agent/tools/real-tone.test.ts` builds an agent-written spec with real
   Tone and checks a wrong path and failing code are reported by name.
 - `app/agent/agent.test.ts` scripts replies with pi-ai's faux provider to
-  run the loop, the tool rows and the late-error path without the network.
+  run the loop, the tool rows, `brief`, a resumed conversation and the
+  late-error path without the network.
+- `app/agent/session.test.ts` and `app/agent/history.test.ts` cover what is
+  kept across a reload and what is left out.
 - `e2e/agent-edits-the-rack.spec.ts` scripts a tool-calling reply through the
   fake OpenRouter and checks the racks appear on the canvas.

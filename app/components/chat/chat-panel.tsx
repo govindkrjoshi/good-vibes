@@ -4,26 +4,30 @@ import {
   CircleAlert,
   MessageCircle,
   Square,
-  Wrench,
+  SquarePen,
 } from "lucide-react";
 import { cn } from "cn";
+import { explainError, type Explanation } from "../../agent";
 import { Bubble, BubbleContent } from "../ui/bubble";
+import { Button } from "../ui/button";
 import {
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
 } from "../ui/empty";
+import { Hint } from "../ui/hint";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
   InputGroupTextarea,
 } from "../ui/input-group";
+import { Kbd } from "../ui/kbd";
 import { Marker, MarkerContent, MarkerIcon } from "../ui/marker";
 import { Message, MessageContent } from "../ui/message";
-import { Spinner } from "../ui/spinner";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -33,43 +37,64 @@ import {
   MessageScrollerViewport,
 } from "../ui/message-scroller";
 import { useGoodVibesAgent, type ChatMessage } from "./agent-provider";
+import { rowsOf, ToolRunBlock } from "./tool-run";
 
-const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "The message could not be sent";
+const explain = (error: unknown): Explanation =>
+  explainError(
+    error instanceof Error ? error.message : "The message could not be sent",
+  );
 
-// Something the agent did to the rack: one line, turning while it runs, and
-// what went wrong when it failed.
-function ToolRow({ message }: { readonly message: ChatMessage }) {
+// Things to ask when there is nothing to show yet, each a whole request.
+const openers = [
+  "Build a bass line into the speakers",
+  "Load the Dub Pulse demo and explain it",
+  "What can you add from the catalogue?",
+];
+
+// What went wrong, and the way to a new key when that is the fix.
+function Trouble({
+  message,
+  recover,
+  onChangeKey,
+  role,
+}: Explanation & {
+  readonly onChangeKey: () => void;
+  readonly role?: "alert";
+}) {
   return (
-    <Message align="start" data-role="assistant" data-kind="tool">
-      <MessageContent className="gap-1">
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          {message.pending === true ? (
-            <Spinner className="size-3" />
-          ) : (
-            <Wrench aria-hidden className="size-3" />
-          )}
-          <span className="truncate">{message.text}</span>
-        </p>
-        {message.error !== undefined && (
-          <Marker>
-            <MarkerIcon>
-              <CircleAlert />
-            </MarkerIcon>
-            <MarkerContent className="whitespace-pre-wrap">
-              {message.error}
-            </MarkerContent>
-          </Marker>
+    <Marker role={role} className="items-start">
+      <MarkerIcon className="mt-0.5">
+        <CircleAlert />
+      </MarkerIcon>
+      <MarkerContent className="whitespace-pre-wrap">
+        {message}
+        {recover === "key" && (
+          <>
+            {" "}
+            <button
+              type="button"
+              data-testid="chat-change-key"
+              className="underline underline-offset-3 hover:text-foreground"
+              onClick={onChangeKey}
+            >
+              Change the key
+            </button>
+          </>
         )}
-      </MessageContent>
-    </Message>
+      </MarkerContent>
+    </Marker>
   );
 }
 
 // The agent's words sit on the panel itself; only the user's own messages get
 // a bubble, so the conversation reads as the instrument talking back.
-function ChatRow({ message }: { readonly message: ChatMessage }) {
-  if (message.kind === "tool") return <ToolRow message={message} />;
+function ChatRow({
+  message,
+  onChangeKey,
+}: {
+  readonly message: ChatMessage;
+  readonly onChangeKey: () => void;
+}) {
   const fromUser = message.role === "user";
   return (
     <Message align={fromUser ? "end" : "start"} data-role={message.role}>
@@ -84,13 +109,17 @@ function ChatRow({ message }: { readonly message: ChatMessage }) {
             </BubbleContent>
           </Bubble>
         )}
+        {message.stopped === true && (
+          <p data-kind="stopped" className="text-xs text-chat-dim">
+            Stopped
+          </p>
+        )}
         {message.error !== undefined && (
-          <Marker>
-            <MarkerIcon>
-              <CircleAlert />
-            </MarkerIcon>
-            <MarkerContent>{message.error}</MarkerContent>
-          </Marker>
+          <Trouble
+            message={message.error}
+            recover={message.recover}
+            onChangeKey={onChangeKey}
+          />
         )}
       </MessageContent>
     </Message>
@@ -98,9 +127,10 @@ function ChatRow({ message }: { readonly message: ChatMessage }) {
 }
 
 export function ChatPanel({ className }: { readonly className?: string }) {
-  const { messages, busy, prompt, abort } = useGoodVibesAgent();
+  const { messages, busy, prompt, abort, reset, changeKey } =
+    useGoodVibesAgent();
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | undefined>(undefined);
+  const [trouble, setTrouble] = useState<Explanation | undefined>(undefined);
   const inputId = useId();
 
   const last = messages.at(-1);
@@ -110,16 +140,19 @@ export function ChatPanel({ className }: { readonly className?: string }) {
     busy &&
     (last === undefined ||
       last.role === "user" ||
-      last.text === "" ||
+      (last.kind === "message" && last.text === "") ||
       (last.kind === "tool" && last.pending !== true));
+
+  const ask = (text: string) => {
+    if (text === "" || busy) return;
+    setDraft("");
+    setTrouble(undefined);
+    prompt(text).catch((failure: unknown) => setTrouble(explain(failure)));
+  };
 
   const send = (event?: FormEvent) => {
     event?.preventDefault();
-    const text = draft.trim();
-    if (text === "" || busy) return;
-    setDraft("");
-    setError(undefined);
-    prompt(text).catch((failure: unknown) => setError(errorText(failure)));
+    ask(draft.trim());
   };
 
   // Enter sends and Shift+Enter breaks the line, except mid-composition so
@@ -129,6 +162,9 @@ export function ChatPanel({ className }: { readonly className?: string }) {
     if (event.nativeEvent.isComposing) return;
     send(event);
   };
+
+  const empty = messages.length === 0 && !busy && trouble === undefined;
+  const rows = rowsOf(messages);
 
   return (
     <aside
@@ -140,12 +176,30 @@ export function ChatPanel({ className }: { readonly className?: string }) {
         className,
       )}
     >
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-sidebar-border pr-1 pl-4">
+        <h2 className="text-sm font-medium">Chat</h2>
+        <Hint label="New conversation">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            data-testid="chat-new"
+            disabled={messages.length === 0 && !busy}
+            onClick={() => {
+              reset();
+              setTrouble(undefined);
+            }}
+          >
+            <SquarePen />
+          </Button>
+        </Hint>
+      </div>
+
       <MessageScrollerProvider autoScroll>
         <MessageScroller className="flex-1">
           <MessageScrollerViewport>
-            <MessageScrollerContent className="p-4">
-              {messages.length === 0 && !busy && error === undefined && (
-                <Empty>
+            <MessageScrollerContent className="gap-5 p-4">
+              {empty && (
+                <Empty className="p-0">
                   <EmptyHeader>
                     <EmptyMedia variant="icon">
                       <MessageCircle />
@@ -155,44 +209,59 @@ export function ChatPanel({ className }: { readonly className?: string }) {
                       Ask about your rack, or how to get the sound you want.
                     </EmptyDescription>
                   </EmptyHeader>
+                  <EmptyContent>
+                    <ul className="flex flex-col gap-1.5">
+                      {openers.map((opener) => (
+                        <li key={opener}>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            data-testid="chat-opener"
+                            className="h-auto w-full justify-start py-1.5 text-left whitespace-normal font-normal"
+                            onClick={() => ask(opener)}
+                          >
+                            {opener}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  </EmptyContent>
                 </Empty>
               )}
-              {messages.map((message) => (
-                <MessageScrollerItem
-                  key={message.id}
-                  messageId={message.id}
-                  scrollAnchor={message.role === "user"}
-                >
-                  <ChatRow message={message} />
-                </MessageScrollerItem>
-              ))}
+              {rows.map((row) =>
+                row.kind === "run" ? (
+                  <MessageScrollerItem key={row.run.id} messageId={row.run.id}>
+                    <ToolRunBlock run={row.run} />
+                  </MessageScrollerItem>
+                ) : (
+                  <MessageScrollerItem
+                    key={row.message.id}
+                    messageId={row.message.id}
+                    scrollAnchor={row.message.role === "user"}
+                  >
+                    <ChatRow message={row.message} onChangeKey={changeKey} />
+                  </MessageScrollerItem>
+                ),
+              )}
               {thinking && (
                 <MessageScrollerItem messageId="thinking">
-                  <p
-                    role="status"
-                    className="shimmer text-sm text-muted-foreground"
-                  >
+                  <p role="status" className="shimmer text-sm">
                     Thinking…
                   </p>
                 </MessageScrollerItem>
               )}
-              {error !== undefined && (
+              {trouble !== undefined && (
                 <MessageScrollerItem messageId="send-error">
-                  <Marker role="alert">
-                    <MarkerIcon>
-                      <CircleAlert />
-                    </MarkerIcon>
-                    <MarkerContent>{error}</MarkerContent>
-                  </Marker>
+                  <Trouble {...trouble} role="alert" onChangeKey={changeKey} />
                 </MessageScrollerItem>
               )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
-          <MessageScrollerButton />
+          <MessageScrollerButton className="shadow-md ring-1 ring-foreground/5" />
         </MessageScroller>
       </MessageScrollerProvider>
 
-      <form onSubmit={send} className="p-3">
+      <form onSubmit={send} className="flex flex-col gap-1.5 p-3 pt-2">
         <label htmlFor={inputId} className="sr-only">
           Message the agent
         </label>
@@ -202,7 +271,7 @@ export function ChatPanel({ className }: { readonly className?: string }) {
             data-testid="chat-input"
             placeholder="Ask the agent…"
             rows={2}
-            className="max-h-40 min-h-16"
+            className="max-h-40 min-h-16 field-sizing-content"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onKeyDown={onKeyDown}
@@ -232,6 +301,10 @@ export function ChatPanel({ className }: { readonly className?: string }) {
             )}
           </InputGroupAddon>
         </InputGroup>
+        <p className="px-1 text-xs text-chat-dim">
+          <Kbd>Enter</Kbd> sends, <Kbd>Shift</Kbd> <Kbd>Enter</Kbd> for a new
+          line
+        </p>
       </form>
     </aside>
   );

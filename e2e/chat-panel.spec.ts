@@ -1,5 +1,5 @@
 import { type Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, test, openSandboxPage } from "./fixtures";
 import { boxOf, canvas } from "./helpers";
 
 const chat = (page: Page) => page.getByTestId("chat-panel");
@@ -28,6 +28,34 @@ test("starts empty, then holds a conversation", async ({ page }) => {
   ).toBeVisible();
   await expect(chat(page)).toContainText("Try a reverb.");
   await expect(page.getByTestId("chat-input")).toHaveValue("");
+});
+
+test("keeps the conversation across a reload, until a new one is started", async ({
+  page,
+}) => {
+  await page.getByTestId("chat-input").fill("How do I add space?");
+  await page.getByTestId("chat-input").press("Enter");
+  await expect(chat(page)).toContainText("Try a reverb.");
+
+  // The server renders an empty chat; the kept one must only appear once
+  // React has taken over, or hydration fails and the tree is thrown away.
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await openSandboxPage(page);
+
+  await expect(chat(page)).toContainText("How do I add space?");
+  await expect(chat(page)).toContainText("Try a reverb.");
+  expect(errors.filter((error) => /hydrat/i.test(error))).toEqual([]);
+
+  await page.getByTestId("chat-new").click();
+
+  await expect(chat(page)).toContainText("Talk to the agent");
+  await expect(chat(page).locator("[data-role]")).toHaveCount(0);
+  await openSandboxPage(page);
+  await expect(chat(page)).toContainText("Talk to the agent");
 });
 
 test("typing in the chat leaves the rack shortcuts alone", async ({ page }) => {

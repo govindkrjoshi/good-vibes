@@ -2,7 +2,9 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { ReactFlowProvider } from "@xyflow/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { useStore } from "../../stores";
 import type { ChatMessage } from "./agent-provider";
 import { ChatPanel } from "./chat-panel";
 
@@ -11,6 +13,7 @@ const agent = vi.hoisted(() => ({
   busy: false,
   prompt: vi.fn(),
   abort: vi.fn(),
+  reset: vi.fn(),
   changeKey: vi.fn(),
 }));
 
@@ -25,8 +28,17 @@ function render() {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  act(() => root.render(<ChatPanel />));
+  // The chat sits inside the canvas's provider, so its chips can find racks.
+  act(() =>
+    root.render(
+      <ReactFlowProvider>
+        <ChatPanel />
+      </ReactFlowProvider>,
+    ),
+  );
 }
+
+const initial = useStore.getState();
 
 const byTestId = <T extends HTMLElement>(testId: string) =>
   container.querySelector<T>(`[data-testid="${testId}"]`);
@@ -58,6 +70,7 @@ beforeEach(() => {
   agent.messages = [];
   agent.busy = false;
   agent.prompt.mockResolvedValue(undefined);
+  useStore.setState(initial, true);
 });
 
 afterEach(() => {
@@ -69,6 +82,19 @@ afterEach(() => {
 test("invites the user to talk when there is no conversation", () => {
   render();
   expect(container.textContent).toContain("Talk to the agent");
+  expect(byTestId<HTMLButtonElement>("chat-new")?.disabled).toBe(true);
+});
+
+test("offers things to ask, each sent whole", () => {
+  render();
+  const openers = container.querySelectorAll<HTMLButtonElement>(
+    '[data-testid="chat-opener"]',
+  );
+  expect(openers.length).toBeGreaterThanOrEqual(3);
+
+  act(() => openers[0]?.click());
+
+  expect(agent.prompt).toHaveBeenCalledWith(openers[0]?.textContent);
 });
 
 test("sends on Enter and clears the composer", () => {
@@ -112,32 +138,153 @@ test("bubbles only the user's messages", () => {
   expect(variant("assistant")).toBe("ghost");
 });
 
-test("shows what the agent did to the rack as a line, not a bubble", () => {
+test("shows what the agent did to the rack as lines under what it said it would do", () => {
   agent.messages = [
     { id: "a", role: "user", kind: "message", text: "add a bass" },
+    {
+      id: "p",
+      role: "assistant",
+      kind: "brief",
+      text: "I'll add a bass and patch it in.",
+    },
     {
       id: "b",
       role: "assistant",
       kind: "tool",
       text: "Adding a rack…",
       pending: true,
+      args: { item: "tone/MonoSynth" },
     },
     {
       id: "c",
       role: "assistant",
       kind: "tool",
       text: "Patching failed",
+      args: { from: "bass:output", to: "out:in" },
+      result: "There is no jack bass:output",
       error: "There is no jack bass:output",
     },
+    { id: "d", role: "assistant", kind: "message", text: "Nearly." },
+    { id: "e", role: "assistant", kind: "tool", text: "Read the rack" },
   ];
   render();
 
+  const runs = container.querySelectorAll('[data-kind="run"]');
+  expect(runs).toHaveLength(2);
+  expect(runs[0]?.querySelector('[data-kind="brief"]')?.textContent).toBe(
+    "I'll add a bass and patch it in.",
+  );
+  expect(runs[0]?.querySelectorAll('[data-kind="tool"]')).toHaveLength(2);
+  expect(runs[1]?.querySelector('[data-kind="brief"]')).toBeNull();
+  expect(runs[1]?.querySelectorAll('[data-kind="tool"]')).toHaveLength(1);
+
   const rows = container.querySelectorAll('[data-kind="tool"]');
-  expect(rows).toHaveLength(2);
   expect(rows[0]?.querySelector('[data-slot="spinner"]')).not.toBeNull();
   expect(rows[0]?.querySelector('[data-slot="bubble"]')).toBeNull();
   expect(rows[1]?.querySelector('[data-slot="spinner"]')).toBeNull();
   expect(rows[1]?.textContent).toContain("There is no jack bass:output");
+});
+
+test("opens a tool to what it was asked and what it reported", () => {
+  agent.messages = [
+    {
+      id: "b",
+      role: "assistant",
+      kind: "tool",
+      text: "Added [bass] MonoSynth",
+      args: { item: "tone/MonoSynth", id: "bass" },
+      result: "Added [bass] MonoSynth\nJacks: bass:in, bass:out",
+    },
+  ];
+  render();
+  const row = container.querySelector('[data-kind="tool"]');
+  const trigger = row?.querySelector<HTMLButtonElement>("button");
+  expect(trigger?.getAttribute("aria-expanded")).toBe("false");
+  expect(row?.textContent).not.toContain("Jacks: bass:in");
+
+  act(() => trigger?.click());
+
+  expect(trigger?.getAttribute("aria-expanded")).toBe("true");
+  expect(row?.textContent).toContain("tone/MonoSynth");
+  expect(row?.textContent).toContain("Jacks: bass:in, bass:out");
+});
+
+test("names a rack on the canvas as a chip that finds it", () => {
+  const { rack } = useStore.getState();
+  rack.addRackFromCatalogue("tone/MonoSynth", rack.rootId, "bass");
+  agent.messages = [
+    {
+      id: "b",
+      role: "assistant",
+      kind: "tool",
+      text: "Patched [62c635bc-abfd-47c4-9650-3059ac85bc1e] bass:out -> out:in",
+    },
+    {
+      id: "c",
+      role: "assistant",
+      kind: "tool",
+      text: "Added [bass] MonoSynth",
+    },
+    {
+      id: "d",
+      role: "assistant",
+      kind: "tool",
+      text: "Moved [pad] into [fx].",
+    },
+  ];
+  render();
+
+  const chips = container.querySelectorAll('[data-testid="rack-chip"]');
+  expect(chips).toHaveLength(1);
+  expect(chips[0]?.textContent).toBe("bass");
+  // A generated id is left off the line; another rack's name stays.
+  expect(container.textContent).toContain("Patched bass:out -> out:in");
+  expect(container.textContent).toContain("Moved pad into fx.");
+});
+
+test("says a reply was stopped", () => {
+  agent.messages = [
+    { id: "a", role: "user", kind: "message", text: "hello" },
+    {
+      id: "b",
+      role: "assistant",
+      kind: "message",
+      text: "Hi th",
+      stopped: true,
+    },
+  ];
+  render();
+
+  expect(container.querySelector('[data-kind="stopped"]')?.textContent).toBe(
+    "Stopped",
+  );
+});
+
+test("offers the key dialog when a new key is the fix", () => {
+  agent.messages = [
+    {
+      id: "b",
+      role: "assistant",
+      kind: "message",
+      text: "",
+      error: "OpenRouter rejected the key. Check it and try again.",
+      recover: "key",
+    },
+  ];
+  render();
+
+  act(() => byTestId("chat-change-key")?.click());
+
+  expect(agent.changeKey).toHaveBeenCalledTimes(1);
+});
+
+test("starts a new conversation", () => {
+  agent.messages = [{ id: "a", role: "user", kind: "message", text: "hello" }];
+  render();
+
+  act(() => byTestId("chat-new")?.click());
+
+  expect(agent.reset).toHaveBeenCalledTimes(1);
 });
 
 test("keeps thinking once a tool is done and the agent carries on", () => {
@@ -161,14 +308,18 @@ test("offers Stop while the agent is replying", () => {
   expect(agent.abort).toHaveBeenCalledTimes(1);
 });
 
-test("explains a message that could not be sent", async () => {
+test("explains a message that could not be sent, with the way to a key", async () => {
   agent.prompt.mockRejectedValue(new Error("No OpenRouter API key was given"));
   render();
   type("hello");
   press("Enter");
   await act(async () => {});
 
-  expect(container.querySelector('[role="alert"]')?.textContent).toBe(
-    "No OpenRouter API key was given",
+  const alert = container.querySelector('[role="alert"]');
+  expect(alert?.textContent).toContain(
+    "The agent needs an OpenRouter key before it can reply.",
   );
+  expect(
+    alert?.querySelector('[data-testid="chat-change-key"]'),
+  ).not.toBeNull();
 });

@@ -32,6 +32,8 @@ const fakeAgent = () => {
     ),
     messages: Stream.fromPubSub(said),
     abort: Effect.sync(() => aborted()),
+    transcript: Effect.succeed([]),
+    reset: Effect.void,
     aborted,
   };
   return agent;
@@ -238,7 +240,8 @@ test("shows why a reply failed", async () => {
   expect(current?.messages.at(-1)).toMatchObject({
     role: "assistant",
     text: "",
-    error: "401 Unauthorized",
+    error: "OpenRouter rejected the key. Check it and try again.",
+    recover: "key",
   });
 });
 

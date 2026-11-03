@@ -7,7 +7,11 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { createSession, type ChatMessage } from "../../agent";
+import {
+  createSession,
+  type ChatMessage,
+  type SessionState,
+} from "../../agent";
 import { useStore } from "../../stores";
 import { ApiKeyDialog } from "./api-key-dialog";
 
@@ -19,12 +23,19 @@ type GoodVibesAgentContextValue = {
   readonly busy: boolean;
   readonly prompt: (text: string) => Promise<void>;
   readonly abort: () => void;
+  // Forgets the conversation and starts a new one.
+  readonly reset: () => void;
   readonly changeKey: () => void;
 };
 
 const GoodVibesAgentContext = createContext<
   GoodVibesAgentContextValue | undefined
 >(undefined);
+
+// What the server renders, and so what the client must render while it
+// hydrates: the conversation kept in this browser's storage is only shown
+// once React has taken over, or the two would not match.
+const beforeHydration: SessionState = { messages: [], busy: false };
 
 type KeyRequest = {
   readonly promise: Promise<string>;
@@ -66,7 +77,7 @@ export function GoodVibesAgentProvider({
   const state = useSyncExternalStore(
     session.subscribe,
     session.getState,
-    session.getState,
+    () => beforeHydration,
   );
 
   const answer = (settle: (request: KeyRequest) => void) => {
@@ -82,6 +93,7 @@ export function GoodVibesAgentProvider({
       busy: state.busy,
       prompt: session.prompt,
       abort: session.abort,
+      reset: session.reset,
       changeKey,
     }),
     [state, session, changeKey],

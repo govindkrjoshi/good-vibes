@@ -57,6 +57,9 @@ OpenRouter directly, using the first key it finds:
 OPENROUTER_API_KEY=sk-or-... pnpm dev
 ```
 
+The conversation is kept in local storage too, so a reload carries on where
+it left off; "New conversation" in the chat's header clears it.
+
 Production builds never embed a key, even when `OPENROUTER_API_KEY` is set
 while building, so users always bring their own.
 

@@ -65,7 +65,7 @@ test("uses a model the browser can reach through OpenRouter's CORS", () => {
   });
 });
 
-test("turns a reply's parts into thoughts and messages", () => {
+test("turns a reply's text into messages and keeps its thinking to itself", () => {
   const reply = {
     role: "assistant",
     content: [
@@ -76,7 +76,6 @@ test("turns a reply's parts into thoughts and messages", () => {
   } as AgentMessage;
 
   expect(messagesOf(reply, 3)).toEqual([
-    { type: "thought", id: "3-0", text: "They said hello." },
     { type: "message", id: "3-2", text: "Hi there" },
   ]);
 });
@@ -115,19 +114,35 @@ test("acts on the rack with its tools and tells the chat what it did", async () 
     name: "MonoSynth",
   });
   expect(said.filter((message) => message.type === "tool")).toEqual([
-    { type: "tool", id: "tool-c1", text: "Adding a rack…", done: false },
+    {
+      type: "tool",
+      id: "tool-c1",
+      text: "Adding a rack…",
+      done: false,
+      args: { item: "tone/MonoSynth", id: "bass" },
+    },
     {
       type: "tool",
       id: "tool-c1",
       text: "Added [bass] MonoSynth from tone/MonoSynth in root.",
       done: true,
+      args: { item: "tone/MonoSynth", id: "bass" },
+      result: expect.stringContaining("Added [bass] MonoSynth"),
     },
-    { type: "tool", id: "tool-c2", text: "Patching…", done: false },
+    {
+      type: "tool",
+      id: "tool-c2",
+      text: "Patching…",
+      done: false,
+      args: { from: "bass:out", to: "out:in" },
+    },
     {
       type: "tool",
       id: "tool-c2",
       text: "Patching failed",
       done: true,
+      args: { from: "bass:out", to: "out:in" },
+      result: expect.stringContaining("There is no jack out:in"),
       error: expect.stringContaining("There is no jack out:in"),
     },
   ]);
@@ -136,6 +151,85 @@ test("acts on the rack with its tools and tells the chat what it did", async () 
     id: "2-0",
     text: "Added a bass, but there is nothing to patch it into.",
   });
+});
+
+test("says what it is about to do, apart from what it does", async () => {
+  const said = await scripted(
+    [
+      fauxAssistantMessage([
+        fauxToolCall("brief", { text: "I'll add a bass." }, { id: "b1" }),
+        fauxToolCall(
+          "add_rack",
+          { item: "tone/MonoSynth", id: "bass" },
+          { id: "c1" },
+        ),
+      ]),
+      fauxAssistantMessage("There's your bass."),
+    ],
+    async (prompt) => {
+      await prompt("add a bass");
+    },
+  );
+
+  // The reply's words stream in over several messages of the same id.
+  expect([...new Set(said.map((message) => message.type))]).toEqual([
+    "brief",
+    "tool",
+    "message",
+  ]);
+  expect(said[0]).toEqual({
+    type: "brief",
+    id: "brief-b1",
+    text: "I'll add a bass.",
+  });
+});
+
+test("carries on a kept conversation and says the page was reloaded", async () => {
+  let heard: string[] = [];
+  const history: AgentMessage[] = [
+    { role: "user", content: "hi", timestamp: 1 },
+    fauxAssistantMessage("Hello."),
+  ];
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([
+    (context) => {
+      heard = texts(context.messages);
+      return fauxAssistantMessage("Still here.");
+    },
+  ]);
+  const scope = Effect.runSync(Scope.make());
+  const agent = await Effect.runPromise(
+    createGoodVibesAgent(() => "key", useStore, {
+      model: faux.getModel(),
+      streamFn: models.streamSimple.bind(models),
+      history,
+    }).pipe(Scope.provide(scope)),
+  );
+  try {
+    await Effect.runPromise(agent.prompt("what's there?"));
+    const transcript = await Effect.runPromise(agent.transcript);
+
+    expect(heard).toEqual([
+      "hi",
+      expect.stringContaining("The page has been reloaded"),
+      "what's there?",
+    ]);
+    expect(heard[1]).toContain("Transport: 120 bpm, stopped.");
+    expect(transcript.map((message) => message.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "user",
+      "assistant",
+    ]);
+
+    await Effect.runPromise(agent.reset);
+    expect(await Effect.runPromise(agent.transcript)).toEqual([]);
+  } finally {
+    await Effect.runPromise(Scope.close(scope, Exit.succeed(undefined)));
+  }
 });
 
 test("hears what the rack reports after its change, on its next turn", async () => {

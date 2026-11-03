@@ -31,6 +31,17 @@ export default function Home() {
             onToggleChat={() => setChatOpen((open) => !open)}
           />
           <div className="relative flex min-h-0">
+            {chatOpen && (
+              // On a phone the chat covers the canvas; a tap beside it
+              // closes it, as the top bar's toggle does.
+              <button
+                type="button"
+                aria-label="Hide chat"
+                data-testid="chat-scrim"
+                className="absolute inset-0 z-10 bg-foreground/30 md:hidden"
+                onClick={() => setChatOpen(false)}
+              />
+            )}
             <ChatPanel
               className={cn(
                 "max-md:absolute max-md:inset-y-0 max-md:left-0 max-md:z-20 max-md:shadow-lg",

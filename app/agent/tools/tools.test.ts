@@ -42,6 +42,7 @@ beforeEach(() => {
 test("has a tool for everything the user can do, and reads", () => {
   expect(tools.map((held) => held.name).sort()).toEqual(
     [
+      "brief",
       "read_rack",
       "read_catalogue",
       "add_rack",
@@ -66,6 +67,18 @@ test("has a tool for everything the user can do, and reads", () => {
       "set_transport",
     ].sort(),
   );
+});
+
+test("brief changes nothing and tells the model it was said", async () => {
+  const before = rack();
+  const { text, failed, summary } = await call("brief", {
+    text: "I'll add a bass.",
+  });
+
+  expect(failed).toBe(false);
+  expect(text).toBe("Told the user: I'll add a bass.");
+  expect(summary).toBe("Told the user: I'll add a bass.");
+  expect(rack()).toBe(before);
 });
 
 test("reads the rack as a tree with ids, patches and the transport", async () => {

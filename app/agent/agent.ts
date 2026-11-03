@@ -10,6 +10,7 @@ import {
   codeHelp,
   createErrorWatch,
   createRackTools,
+  describeRackTree,
   patchRule,
 } from "./tools";
 import {
@@ -33,8 +34,10 @@ and change it with your tools, the same changes the user makes by hand. Be warm,
 plain-spoken, and no lists of ids unless asked.
 
 Work in small, visible steps. The user watches the rack change as you go, so:
-- Say what you're about to do in a few words, then do it; then the next thing. A short line \
-before each step beats a long plan up front or a long summary at the end.
+- Before each step, call brief with one sentence on what you're about to do, then do it in \
+the same reply; then the next step. Your reasoning is never shown, so brief is how the user \
+follows along. Keep your text for talking to the user: an answer, a question, or what's \
+there when you've finished.
 - Make a few changes at a time rather than everything in one go: place a rack, then patch it, \
 then set its sound. Each step should leave the rack in a state that makes sense on its own.
 - Keep every message to a sentence or two. When you've finished, one line on what's there \
@@ -83,11 +86,17 @@ export type GoodVibesAgent = {
   readonly messages: Stream.Stream<GoodVibesMessage>;
   // Stops the running reply; `prompt` then finishes with the text so far.
   readonly abort: Effect.Effect<void>;
+  // The conversation as the model has it, without the system prompt, for
+  // keeping and handing back as `history`.
+  readonly transcript: Effect.Effect<readonly AgentMessage[]>;
+  // Forgets the conversation, stopping a running reply first.
+  readonly reset: Effect.Effect<void>;
 };
 
 // The parts of one assistant reply as our messages. `reply` numbers the
 // replies so ids stay unique across the conversation. Tool calls are told
-// apart as they run, not here.
+// apart as they run, not here, and the model's thinking is left out: the
+// chat never shows it.
 export const messagesOf = (
   message: AgentMessage,
   reply: number,
@@ -96,11 +105,24 @@ export const messagesOf = (
   return message.content.flatMap((part, index): GoodVibesMessage[] => {
     const id = `${reply}-${index}`;
     if (part.type === "text") return [{ type: "message", id, text: part.text }];
-    if (part.type === "thinking")
-      return [{ type: "thought", id, text: part.thinking }];
     return [];
   });
 };
+
+// Told to the agent when it carries on a conversation from before the page
+// was reloaded: its memory is of a rack that may be gone, so here is the
+// rack as it is now.
+export const reloadNote = (store: RackStore): AgentMessage => ({
+  role: "user",
+  content: [
+    {
+      type: "text",
+      text: `The page has been reloaded since your last reply, so the rack may not be as you \
+left it. Here it is now:\n${describeRackTree(store.getState().rack)}`,
+    },
+  ],
+  timestamp: Date.now(),
+});
 
 // What the rack reported after the agent's last action, as a message to it.
 export const errorNote = (errors: readonly string[]): AgentMessage => ({
@@ -116,8 +138,11 @@ export const errorNote = (errors: readonly string[]): AgentMessage => ({
   timestamp: Date.now(),
 });
 
-// Another model and way of reaching it, for tests that script the replies.
-export type AgentOverrides = {
+export type AgentOptions = {
+  // The conversation so far, from before a reload, for the agent to carry
+  // on from. It is told the page reloaded with its next prompt.
+  readonly history?: readonly AgentMessage[];
+  // Another model and way of reaching it, for tests that script the replies.
   readonly model?: Model<Api>;
   readonly streamFn?: StreamFn;
 };
@@ -128,10 +153,10 @@ export type AgentOverrides = {
 export const createGoodVibesAgent = (
   apiKey: ApiKey,
   store: RackStore,
-  overrides: AgentOverrides = {},
+  options: AgentOptions = {},
 ): Effect.Effect<GoodVibesAgent, never, Scope.Scope> =>
   Effect.gen(function* () {
-    const model = overrides.model ?? goodVibesModel();
+    const model = options.model ?? goodVibesModel();
     if (model === undefined) {
       return yield* Effect.die(
         new Error(`Unknown OpenRouter model ${goodVibesModelId}`),
@@ -147,8 +172,14 @@ export const createGoodVibesAgent = (
       // GLM reasons at length when left to itself, and a turn here is a few
       // tool calls, not a proof. Low keeps it thinking but briefly; "off"
       // sends it nothing, so it would go back to its default.
-      initialState: { systemPrompt, model, tools, thinkingLevel: "low" },
-      streamFn: overrides.streamFn ?? models.streamSimple.bind(models),
+      initialState: {
+        systemPrompt,
+        model,
+        tools,
+        thinkingLevel: "low",
+        messages: [...(options.history ?? [])],
+      },
+      streamFn: options.streamFn ?? models.streamSimple.bind(models),
       getApiKey: (provider) =>
         provider === "openrouter" ? apiKey() : undefined,
       // "Add, then connect" in one reply has to run in that order.
@@ -162,38 +193,62 @@ export const createGoodVibesAgent = (
     const say = (message: GoodVibesMessage) =>
       PubSub.publishUnsafe(said, message);
 
+    const argsOf = (args: unknown): Readonly<Record<string, unknown>> =>
+      typeof args === "object" && args !== null
+        ? (args as Record<string, unknown>)
+        : {};
+    // What each running tool was asked, for the message that says it is done.
+    const asked = new Map<string, Readonly<Record<string, unknown>>>();
+
     let reply = 0;
     const unsubscribe = agent.subscribe((event) => {
       if (event.type === "message_start" && event.message.role === "assistant")
         reply += 1;
       if (event.type === "tool_execution_start") {
+        const args = argsOf(event.args);
+        if (event.toolName === "brief") {
+          say({
+            type: "brief",
+            id: `brief-${event.toolCallId}`,
+            text: String(args.text ?? ""),
+          });
+          return;
+        }
+        asked.set(event.toolCallId, args);
         say({
           type: "tool",
           id: `tool-${event.toolCallId}`,
           text: `${labels.get(event.toolName) ?? event.toolName}…`,
           done: false,
+          args,
         });
       }
       if (event.type === "tool_execution_end") {
+        if (event.toolName === "brief") return;
         const result = event.result as {
           details?: { summary?: string };
           content?: { type: string; text?: string }[];
         };
+        const reported = (result.content ?? [])
+          .flatMap((part) =>
+            part.type === "text" && part.text !== undefined ? [part.text] : [],
+          )
+          .join("\n");
         const text =
           result.details?.summary ??
           labels.get(event.toolName) ??
           event.toolName;
+        const args = asked.get(event.toolCallId) ?? {};
+        asked.delete(event.toolCallId);
         say({
           type: "tool",
           id: `tool-${event.toolCallId}`,
           text,
           done: true,
+          args,
+          result: reported,
           ...(event.isError
-            ? {
-                error:
-                  result.content?.find((part) => part.type === "text")?.text ??
-                  text,
-              }
+            ? { error: reported === "" ? text : reported }
             : {}),
         });
       }
@@ -220,6 +275,10 @@ export const createGoodVibesAgent = (
 
     const abort = Effect.sync(() => agent.abort());
 
+    // Until its first prompt, an agent handed a history has yet to hear
+    // that the page reloaded.
+    let resumed = (options.history?.length ?? 0) > 0;
+
     const prompt = (text: string) =>
       Effect.tryPromise({
         try: () => {
@@ -228,7 +287,11 @@ export const createGoodVibesAgent = (
             content: text,
             timestamp: Date.now(),
           };
-          const notes = pending.length === 0 ? [] : [errorNote(pending)];
+          const notes = [
+            ...(resumed ? [reloadNote(store)] : []),
+            ...(pending.length === 0 ? [] : [errorNote(pending)]),
+          ];
+          resumed = false;
           pending = [];
           return agent.prompt([...notes, asked]);
         },
@@ -257,5 +320,23 @@ export const createGoodVibesAgent = (
         Effect.onInterrupt(() => abort),
       );
 
-    return { prompt, messages: Stream.fromPubSub(said), abort };
+    const transcript = Effect.sync(() =>
+      agent.state.messages.filter((message) => message.role !== "system"),
+    );
+
+    const reset = Effect.promise(async () => {
+      agent.abort();
+      await agent.waitForIdle();
+      agent.reset();
+      pending = [];
+      resumed = false;
+    });
+
+    return {
+      prompt,
+      messages: Stream.fromPubSub(said),
+      abort,
+      transcript,
+      reset,
+    };
   });

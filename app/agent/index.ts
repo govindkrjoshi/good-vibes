@@ -3,16 +3,19 @@
 // bundle. Import it from "./agent/agent" where it is really needed.
 export {
   createSession,
-  type ChatMessage,
   type CreateAgent,
+  type CreateAgentOptions,
   type Session,
   type SessionOptions,
   type SessionState,
 } from "./session";
 export { apiKeyStorageKey, knownApiKey, storeApiKey } from "./key";
+export { chatStorageKey } from "./history";
+export { explainError, type Explanation } from "./explain";
 export {
   PromptError,
   type ApiKey,
+  type ChatMessage,
   type GoodVibesMessage,
   type RackStore,
 } from "./types";
