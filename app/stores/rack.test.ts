@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "vitest";
 import { useStore } from ".";
 import { tonePlugin } from "../catalogue";
-import { makeBlock, type Rack } from "../rack/model";
+import { makeBlock, newTree, type Rack } from "../rack/model";
 
 const initial = useStore.getState();
 const store = () => useStore.getState().rack;
@@ -33,9 +33,29 @@ test("starts as an empty root tree", () => {
   expect(store().errors).toEqual([]);
 });
 
+test("loads a whole rack in place of the current one", () => {
+  synthIntoSpeakers();
+  store().reportError("stale");
+  store().setTransport({ bpm: 90, playing: true });
+
+  store().addRackFromCatalogue("tone/Filter", "root", "F");
+  const next = {
+    ...useStore.getState().rack,
+    transport: { bpm: 76, playing: false },
+  };
+  store().clear();
+  store().load(next);
+
+  expect(children("root")).toEqual(["S", "D", "F"]);
+  expect(store().values["F:param:frequency"]).toBe(350);
+  expect(Object.keys(store().patches)).toHaveLength(1);
+  expect(store().transport).toEqual({ bpm: 76, playing: false });
+  expect(store().errors).toEqual([]);
+});
+
 test("adds a rack under the parent it is given", () => {
-  store().addBlock("tree", "root");
-  const group = children("root")?.[0] ?? "";
+  const group = "G";
+  store().addRack(newTree(group, "root"), "root");
   store().addRack(makeBlock("leaf", group, "leaf"), group);
 
   expect(children(group)).toEqual(["leaf"]);
@@ -60,8 +80,8 @@ test("lists a rack added twice under its parent once", () => {
 });
 
 test("gives a new block an input and an output jack", () => {
-  store().addBlock("leaf", "root");
-  const id = children("root")?.[0] ?? "";
+  const id = "leaf";
+  store().addRack(makeBlock(id, "root", "leaf"), "root");
 
   expect(store().racks[id]?.jackIds).toEqual([`${id}:in`, `${id}:out`]);
   expect(Object.keys(store().jacks)).toEqual([`${id}:in`, `${id}:out`]);
@@ -198,8 +218,8 @@ test("removes a rack with everything it owns and the patches to it", () => {
 });
 
 test("removes a group with everything inside it", () => {
-  store().addBlock("tree", "root");
-  const group = children("root")?.[0] ?? "";
+  const group = "G";
+  store().addRack(newTree(group, "root"), "root");
   store().addRackFromCatalogue("tone/AMSynth", group, "S");
   store().removeRacks([group]);
 

@@ -65,6 +65,8 @@ type Actions = {
   readonly reset: () => void;
   // Takes every rack and patch away, keeping the tempo.
   readonly clear: () => void;
+  // Puts a whole rack in place of the current one, as a demo or a saved rack.
+  readonly load: (state: RackState) => void;
 };
 
 export type RackSlice = State & Actions;
@@ -134,10 +136,35 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       false,
       "rack/clear",
     ),
+  load: (next) =>
+    set(
+      (state) => {
+        Object.assign(state.rack, castDraft(next), { errors: [] });
+      },
+      false,
+      "rack/load",
+    ),
+  // A rack names its jacks by id, as `${rackId}:in` or `${rackId}:out`, with
+  // anything after that telling apart jacks that share a direction. Any of
+  // them not in the store yet is made from its id.
   addRack: (rack, parentId) =>
     set(
       (state) => {
-        addToParent(state, rack, parentId);
+        if (!addToParent(state, rack, parentId)) return;
+        for (const id of rack.jackIds) {
+          if (state.rack.jacks[id] !== undefined) continue;
+          const direction = id.slice(rack.id.length + 1).split(":")[0];
+          if (direction !== "in" && direction !== "out") {
+            state.rack.errors.push(`${id} is not an in or out jack`);
+            continue;
+          }
+          state.rack.jacks[id] = {
+            id,
+            name: direction === "in" ? "Input" : "Output",
+            belongToBlockId: rack.id,
+            direction,
+          };
+        }
       },
       false,
       "rack/addRack",
@@ -286,7 +313,60 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
     ),
   // A tree takes everything under it along, and every patch to a removed
   // rack goes with it. The root rack is never removed.
-  removeRacks: (_rackIds) => set((state) => state, false, "rack/removeRacks"),
+  removeRacks: (rackIds) =>
+    set(
+      (state) => {
+        const { racks } = state.rack;
+        const doomed = new Set<string>();
+        const doom = (id: string) => {
+          const rack = racks[id];
+          if (rack === undefined || rack.isRoot || doomed.has(id)) return;
+          doomed.add(id);
+          if (rack.type === "tree") rack.children.forEach(doom);
+        };
+        rackIds.forEach(doom);
+        if (doomed.size === 0) return;
+
+        const owned = (held: { readonly belongToBlockId: string }) =>
+          doomed.has(held.belongToBlockId);
+        const { jacks, patches, methods, events, paramGroups } = state.rack;
+
+        dropPatches(
+          state,
+          Object.values(patches)
+            .filter((patch) =>
+              [jacks[patch.from], jacks[patch.to]].some(
+                (jack) => jack === undefined || owned(jack),
+              ),
+            )
+            .map((patch) => patch.id),
+        );
+        for (const id of doomed) {
+          for (const param of rackParams(state.rack, id)) {
+            delete state.rack.values[param.id];
+            delete state.rack.automations[param.id];
+          }
+          const { paramGroupId, parentId } = racks[id]!;
+          if (paramGroupId !== undefined) delete paramGroups[paramGroupId];
+          const parent = parentId === undefined ? undefined : racks[parentId];
+          if (parent?.type === "tree") {
+            parent.children = parent.children.filter((child) => child !== id);
+          }
+        }
+        for (const jack of Object.values(jacks)) {
+          if (owned(jack)) delete jacks[jack.id];
+        }
+        for (const method of Object.values(methods)) {
+          if (owned(method)) delete methods[method.id];
+        }
+        for (const event of Object.values(events)) {
+          if (owned(event)) delete events[event.id];
+        }
+        for (const id of doomed) delete racks[id];
+      },
+      false,
+      "rack/removeRacks",
+    ),
   removePatches: (patchIds) =>
     set(
       (state) => {
@@ -326,9 +406,29 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       false,
       "rack/removeAutomation",
     ),
-  addEvent: (_methodId, _settings) => {
-    set((state) => state, false, "rack/addEvent");
-    return "foo";
+  // The event plays on the rack its method belongs to.
+  addEvent: (methodId, settings) => {
+    const method = get().rack.methods[methodId];
+    const id = crypto.randomUUID();
+    set(
+      (state) => {
+        const owner = method && state.rack.racks[method.belongToBlockId];
+        if (owner === undefined) {
+          state.rack.errors.push(`${methodId} is not a method on any rack`);
+          return;
+        }
+        state.rack.events[id] = castDraft({
+          ...settings,
+          id,
+          belongToBlockId: owner.id,
+          methodId,
+        } as RackEvent);
+        owner.eventIds.push(id);
+      },
+      false,
+      "rack/addEvent",
+    );
+    return method === undefined ? undefined : id;
   },
   setEventSteps: (eventId, steps) =>
     set(

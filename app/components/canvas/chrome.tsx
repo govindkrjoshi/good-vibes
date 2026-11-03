@@ -2,12 +2,17 @@ import { useMemo, useRef } from "react";
 import { useReactFlow, useStore as useFlowStore } from "@xyflow/react";
 import { CanvasMenu } from "./menu";
 import { HelpButton } from "./help-button";
-import { RackToolbar, type CatalogueSection } from "./rack-toolbar";
+import {
+  RackToolbar,
+  type CatalogueSection,
+  type DemoChoice,
+} from "./rack-toolbar";
 import { ViewportControls } from "./viewport-controls";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./canvas-store";
 import { useStore } from "../../stores";
 import { newTree } from "../../rack";
+import { demos, rackCount } from "../../demos";
 import {
   categories,
   itemsIn,
@@ -27,6 +32,7 @@ const categoryLabels: Record<Category, string> = {
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
   const toggleLock = useCanvasStore((state) => state.toggleLock);
+  const requestArrange = useCanvasStore((state) => state.requestArrange);
   const addRackFromCatalogue = useStore(
     (state) => state.rack.addRackFromCatalogue,
   );
@@ -34,6 +40,7 @@ export function CanvasChrome() {
   const rootId = useStore((state) => state.rack.rootId);
   const registry = useStore((state) => state.catalogue.registry);
   const clear = useStore((state) => state.rack.clear);
+  const load = useStore((state) => state.rack.load);
   const hasRacks = useStore((state) => {
     const root = state.rack.racks[state.rack.rootId];
     return root?.type === "tree" && root.children.length > 0;
@@ -80,6 +87,24 @@ export function CanvasChrome() {
   const pick = (itemKey: string) => addRackFromCatalogue(itemKey, rootId);
   const addDestination = () => pick("tone/Destination");
 
+  const demoChoices = useMemo(
+    (): DemoChoice[] =>
+      demos.map((demo) => ({
+        id: demo.id,
+        name: demo.name,
+        tagline: demo.tagline,
+        racks: rackCount(demo.build(registry)),
+      })),
+    [registry],
+  );
+  // A demo arrives as a pile at the origin, so the canvas lays it out.
+  const loadDemo = (demoId: string) => {
+    const demo = demos.find((held) => held.id === demoId);
+    if (demo === undefined) return;
+    load(demo.build(registry));
+    requestArrange();
+  };
+
   const resetZoom = () => zoomTo(1);
 
   const deleteSelection = () => {
@@ -106,7 +131,11 @@ export function CanvasChrome() {
 
   return (
     <>
-      <CanvasMenu onFitView={() => fitView()} onResetZoom={resetZoom} />
+      <CanvasMenu
+        onFitView={() => fitView()}
+        onResetZoom={resetZoom}
+        onArrange={requestArrange}
+      />
 
       {/* Drops below the menu island wherever the two would meet. */}
       <RackToolbar
@@ -122,6 +151,9 @@ export function CanvasChrome() {
         catalogue={catalogue}
         onPick={pick}
         focusSearch={focusSearch}
+        demos={demoChoices}
+        hasRacks={hasRacks}
+        onLoadDemo={loadDemo}
       />
 
       <ViewportControls

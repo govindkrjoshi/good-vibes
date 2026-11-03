@@ -15,7 +15,13 @@ const handlers = () => ({
   onDelete: vi.fn(),
   onClear: vi.fn(),
   onPick: vi.fn(),
+  onLoadDemo: vi.fn(),
 });
+
+const demos = [
+  { id: "dub", name: "Dub", tagline: "An echo.", racks: 10 },
+  { id: "garden", name: "Garden", tagline: "A pad.", racks: 20 },
+];
 
 const item = (name: string, description: string) => ({
   key: `tone/${name}`,
@@ -51,7 +57,7 @@ const catalogue: CatalogueSection[] = [
 
 function render(
   props: ReturnType<typeof handlers>,
-  { locked = false, canDelete = true, canClear = true } = {},
+  { locked = false, canDelete = true, canClear = true, hasRacks = false } = {},
 ) {
   container = document.createElement("div");
   document.body.append(container);
@@ -64,6 +70,8 @@ function render(
         canDelete={canDelete}
         canClear={canClear}
         catalogue={catalogue}
+        demos={demos}
+        hasRacks={hasRacks}
         {...props}
       />,
     ),
@@ -127,6 +135,7 @@ test("names each tool for screen readers", () => {
     "Delete selection",
   );
   expect(find("clear-canvas").getAttribute("aria-label")).toBe("Clear canvas");
+  expect(find("load-demo").getAttribute("aria-label")).toBe("Load a demo");
 });
 
 test("shows the shortcut hint on the tools that have one", () => {
@@ -143,11 +152,13 @@ test("puts the adding tools and the removing tools in groups of their own", () =
   expect(groups.map((group) => group.getAttribute("aria-label"))).toEqual([
     "Add",
     "Edit",
+    "Demos",
   ]);
   expect(groups[0]?.querySelector('[data-testid="add-group"]')).not.toBeNull();
   expect(
     groups[1]?.querySelector('[data-testid="clear-canvas"]'),
   ).not.toBeNull();
+  expect(groups[2]?.querySelector('[data-testid="load-demo"]')).not.toBeNull();
 });
 
 test("marks the lock button active and relabels it while locked", () => {
@@ -192,6 +203,41 @@ test("clears the canvas only once it is confirmed", () => {
 
   act(() => find("confirm-clear").click());
   expect(props.onClear).toHaveBeenCalledTimes(1);
+});
+
+test("lists the demos with their size and loads the one picked", () => {
+  const props = handlers();
+  const { find } = render(props);
+
+  act(() => find("load-demo").click());
+  expect(document.body.textContent).toContain("10 racks");
+  expect(document.body.textContent).toContain("A pad.");
+
+  act(() => find("demo-garden").click());
+  expect(props.onLoadDemo).toHaveBeenCalledWith("garden");
+  expect(props.onLoadDemo).toHaveBeenCalledTimes(1);
+  expect(find("load-demo").getAttribute("aria-expanded")).toBe("false");
+});
+
+test("asks before a demo replaces racks on the canvas", () => {
+  const props = handlers();
+  const { find } = render(props, { hasRacks: true });
+
+  act(() => find("load-demo").click());
+  act(() => find("demo-dub").click());
+  expect(props.onLoadDemo).not.toHaveBeenCalled();
+  expect(document.body.textContent).toContain("Replace the canvas with Dub?");
+
+  act(() => find("confirm-load-demo").click());
+  expect(props.onLoadDemo).toHaveBeenCalledWith("dub");
+});
+
+test("keeps the demos out of reach while the canvas is locked", () => {
+  const props = handlers();
+  const { find } = render(props, { locked: true });
+
+  act(() => find("load-demo").click());
+  expect(document.querySelector('[data-testid="demo-dub"]')).toBeNull();
 });
 
 test("drops the catalogue down when the search takes focus", () => {

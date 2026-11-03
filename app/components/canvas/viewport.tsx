@@ -1,13 +1,15 @@
-import { useCallback, useEffect, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, type MouseEvent } from "react";
 import {
   Background,
   BackgroundVariant,
   ReactFlow,
+  useNodesInitialized,
   useReactFlow,
   type Connection,
   type Edge,
 } from "@xyflow/react";
 import {
+  arrange,
   fitTrees,
   jackIds,
   syncNodesFromRack,
@@ -30,6 +32,9 @@ const nodeTypes = { block: BlockNode, rack: RackNode, tree: TreeNode };
 // it. Without a cap it would fit one block by zooming to 200%, which is not a
 // canvas anyone asked to zoom.
 const fitViewOptions = { maxZoom: 1 };
+
+// A hundred racks laid out don't fit at React Flow's usual floor of 50%.
+const minZoom = 0.05;
 
 const noNodes: CanvasNode[] = [];
 const noEdges: Edge[] = [];
@@ -107,6 +112,7 @@ export function CanvasViewport() {
     <ReactFlow
       fitView
       fitViewOptions={fitViewOptions}
+      minZoom={minZoom}
       defaultNodes={noNodes}
       defaultEdges={noEdges}
       nodeTypes={nodeTypes}
@@ -125,6 +131,7 @@ export function CanvasViewport() {
       elementsSelectable={!locked}
     >
       <RackReactFlowSync />
+      <ArrangeOnRequest />
       <Background variant={BackgroundVariant.Lines} />
     </ReactFlow>
   );
@@ -156,6 +163,51 @@ function RackReactFlowSync() {
       syncNodesFromRack(current, racks, jacks, paramGroups, rootId),
     );
   }, [setNodes, racks, jacks, paramGroups, rootId]);
+
+  return null;
+}
+
+// Lays the racks out along their signal flow when asked, once every rack in
+// the store has been drawn and measured, then brings them all into view.
+// Asking is a counter, so the same request isn't answered twice when the
+// racks go on changing.
+function ArrangeOnRequest() {
+  const { getNodes, setNodes, fitBounds } = useReactFlow<CanvasNode>();
+  const initialized = useNodesInitialized();
+  const request = useCanvasStore((state) => state.arrangeRequest);
+  const answered = useRef(0);
+  const racks = useStore((state) => state.rack.racks);
+  const jacks = useStore((state) => state.rack.jacks);
+  const patches = useStore((state) => state.rack.patches);
+  const rootId = useStore((state) => state.rack.rootId);
+
+  useEffect(() => {
+    if (request === answered.current || !initialized) return;
+    const nodes = getNodes();
+    const drawn = new Set(nodes.map((node) => node.id));
+    const settled =
+      Object.values(racks).every((rack) => rack.isRoot || drawn.has(rack.id)) &&
+      nodes.every(
+        (node) =>
+          racks[node.id] !== undefined && node.measured?.width !== undefined,
+      );
+    if (!settled) return;
+
+    answered.current = request;
+    const arranged = arrange(nodes, racks, jacks, patches, rootId);
+    setNodes(arranged.nodes);
+    void fitBounds(arranged.bounds, { padding: 0.1, duration: 300 });
+  }, [
+    request,
+    initialized,
+    racks,
+    jacks,
+    patches,
+    rootId,
+    getNodes,
+    setNodes,
+    fitBounds,
+  ]);
 
   return null;
 }

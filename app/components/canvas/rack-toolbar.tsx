@@ -25,8 +25,10 @@ import {
   ToolbarSeparator,
 } from "../ui/toolbar";
 import { useCatalogueSearch, type CatalogueSection } from "./catalogue-search";
+import { DemoButton, type DemoChoice } from "./demo-button";
 
 export type { CatalogueSection } from "./catalogue-search";
+export type { DemoChoice } from "./demo-button";
 
 type RackToolbarProps = {
   readonly locked: boolean;
@@ -41,11 +43,15 @@ type RackToolbarProps = {
   readonly onPick?: (itemKey: string) => void;
   // Set to what focuses the search field, for a shortcut to call.
   readonly focusSearch?: RefObject<(() => void) | null>;
+  readonly demos?: readonly DemoChoice[];
+  // Whether a demo would replace racks already on the canvas.
+  readonly hasRacks?: boolean;
+  readonly onLoadDemo?: (demoId: string) => void;
   readonly className?: string;
 };
 
 // The canvas's tools: the lock, a search over the whole catalogue, the two
-// racks that aren't modules, and the ways to take racks away.
+// racks that aren't modules, the ways to take racks away, and the demos.
 export function RackToolbar({
   locked,
   onToggleLock,
@@ -58,6 +64,9 @@ export function RackToolbar({
   catalogue = [],
   onPick = () => {},
   focusSearch,
+  demos = [],
+  hasRacks = false,
+  onLoadDemo = () => {},
   className,
 }: RackToolbarProps) {
   const within = useRef<HTMLDivElement>(null);
@@ -126,6 +135,17 @@ export function RackToolbar({
           </Hint>
 
           <ClearButton disabled={!canClear} onClear={onClear} />
+        </ToolbarGroup>
+
+        <ToolbarSeparator />
+
+        <ToolbarGroup aria-label="Demos">
+          <DemoButton
+            demos={demos}
+            replaces={hasRacks}
+            disabled={locked}
+            onLoad={onLoadDemo}
+          />
         </ToolbarGroup>
       </Toolbar>
 

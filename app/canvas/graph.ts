@@ -71,7 +71,7 @@ const absolutePosition = (
 };
 
 // A tree's jacks sit in a band under its header, as tall as its longer side.
-const jacksHeight = ({ jacks }: TreeNodeData) => {
+export const jacksHeight = ({ jacks }: TreeNodeData) => {
   const inputs = jacks.filter((jack) => jack.direction === "in").length;
   const rows = Math.max(inputs, jacks.length - inputs);
   return treeHeaderHeight + rows * treeJackRowHeight;

@@ -19,6 +19,12 @@ class FakeNode {
   readonly params: object[] = [];
   readonly played: unknown[][] = [];
   readonly envelope = { attack: 0 };
+  readonly frequency = {
+    ramped: [] as unknown[][],
+    rampTo(...args: unknown[]) {
+      this.ramped.push(args);
+    },
+  };
   constructor(readonly name: string) {
     made.push(this);
   }
@@ -61,6 +67,8 @@ let transport: {
   stop: ReturnType<typeof vi.fn>;
   schedule: ReturnType<typeof vi.fn>;
   clear: ReturnType<typeof vi.fn>;
+  state: "started" | "stopped";
+  seconds: number;
 };
 let suspend: ReturnType<typeof vi.fn>;
 let errors: string[];
@@ -98,6 +106,7 @@ const fakeTone = () =>
     getTransport: () => transport,
     getContext: () => ({ rawContext: { suspend } }),
     start: () => Promise.resolve(),
+    now: () => 5,
     Time: (time: string) => ({ toSeconds: () => Number(time) }),
   }) as unknown as typeof ToneJs;
 
@@ -145,6 +154,15 @@ const patch = (id: string, from: string, to: string): Patch => ({
   to,
 });
 
+const frequency = (rackId: string) => ({
+  id: `${rackId}:frequency`,
+  name: "Frequency",
+  belongToRackId: rackId,
+  kind: "number" as const,
+  path: ["frequency"],
+  defaultValue: 440,
+});
+
 const volume = (rackId: string) => ({
   id: `${rackId}:volume`,
   name: "Volume",
@@ -188,6 +206,8 @@ beforeEach(() => {
     stop: vi.fn(),
     schedule: vi.fn(() => 7),
     clear: vi.fn(),
+    state: "stopped",
+    seconds: 0,
   };
   errors = [];
   current = emptyRackState;
@@ -435,6 +455,28 @@ test("schedules automation on the transport, and replaces it", () => {
   go({ automations: { p: [] } });
   expect(transport.clear).toHaveBeenCalledWith(7);
   expect(transport.schedule).toHaveBeenCalledOnce();
+});
+
+test("lands automation added while the transport plays, due ones now", () => {
+  go({
+    racks: { S: { ...leaf("S"), paramGroupId: "g" } },
+    paramGroups: { g: { id: "g", params: [frequency("S")] } },
+  });
+  transport.state = "started";
+  transport.seconds = 3;
+  const past = { id: "a", method: "rampTo", value: 1, time: "1" } as const;
+  const ahead = { id: "b", method: "rampTo", value: 2, time: "6" } as const;
+
+  go({ automations: { "S:frequency": [past, ahead] } });
+
+  // Still scheduled for the next start, and landed right away as well: the
+  // transport started at 2, so the first event was due at 3 and lands now (5),
+  // and the second at 8.
+  expect(transport.schedule).toHaveBeenCalledWith(expect.any(Function), 0);
+  expect(synth().frequency.ramped).toEqual([
+    [1, undefined, 5],
+    [2, undefined, 8],
+  ]);
 });
 
 test("starts over from nothing on reset", () => {

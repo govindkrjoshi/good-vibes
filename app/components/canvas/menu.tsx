@@ -1,4 +1,4 @@
-import { Maximize, Menu, Scan } from "lucide-react";
+import { LayoutGrid, Maximize, Menu, Scan } from "lucide-react";
 import { Button } from "../ui/button";
 import {
   DropdownMenu,
@@ -11,9 +11,15 @@ import { Island } from "../ui/island";
 type CanvasMenuProps = {
   readonly onFitView: () => void;
   readonly onResetZoom: () => void;
+  // Lays the racks out along their signal flow.
+  readonly onArrange?: () => void;
 };
 
-export function CanvasMenu({ onFitView, onResetZoom }: CanvasMenuProps) {
+export function CanvasMenu({
+  onFitView,
+  onResetZoom,
+  onArrange,
+}: CanvasMenuProps) {
   return (
     <Island className="absolute top-4 left-4 z-10">
       <DropdownMenu>
@@ -39,6 +45,12 @@ export function CanvasMenu({ onFitView, onResetZoom }: CanvasMenuProps) {
             <Maximize />
             Zoom to 100%
           </DropdownMenuItem>
+          {onArrange !== undefined && (
+            <DropdownMenuItem onClick={onArrange}>
+              <LayoutGrid />
+              Arrange racks
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </Island>

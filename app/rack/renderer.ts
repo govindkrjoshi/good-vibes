@@ -395,7 +395,11 @@ export const createRenderer = ({
     const node = param && env.nodes.get(param.belongToRackId)?.node;
     if (param === undefined || node === undefined || isDriven(paramId)) return;
     const target = memberOf(node, param.path) as unknown as Called | undefined;
-    const time = start + tone.Time(event.time).toSeconds();
+    // An event already due lands now rather than at a time that has passed.
+    const time = Math.max(
+      tone.now(),
+      start + tone.Time(event.time).toSeconds(),
+    );
     attempt(`${param.name} can't be automated`, () =>
       event.method === "rampTo"
         ? target?.rampTo?.(event.value, event.rampTime, time)
@@ -404,6 +408,8 @@ export const createRenderer = ({
   };
 
   // A param's whole list lands when the transport starts, each at its own time.
+  // The transport only fires a callback whose tick it has yet to reach, so a
+  // list changed while it plays also lands right away, from where it started.
   const syncAutomation = (paramId: string) => {
     const transport = tone.getTransport();
     const held = env.automations.get(paramId);
@@ -411,12 +417,11 @@ export const createRenderer = ({
     env.automations.delete(paramId);
     const events = env.state.automations[paramId] ?? [];
     if (events.length === 0) return;
-    env.automations.set(
-      paramId,
-      transport.schedule((start) => {
-        for (const event of events) automate(paramId, event, start);
-      }, 0),
-    );
+    const land = (start: number) => {
+      for (const event of events) automate(paramId, event, start);
+    };
+    env.automations.set(paramId, transport.schedule(land, 0));
+    if (transport.state === "started") land(tone.now() - transport.seconds);
   };
 
   const syncTransport = (prev: RackState["transport"]) => {

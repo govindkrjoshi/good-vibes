@@ -15,6 +15,9 @@ test("names and groups every rack tool", async ({ page }) => {
       - group "Edit":
         - button "Delete selection" [disabled]
         - button "Clear canvas" [disabled]
+      - separator
+      - group "Demos":
+        - button "Load a demo"
   `);
 });
 
