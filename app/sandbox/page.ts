@@ -1,13 +1,23 @@
 import runtime from "virtual:sandbox-runtime";
 
-export const sandboxCsp = [
-  "sandbox allow-scripts",
-  "frame-ancestors 'self'",
+// Static hosts like GitHub Pages can't send headers, so the page carries the
+// policy in a meta tag too. A meta policy can't hold `sandbox` or
+// `frame-ancestors`; the iframe's sandbox attribute and the opaque-origin
+// check below stand in for those.
+const fetchCsp = [
   "default-src 'none'",
   "script-src 'unsafe-inline' 'unsafe-eval'",
   "connect-src 'none'",
   "img-src 'none'",
   "style-src 'unsafe-inline'",
+];
+
+export const sandboxMetaCsp = fetchCsp.join("; ");
+
+export const sandboxCsp = [
+  "sandbox allow-scripts",
+  "frame-ancestors 'self'",
+  ...fetchCsp,
 ].join("; ");
 
 // An inline script can't hold its own closing tag, or an HTML comment opener.
@@ -18,6 +28,7 @@ export const sandboxHtml = String.raw`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="${sandboxMetaCsp}" />
     <title>Code sandbox</title>
   </head>
   <body>

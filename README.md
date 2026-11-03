@@ -39,6 +39,19 @@ pnpm typecheck
 pnpm lint
 ```
 
+## Deploy
+
+Every push to `main` deploys to GitHub Pages at
+<https://govindkrjoshi.github.io/good-vibes/>
+(`.github/workflows/deploy.yml`). The app is prerendered to static files,
+since Pages has no server. `BASE_PATH` sets the path it is served under; it
+defaults to `/`, so to preview a Pages build locally run
+`BASE_PATH=/good-vibes/ pnpm build && BASE_PATH=/good-vibes/ pnpm start`.
+
+Pages can't send headers, so `sandbox.html` carries its CSP in a meta tag.
+A meta policy can't hold `sandbox` or `frame-ancestors`; the iframe's
+`sandbox` attribute and the page's opaque-origin check cover those.
+
 ## Agent
 
 The chat panel on the home page talks to an agent (`app/agent/`, built on
