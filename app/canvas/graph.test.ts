@@ -12,11 +12,12 @@ import {
   makeBlock,
   rootRack,
   type Jack,
+  type Param,
   type ParamGroup,
   type Patch,
   type Rack,
 } from "../rack";
-import { volume } from "../catalogue/common";
+import { volume } from "../catalogue/kit";
 
 const rack = (
   children: readonly Rack[],
@@ -263,13 +264,32 @@ test("gives a block whose param group holds params a panel of controls", () => {
     "a:group": { id: "a:group", groups: { none: { id: "a:none" } } },
     "b:group": {
       id: "b:group",
-      groups: { amp: { id: "b:amp", params: [volume("b")] } },
+      groups: {
+        amp: {
+          id: "b:amp",
+          params: [
+            { ...volume(), id: "b:param:volume", belongToRackId: "b" } as Param,
+          ],
+        },
+      },
     },
   };
 
   const [box, panel] = sync(rack([empty, nested]), [], {}, paramGroups);
 
   expect(box.type).toBe("block");
+  expect(panel.type).toBe("rack");
+});
+
+test("gives a readout with nothing to set a panel to draw on", () => {
+  const meter = {
+    ...makeBlock("m", "root", "leaf"),
+    name: "DCMeter",
+    readout: { kind: "dc" as const },
+  } as Rack;
+
+  const [panel] = sync(rack([meter]));
+
   expect(panel.type).toBe("rack");
 });
 

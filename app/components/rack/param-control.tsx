@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Input } from "../ui/input";
 import {
   InputGroup,
@@ -18,7 +19,7 @@ import {
 import { Slider } from "../ui/slider";
 import { Switch } from "../ui/switch";
 import { AutomationEditor } from "./automation-editor";
-import type { Param, ParamValue } from "../../rack";
+import { paramDrivers, type Param, type ParamValue } from "../../rack";
 import { useStore } from "../../stores";
 
 type NumberParam = Extract<Param, { kind: "number" }>;
@@ -33,13 +34,24 @@ export function ParamControl({ param }: { readonly param: Param }) {
   const setParamValue = useStore((state) => state.rack.setParamValue);
   const set = (next: ParamValue) => setParamValue(param.id, next);
   const inputId = `${param.id}:input`;
+  const drivers = useStore(
+    useShallow((state) => paramDrivers(state.rack, param.id)),
+  );
 
   return (
     <div className={paramRowClassName} data-testid="param-control">
       <Label htmlFor={inputId} className="truncate text-xs font-normal">
         {param.name}
       </Label>
-      {param.kind === "number" ? (
+      {drivers.length > 0 ? (
+        // Patched signal sets the param, so its own control would do nothing.
+        <span
+          data-testid="param-driven"
+          className="col-span-3 truncate text-xs text-muted-foreground"
+        >
+          Driven by {drivers.join(", ")}
+        </span>
+      ) : param.kind === "number" ? (
         <NumberControl
           param={param}
           inputId={inputId}

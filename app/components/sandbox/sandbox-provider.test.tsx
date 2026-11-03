@@ -108,6 +108,49 @@ test("sends a frame that says it is ready the whole rack", () => {
   );
 });
 
+test("believes a frame is ready only once per load", () => {
+  const { iframe } = render();
+  const frame = iframe.contentWindow as Window;
+  const postMessage = vi
+    .spyOn(frame, "postMessage")
+    .mockImplementation(() => {});
+  const ready = () =>
+    window.dispatchEvent(
+      new MessageEvent("message", { source: frame, data: { type: "ready" } }),
+    );
+
+  act(() => {
+    ready();
+    ready();
+  });
+  expect(postMessage).toHaveBeenCalledTimes(1);
+
+  act(() => {
+    iframe.dispatchEvent(new Event("load"));
+    ready();
+  });
+  expect(postMessage).toHaveBeenCalledTimes(2);
+});
+
+test("hands readouts to whoever watches the rack", async () => {
+  const { subscribeReadout } = await import("../../sandbox/readouts");
+  const { iframe } = render();
+  const seen: unknown[] = [];
+  const stop = subscribeReadout("M", (value) => seen.push(value));
+
+  act(() => {
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        source: iframe.contentWindow,
+        data: { type: "readout", values: { M: -12, other: 3 } },
+      }),
+    );
+  });
+  stop();
+
+  expect(seen).toEqual([-12]);
+});
+
 test("ignores messages from anyone but the frame", () => {
   const { iframe } = render();
   const frame = iframe.contentWindow as Window;

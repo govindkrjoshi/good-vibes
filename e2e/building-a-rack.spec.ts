@@ -1,5 +1,6 @@
 import { expect, test } from "./fixtures";
 import {
+  addBlock,
   blockAt,
   blocks,
   boxOf,
@@ -12,18 +13,18 @@ import {
 test("renders each added block on the canvas", async ({ page }) => {
   await expect(blocks(page)).toHaveCount(0);
 
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
   await expect(blocks(page)).toHaveCount(1);
-  await expect(blocks(page).first()).toHaveText("Leaf");
+  await expect(blocks(page).first()).toContainText("Mono");
 
   await page.getByTestId("add-group").click();
-  await expect(blocks(page)).toHaveCount(2);
-  await expect(blocks(page).last()).toHaveText("Group");
+  await expect(page.getByTestId("tree-node")).toHaveCount(1);
+  await expect(page.getByTestId("tree-node")).toContainText("Group");
 });
 
 test("drops each new block inside the visible canvas", async ({ page }) => {
   for (let index = 0; index < 3; index += 1) {
-    await page.getByTestId("add-source").click();
+    await addBlock(page, "components", "tone/Mono");
     await expect(blocks(page)).toHaveCount(index + 1);
 
     await expect(async () => {
@@ -43,8 +44,8 @@ test("drops each new block inside the visible canvas", async ({ page }) => {
 });
 
 test("stacks no two blocks on the same spot", async ({ page }) => {
-  await page.getByTestId("add-source").click();
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
+  await addBlock(page, "components", "tone/Mono");
   await expect(blocks(page)).toHaveCount(2);
 
   await expect(async () => {
@@ -59,7 +60,7 @@ test("stacks no two blocks on the same spot", async ({ page }) => {
 });
 
 test("drags a block to a new spot on the canvas", async ({ page }) => {
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
   const block = blocks(page).first();
   const before = await boxOf(block, "block");
 
@@ -77,8 +78,8 @@ test("drags a block to a new spot on the canvas", async ({ page }) => {
 test("patches one block's output into another block's input", async ({
   page,
 }) => {
-  await page.getByTestId("add-source").click();
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
+  await addBlock(page, "components", "tone/Mono");
   await expect(blocks(page)).toHaveCount(2);
 
   expect(
@@ -91,8 +92,8 @@ test("patches one block's output into another block's input", async ({
 test("lays no second patch over the first across the same two jacks", async ({
   page,
 }) => {
-  await page.getByTestId("add-source").click();
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
+  await addBlock(page, "components", "tone/Mono");
   await expect(blocks(page)).toHaveCount(2);
 
   await connect(page, handle(page, 0, "out"), handle(page, 1, "in"));
@@ -106,7 +107,7 @@ test("lays no second patch over the first across the same two jacks", async ({
 test("refuses to patch a block's output back into its own input", async ({
   page,
 }) => {
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
   await expect(blocks(page)).toHaveCount(1);
 
   expect(

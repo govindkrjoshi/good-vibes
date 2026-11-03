@@ -1,17 +1,53 @@
-import type { SliceCreator } from "./common";
-import { catalogue, type CatalogueItem } from "../catalogue";
+import { castDraft } from "immer";
 
-type State = {};
+import type { SliceCreator } from "./common";
+import {
+  emptyRegistry,
+  loadPlugin,
+  tonePlugin,
+  unloadPlugin,
+  type CatalogueEntry,
+  type Registry,
+} from "../catalogue";
+
+type State = {
+  readonly registry: Registry;
+};
 
 type Actions = {
-  findByCategoryAndName: (
-    category: string,
-    name: string,
-  ) => CatalogueItem | undefined;
+  // Loads a plugin from anything, such as parsed JSON; what doesn't fit is
+  // reported in the registry's errors.
+  readonly loadPlugin: (plugin: unknown) => void;
+  readonly unloadPlugin: (pluginId: string) => void;
+  readonly findItem: (key: string) => CatalogueEntry | undefined;
 };
 
 export type CatalogueSlice = State & Actions;
 
-export const createCatalogueSlice: SliceCreator<CatalogueSlice> = () => ({
-  findByCategoryAndName: (category, name) => catalogue[category]?.[name],
+export const createCatalogueSlice: SliceCreator<CatalogueSlice> = (
+  set,
+  get,
+) => ({
+  registry: loadPlugin(emptyRegistry, tonePlugin),
+  loadPlugin: (plugin) =>
+    set(
+      (state) => {
+        state.catalogue.registry = castDraft(
+          loadPlugin(get().catalogue.registry, plugin),
+        );
+      },
+      false,
+      "catalogue/loadPlugin",
+    ),
+  unloadPlugin: (pluginId) =>
+    set(
+      (state) => {
+        state.catalogue.registry = castDraft(
+          unloadPlugin(get().catalogue.registry, pluginId),
+        );
+      },
+      false,
+      "catalogue/unloadPlugin",
+    ),
+  findItem: (key) => get().catalogue.registry.items[key],
 });

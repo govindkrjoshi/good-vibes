@@ -3,6 +3,7 @@ import {
   AudioWaveform,
   Component,
   Group,
+  Library,
   Lock,
   LockOpen,
   Piano,
@@ -12,6 +13,17 @@ import {
   Zap,
 } from "lucide-react";
 import { cn } from "cn";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import { Hint } from "../ui/hint";
 import {
   Toolbar,
@@ -19,6 +31,17 @@ import {
   ToolbarGroup,
   ToolbarSeparator,
 } from "../ui/toolbar";
+
+// What the catalogue menu lists: each category, its items grouped by the
+// plugin they come from.
+export type CatalogueSection = {
+  readonly category: string;
+  readonly label: string;
+  readonly plugins: readonly {
+    readonly name: string;
+    readonly items: readonly { readonly key: string; readonly name: string }[];
+  }[];
+};
 
 type RackToolbarProps = {
   readonly locked: boolean;
@@ -33,6 +56,8 @@ type RackToolbarProps = {
   readonly onAddDestination: () => void;
   readonly canDelete: boolean;
   readonly onDelete: () => void;
+  readonly catalogue?: readonly CatalogueSection[];
+  readonly onPick?: (itemKey: string) => void;
   readonly className?: string;
 };
 
@@ -49,6 +74,8 @@ export function RackToolbar({
   onAddDestination,
   canDelete,
   onDelete,
+  catalogue = [],
+  onPick,
   className,
 }: RackToolbarProps) {
   return (
@@ -152,6 +179,10 @@ export function RackToolbar({
             <Group />
           </ToolbarButton>
         </Hint>
+
+        {catalogue.length === 0 ? null : (
+          <CatalogueMenu catalogue={catalogue} onPick={onPick} />
+        )}
       </ToolbarGroup>
 
       <ToolbarSeparator />
@@ -169,5 +200,57 @@ export function RackToolbar({
         </Hint>
       </ToolbarGroup>
     </Toolbar>
+  );
+}
+
+// Every item the catalogue holds, a category to a submenu. Picking one adds it,
+// and the category's button adds it from then on.
+function CatalogueMenu({
+  catalogue,
+  onPick,
+}: {
+  readonly catalogue: readonly CatalogueSection[];
+  readonly onPick?: (itemKey: string) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <ToolbarButton
+            aria-label="Add from catalogue"
+            data-testid="open-catalogue"
+          >
+            <Library />
+          </ToolbarButton>
+        }
+      />
+      <DropdownMenuContent align="center" className="w-44">
+        {catalogue.map((section) => (
+          <DropdownMenuSub key={section.category}>
+            <DropdownMenuSubTrigger
+              data-testid={`catalogue-${section.category}`}
+            >
+              {section.label}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-80 w-52 overflow-y-auto">
+              {section.plugins.map((plugin) => (
+                <DropdownMenuGroup key={plugin.name}>
+                  <DropdownMenuLabel>{plugin.name}</DropdownMenuLabel>
+                  {plugin.items.map((item) => (
+                    <DropdownMenuItem
+                      key={item.key}
+                      data-testid={`catalogue-item-${item.key}`}
+                      onClick={() => onPick?.(item.key)}
+                    >
+                      {item.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuGroup>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

@@ -14,6 +14,7 @@ import {
   sendToSandbox,
 } from "../../sandbox/channel";
 import type { FrameMessage } from "../../sandbox/protocol";
+import { publishReadouts } from "../../sandbox/readouts";
 import { diffRack, emptyRackState } from "../../rack/diff";
 import { useStore } from "../../stores";
 
@@ -35,6 +36,9 @@ export function SandboxProvider({
 }) {
   const [count, setCount] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
+  // Rack code runs in the frame and can post anything, so a "ready" is only
+  // believed once per load; a looped fake one would keep resetting the audio.
+  const awaitingReady = useRef(true);
 
   // The iframe can finish loading before React hydrates, so its load event is
   // not a reliable signal. Log once the provider itself is mounted instead.
@@ -49,6 +53,8 @@ export function SandboxProvider({
       const held = frame.current?.contentWindow;
       if (!held || source !== held) return;
       if (data.type === "ready") {
+        if (!awaitingReady.current) return;
+        awaitingReady.current = false;
         attachSandbox(held);
         sendToSandbox({
           type: "sync",
@@ -56,6 +62,8 @@ export function SandboxProvider({
         });
       } else if (data.type === "error") {
         useStore.getState().rack.reportError(data.message);
+      } else if (data.type === "readout") {
+        publishReadouts(data.values);
       }
     };
     window.addEventListener("message", onMessage);
@@ -74,6 +82,10 @@ export function SandboxProvider({
         ref={frame}
         src={sandboxSrc}
         sandbox="allow-scripts"
+        // A reload boots a new frame, which says ready again.
+        onLoad={() => {
+          awaitingReady.current = true;
+        }}
         // Lets the frame's audio start from a click on this page.
         allow="autoplay *"
         title="Code sandbox"

@@ -5,6 +5,7 @@ import { applyRackOps, emptyRackState, type RackOp } from "./diff";
 import {
   findParam,
   noteArg,
+  paramDrivers,
   rackParams,
   timeArg,
   type AutomationEvent,
@@ -15,6 +16,9 @@ import {
 } from "./model";
 
 type ToneNode = ToneJs.ToneAudioNode;
+
+// A level or a value is one number; a spectrum or a waveform is an array.
+export type ReadoutValue = number | Float32Array;
 type Tone = typeof ToneJs;
 
 // What leaf code renders with, handed to it as a service.
@@ -40,11 +44,19 @@ export const evalLeafCode = (code: string): LeafCode =>
     `"use strict"; return (${code});`,
   )(Effect, RenderContext, LeafError) as LeafCode;
 
+// One end of a patch: a node, or a part of one a jack's port names, and which
+// of its numbered outputs or inputs.
+type End = { readonly node: ToneNode; readonly index: number };
+
 type Wire = {
-  readonly from: ToneNode;
-  readonly to: ToneNode;
+  readonly from: End;
+  readonly to: End;
   readonly connected: boolean;
+  // The param a wire into one drives, put back when the wire goes.
+  readonly drives?: { readonly rackId: string; readonly paramId: string };
 };
+
+const sameEnd = (a: End, b: End) => a.node === b.node && a.index === b.index;
 
 // What a rack has become: its mirror of the state and the live objects made
 // from it. Everything Tone-side is looked up here when it fires, so rebuilding
@@ -66,6 +78,19 @@ const messageOf = (error: unknown) =>
 // { path: ["envelope", "attack"] } as { envelope: { attack: value } }.
 const nested = (path: readonly string[], value: ParamValue) =>
   path.reduceRight<unknown>((held, key) => ({ [key]: held }), value);
+
+// Whether a path names something on a node. A key only has to be there, not
+// hold a value: an OmniOscillator's `width` is undefined unless it is a pulse.
+// What a node forwards, like a PolySynth's voice settings, is only in `get()`.
+const has = (held: unknown, path: readonly string[]): boolean =>
+  path.length === 0 ||
+  (held !== null &&
+    typeof held === "object" &&
+    Reflect.has(held, path[0]!) &&
+    has((held as Record<string, unknown>)[path[0]!], path.slice(1)));
+
+const reaches = (node: ToneNode, path: readonly string[]) =>
+  has(node, path) || has(node.get(), path);
 
 export const createRenderer = ({
   tone,
@@ -91,13 +116,23 @@ export const createRenderer = ({
     }
   };
 
+  // Tone's `set` drops a key it doesn't know without a word, so a param whose
+  // path leads nowhere is reported rather than silently doing nothing.
   const setParam = (node: ToneNode, param: Param, value: ParamValue) =>
-    attempt(`${param.name} can't be set`, () =>
-      node.set(nested(param.path, value) as object),
-    );
+    attempt(`${param.name} can't be set`, () => {
+      if (!reaches(node, param.path)) {
+        throw new Error(`${node.name} has no ${param.path.join(".")}`);
+      }
+      node.set(nested(param.path, value) as object);
+    });
+
+  // A param with a patch into it follows that signal, not its value.
+  const isDriven = (paramId: string) =>
+    paramDrivers(env.state, paramId).length > 0;
 
   const setAllParams = (rackId: string, node: ToneNode) => {
     for (const param of rackParams(env.state, rackId)) {
+      if (isDriven(param.id)) continue;
       const value = env.state.values[param.id];
       if (value !== undefined) setParam(node, param, value);
     }
@@ -115,7 +150,9 @@ export const createRenderer = ({
     if (held?.code === code) return false;
 
     if (held !== undefined) {
-      unwire((wire) => wire.from === held.node || wire.to === held.node);
+      unwire(
+        (wire) => wire.from.node === held.node || wire.to.node === held.node,
+      );
       disposeNode(held.node);
       env.nodes.delete(rackId);
     }
@@ -136,7 +173,7 @@ export const createRenderer = ({
     const { jacks, racks } = env.state;
     for (const [id, gain] of env.jacks) {
       if (jacks[id] === undefined) {
-        unwire((wire) => wire.from === gain || wire.to === gain);
+        unwire((wire) => wire.from.node === gain || wire.to.node === gain);
         gain.dispose();
         env.jacks.delete(id);
       }
@@ -149,10 +186,67 @@ export const createRenderer = ({
     }
   };
 
-  const jackNode = (jackId: string): ToneNode | undefined => {
-    const owner = env.state.jacks[jackId]?.belongToBlockId;
-    if (owner === undefined) return undefined;
-    return env.jacks.get(jackId) ?? env.nodes.get(owner)?.node;
+  const memberOf = (node: ToneNode, path: readonly string[]) =>
+    path.reduce<unknown>(
+      (held, key) => (held as Record<string, unknown> | undefined)?.[key],
+      node,
+    ) as ToneNode | undefined;
+
+  const jackEnd = (jackId: string): End | undefined => {
+    const jack = env.state.jacks[jackId];
+    if (jack === undefined) return undefined;
+    const gain = env.jacks.get(jackId);
+    if (gain !== undefined) return { node: gain, index: 0 };
+    const node = env.nodes.get(jack.belongToBlockId)?.node;
+    if (node === undefined) return undefined;
+    const member = jack.port?.member;
+    const part = member === undefined ? node : memberOf(node, member);
+    return part === undefined
+      ? undefined
+      : { node: part, index: jack.port?.index ?? 0 };
+  };
+
+  // Tone's Param and Signal are what a jack on a param reaches.
+  const isParam = (node: unknown) =>
+    (tone.Param !== undefined && node instanceof tone.Param) ||
+    (tone.Signal !== undefined && node instanceof tone.Signal);
+
+  // The Web Audio node or param under a Tone one. Tone's own disconnect can't
+  // see through a Param and drops every cable from the source instead.
+  const native = (node: unknown): unknown =>
+    isParam(node) ? native((node as { input: unknown }).input) : node;
+
+  const connectEnds = (from: End, to: End) => {
+    // A patched param is driven by what comes in, not summed with its value,
+    // whether a signal or audio drives it and whether it comes through a tree.
+    if (isParam(to.node)) {
+      tone.connectSignal(from.node, to.node, from.index, to.index);
+    } else {
+      from.node.connect(to.node, from.index, to.index);
+    }
+  };
+
+  const disconnectEnds = (from: End, to: End) => {
+    if (isParam(to.node)) {
+      (
+        from.node as unknown as { disconnect: (...args: unknown[]) => void }
+      ).disconnect(native(to.node), from.index);
+    } else {
+      from.node.disconnect(to.node, from.index, to.index);
+    }
+  };
+
+  // A param that stops being driven takes its value back. Tone leaves it marked
+  // overridden, which keeps it at 0 until that is cleared.
+  const restore = ({ rackId, paramId }: NonNullable<Wire["drives"]>) => {
+    const node = env.nodes.get(rackId)?.node;
+    const param = findParam(env.state, paramId);
+    const value = env.state.values[paramId];
+    if (node === undefined || param === undefined || isDriven(paramId)) return;
+    const target = memberOf(node, param.path) as { overridden?: boolean };
+    if (target !== undefined && "overridden" in target)
+      target.overridden = false;
+    if (value !== undefined) setParam(node, param, value);
   };
 
   // A pair can be wired by two patches, only through Destinations that share
@@ -161,26 +255,35 @@ export const createRenderer = ({
     const gone = [...env.wires].filter(([, wire]) => matches(wire));
     for (const [id, wire] of gone) {
       env.wires.delete(id);
-      if (wire.connected) wire.from.disconnect(wire.to);
+      if (wire.connected) {
+        attempt(`Patch ${id} can't be removed`, () =>
+          disconnectEnds(wire.from, wire.to),
+        );
+      }
     }
     for (const wire of env.wires.values()) {
       const shared = gone.some(
-        ([, was]) => was.from === wire.from && was.to === wire.to,
+        ([, was]) => sameEnd(was.from, wire.from) && sameEnd(was.to, wire.to),
       );
-      if (shared && wire.connected) wire.from.connect(wire.to);
+      if (shared && wire.connected) connectEnds(wire.from, wire.to);
     }
+    for (const [, wire] of gone) if (wire.drives) restore(wire.drives);
   };
 
   const syncWires = () => {
     const wanted = (id: string) => {
       const patch = env.state.patches[id];
-      const from = patch && jackNode(patch.from);
-      const to = patch && jackNode(patch.to);
+      const from = patch && jackEnd(patch.from);
+      const to = patch && jackEnd(patch.to);
       return from && to ? { from, to } : undefined;
     };
     for (const [id, wire] of env.wires) {
       const want = wanted(id);
-      if (want?.from !== wire.from || want?.to !== wire.to) {
+      if (
+        want === undefined ||
+        !sameEnd(want.from, wire.from) ||
+        !sameEnd(want.to, wire.to)
+      ) {
         unwire((held) => held === wire);
       }
     }
@@ -190,10 +293,19 @@ export const createRenderer = ({
       // A failed patch is remembered so it is only reported once.
       let connected = false;
       attempt(`${patch.name} can't be patched`, () => {
-        want.from.connect(want.to);
+        connectEnds(want.from, want.to);
         connected = true;
       });
-      env.wires.set(patch.id, { ...want, connected });
+      const jack = env.state.jacks[patch.to];
+      const member = jack?.port?.member;
+      const drives =
+        jack !== undefined && member !== undefined && isParam(want.to.node)
+          ? {
+              rackId: jack.belongToBlockId,
+              paramId: `${jack.belongToBlockId}:param:${member.join(".")}`,
+            }
+          : undefined;
+      env.wires.set(patch.id, { ...want, connected, drives });
     }
   };
 
@@ -202,7 +314,7 @@ export const createRenderer = ({
     if (param === undefined || rebuilt.has(param.belongToRackId)) return;
     const node = env.nodes.get(param.belongToRackId)?.node;
     const value = env.state.values[paramId];
-    if (node === undefined || value === undefined) return;
+    if (node === undefined || value === undefined || isDriven(paramId)) return;
     // What a param means can depend on a choice, like an oscillator's type.
     if (param.kind === "select") setAllParams(param.belongToRackId, node);
     else setParam(node, param, value);
@@ -281,11 +393,8 @@ export const createRenderer = ({
   const automate = (paramId: string, event: AutomationEvent, start: number) => {
     const param = findParam(env.state, paramId);
     const node = param && env.nodes.get(param.belongToRackId)?.node;
-    if (param === undefined || node === undefined) return;
-    const target = param.path.reduce<unknown>(
-      (held, key) => (held as Record<string, unknown> | undefined)?.[key],
-      node,
-    ) as Called | undefined;
+    if (param === undefined || node === undefined || isDriven(paramId)) return;
+    const target = memberOf(node, param.path) as unknown as Called | undefined;
     const time = start + tone.Time(event.time).toSeconds();
     attempt(`${param.name} can't be automated`, () =>
       event.method === "rampTo"
@@ -349,6 +458,24 @@ export const createRenderer = ({
     syncTransport(prev.transport);
   };
 
+  // What each readout rack's node shows right now. A level reads its first
+  // channel, and an array is copied, since Tone refills its own each read.
+  const readouts = (): Record<string, ReadoutValue> => {
+    const values: Record<string, ReadoutValue> = {};
+    for (const [rackId, { node }] of env.nodes) {
+      const rack = env.state.racks[rackId];
+      if (rack?.type !== "leaf" || rack.readout === undefined) continue;
+      const value = (
+        node as unknown as { getValue?: () => unknown }
+      ).getValue?.();
+      if (typeof value === "number") values[rackId] = value;
+      else if (Array.isArray(value) && typeof value[0] === "number") {
+        values[rackId] = value[0];
+      } else if (value instanceof Float32Array) values[rackId] = value.slice();
+    }
+    return values;
+  };
+
   const reset = () => {
     const transport = tone.getTransport();
     for (const event of env.events.values()) event.dispose();
@@ -365,5 +492,5 @@ export const createRenderer = ({
     syncTransport(prev);
   };
 
-  return { apply, reset };
+  return { apply, reset, readouts };
 };

@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures";
-import { blockAt, blocks, boxOf, drag, toolbar } from "./helpers";
+import { addBlock, blockAt, blocks, boxOf, drag, toolbar } from "./helpers";
 
 test("toggles the lock between its two states", async ({ page }) => {
   const lock = page.getByTestId("toggle-lock");
@@ -18,7 +18,7 @@ test("toggles the lock between its two states", async ({ page }) => {
 });
 
 test("keeps a locked block where it is", async ({ page }) => {
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
   const before = await boxOf(blocks(page).first(), "block");
 
   await page.getByTestId("toggle-lock").click();

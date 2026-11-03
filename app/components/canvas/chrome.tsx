@@ -1,12 +1,34 @@
+import { useMemo, useState } from "react";
 import { useReactFlow, useStore as useFlowStore } from "@xyflow/react";
 import { CanvasMenu } from "./menu";
 import { HelpButton } from "./help-button";
-import { RackToolbar } from "./rack-toolbar";
+import { RackToolbar, type CatalogueSection } from "./rack-toolbar";
 import { ViewportControls } from "./viewport-controls";
 import { useShortcuts } from "../../hooks/useShortcuts";
 import { useCanvasStore } from "./canvas-store";
 import { useStore } from "../../stores";
 import { newTree } from "../../rack";
+import { categories, itemsIn, type Category } from "../../catalogue";
+
+const categoryLabels: Record<Category, string> = {
+  sources: "Sources",
+  instruments: "Instruments",
+  effects: "Effects",
+  components: "Components",
+  signals: "Signals",
+  outputs: "Outputs",
+};
+
+// What each category's button adds until another item is picked from the
+// catalogue menu; a category's first item when its usual one isn't loaded.
+const usualItems: Record<Category, string> = {
+  sources: "tone/Oscillator",
+  instruments: "tone/AMSynth",
+  effects: "tone/FeedbackDelay",
+  components: "tone/Filter",
+  signals: "tone/LFO",
+  outputs: "tone/Destination",
+};
 
 export function CanvasChrome() {
   const locked = useCanvasStore((state) => state.locked);
@@ -16,6 +38,8 @@ export function CanvasChrome() {
   );
   const addRack = useStore((state) => state.rack.addRack);
   const rootId = useStore((state) => state.rack.rootId);
+  const registry = useStore((state) => state.catalogue.registry);
+  const [picked, setPicked] = useState<Partial<Record<Category, string>>>({});
   const removeRacks = useStore((state) => state.rack.removeRacks);
   const removePatches = useStore((state) => state.rack.removePatches);
   const { zoomIn, zoomOut, zoomTo, fitView, getNodes, getEdges } =
@@ -30,18 +54,48 @@ export function CanvasChrome() {
 
   const addTree = () => addRack(newTree(crypto.randomUUID(), rootId), rootId);
 
-  // Sources, effects, signals and events have no block type in the store yet,
-  // so their tools add nothing until one lands.
-  const noBlockYet = () => {};
-  const addSource = noBlockYet;
-  const addInstrument = () =>
-    addRackFromCatalogue("instruments", "AMSynth", rootId);
-  const addEffect = noBlockYet;
-  const addComponent = addTree;
-  const addSignal = noBlockYet;
-  const addEvent = noBlockYet;
-  const addDestination = () =>
-    addRackFromCatalogue("output", "Destination", rootId);
+  const catalogue = useMemo(
+    (): CatalogueSection[] =>
+      categories.map((category) => {
+        const items = itemsIn(registry, category);
+        const plugins = [...new Set(items.map((item) => item.plugin))];
+        return {
+          category,
+          label: categoryLabels[category],
+          plugins: plugins.map((plugin) => ({
+            name: registry.plugins[plugin]?.name ?? plugin,
+            items: items
+              .filter((item) => item.plugin === plugin)
+              .map((item) => ({ key: item.key, name: item.name })),
+          })),
+        };
+      }),
+    [registry],
+  );
+
+  const add = (category: Category) => () => {
+    const key =
+      [picked[category], usualItems[category]].find(
+        (held) => held !== undefined && registry.items[held] !== undefined,
+      ) ?? itemsIn(registry, category)[0]?.key;
+    if (key !== undefined) addRackFromCatalogue(key, rootId);
+  };
+
+  const pick = (itemKey: string) => {
+    const item = registry.items[itemKey];
+    if (item === undefined) return;
+    setPicked((held) => ({ ...held, [item.category]: itemKey }));
+    addRackFromCatalogue(itemKey, rootId);
+  };
+
+  const addSource = add("sources");
+  const addInstrument = add("instruments");
+  const addEffect = add("effects");
+  const addComponent = add("components");
+  const addSignal = add("signals");
+  // Events have no block of their own; they are scheduled on a rack's panel.
+  const addEvent = () => {};
+  const addDestination = add("outputs");
 
   const resetZoom = () => zoomTo(1);
 
@@ -91,6 +145,8 @@ export function CanvasChrome() {
         onAddDestination={addDestination}
         canDelete={canDelete}
         onDelete={deleteSelection}
+        catalogue={catalogue}
+        onPick={pick}
       />
 
       <ViewportControls

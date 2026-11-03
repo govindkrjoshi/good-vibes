@@ -48,8 +48,10 @@ const hasParams = (group: ParamGroup | undefined): boolean =>
 
 // A block with anything to set or trigger is drawn as a panel of controls; one
 // without is only a box to wire.
+// A readout counts: it is drawn on the panel even with nothing to set.
 const hasControls = (block: Rack, paramGroups: Record<string, ParamGroup>) =>
   block.methodIds.length > 0 ||
+  (block.type === "leaf" && block.readout !== undefined) ||
   (block.paramGroupId !== undefined &&
     hasParams(paramGroups[block.paramGroupId]));
 

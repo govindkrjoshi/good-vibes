@@ -1,11 +1,12 @@
 import { expect, test } from "./fixtures";
-import { blocks } from "./helpers";
 
 test("adds a block from the keyboard", async ({ page }) => {
   await page.keyboard.press("s");
   await page.keyboard.press("g");
 
-  await expect(blocks(page)).toHaveCount(2);
+  // A source has controls, so it comes as a panel beside the group.
+  await expect(page.getByTestId("rack-node")).toHaveCount(1);
+  await expect(page.getByTestId("tree-node")).toHaveCount(1);
 });
 
 test("moves focus across the tool island with the arrow keys", async ({

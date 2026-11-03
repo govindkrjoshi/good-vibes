@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "vitest";
 import { useStore } from ".";
-import { catalogue } from "../catalogue";
+import { tonePlugin } from "../catalogue";
 import { makeBlock, type Rack } from "../rack/model";
 
 const initial = useStore.getState();
@@ -18,8 +18,8 @@ const patchesOf = (rackId: string) => {
 
 // A synth `S` patched into a Destination `D`, both under the root.
 const synthIntoSpeakers = () => {
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "S");
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "S");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
   store().connectJacks("S:out", "D:in");
 };
 
@@ -45,7 +45,7 @@ test("adds a rack under the parent it is given", () => {
 test("refuses a parent that is missing or not a tree", () => {
   store().addRack(makeBlock("a", "root", "leaf"), "root");
   store().addRack(makeBlock("b", "a", "leaf"), "a");
-  store().addRackFromCatalogue("output", "Destination", "nowhere");
+  store().addRackFromCatalogue("tone/Destination", "nowhere");
 
   expect(Object.keys(store().racks)).toEqual(["root", "a"]);
   expect(store().errors).toHaveLength(2);
@@ -75,7 +75,7 @@ test("gives a new leaf code that fails when it runs", () => {
 });
 
 test("adds a catalogue item with everything it owns", () => {
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "S");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "S");
   const synth = store().racks.S;
 
   expect(children("root")).toEqual(["S"]);
@@ -93,7 +93,7 @@ test("adds a catalogue item with everything it owns", () => {
 });
 
 test("starts every catalogue param at its default value", () => {
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "S");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "S");
 
   expect(store().values["S:param:volume"]).toBe(0);
   expect(store().values["S:param:oscillator.type"]).toBe("sine");
@@ -101,8 +101,8 @@ test("starts every catalogue param at its default value", () => {
 });
 
 test("gives each copy of a catalogue item ids of its own", () => {
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "A");
-  store().addRackFromCatalogue("instruments", "AMSynth", "root");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "A");
+  store().addRackFromCatalogue("tone/AMSynth", "root");
   const [, second] = children("root") ?? [];
 
   expect(children("root")).toHaveLength(2);
@@ -112,30 +112,25 @@ test("gives each copy of a catalogue item ids of its own", () => {
 });
 
 test("leaves the catalogue untouched when adding from it", () => {
-  const before = JSON.stringify(catalogue);
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "S");
+  const before = JSON.stringify(tonePlugin);
+  store().addRackFromCatalogue("tone/AMSynth", "root", "S");
 
   const added = store().racks.S;
-  const source = catalogue.instruments.AMSynth.rack;
+  const source = tonePlugin.items.find((item) => item.name === "AMSynth");
 
-  expect(JSON.stringify(catalogue)).toBe(before);
-  expect(added?.type === "leaf" && source.type === "leaf").toBe(true);
-  if (added?.type === "leaf" && source.type === "leaf") {
-    expect(added.code).toBe(source.code);
-  }
+  expect(JSON.stringify(tonePlugin)).toBe(before);
+  expect(added?.type === "leaf" && added.code).toBe(source?.code);
 });
 
 test("records an error for an item the catalogue lacks", () => {
-  store().addRackFromCatalogue("instruments", "Theremin", "root");
+  store().addRackFromCatalogue("tone/Theremin", "root");
 
   expect(children("root")).toEqual([]);
-  expect(store().errors).toEqual([
-    "instruments Theremin is not in the catalogue",
-  ]);
+  expect(store().errors).toEqual(["tone/Theremin is not in the catalogue"]);
 });
 
 test("gives the Destination only an input jack", () => {
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
 
   expect(store().racks.D?.jackIds).toEqual(["D:in"]);
 });
@@ -158,7 +153,7 @@ test("keeps one patch when the same jacks are connected again", () => {
 test("refuses connections that do not go out of one rack into another", () => {
   synthIntoSpeakers();
   store().addRack(tree("t"), "root");
-  store().addRackFromCatalogue("output", "Destination", "t", "G");
+  store().addRackFromCatalogue("tone/Destination", "t", "G");
 
   expect(store().canConnectJacks("S:out", "D:in")).toBe(true);
   expect(store().canConnectJacks("D:in", "S:out")).toBe(false);
@@ -174,8 +169,8 @@ test("refuses connections that do not go out of one rack into another", () => {
 
 test("patches racks inside a group in that group", () => {
   store().addRack(tree("t"), "root");
-  store().addRackFromCatalogue("instruments", "AMSynth", "t", "S");
-  store().addRackFromCatalogue("output", "Destination", "t", "D");
+  store().addRackFromCatalogue("tone/AMSynth", "t", "S");
+  store().addRackFromCatalogue("tone/Destination", "t", "D");
   store().connectJacks("S:out", "D:in");
 
   expect(patchesOf("t")).toHaveLength(1);
@@ -205,7 +200,7 @@ test("removes a rack with everything it owns and the patches to it", () => {
 test("removes a group with everything inside it", () => {
   store().addBlock("tree", "root");
   const group = children("root")?.[0] ?? "";
-  store().addRackFromCatalogue("instruments", "AMSynth", group, "S");
+  store().addRackFromCatalogue("tone/AMSynth", group, "S");
   store().removeRacks([group]);
 
   expect(Object.keys(store().racks)).toEqual(["root"]);
@@ -420,7 +415,7 @@ test("removes a jack with the patches wired to it", () => {
 });
 
 test("won't change the jacks of a leaf", () => {
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
   const before = store().racks.D?.jackIds;
 
   store().addJack("D", "in");
@@ -436,7 +431,7 @@ const groupAroundSynth = () => {
   store().addRack(tree("t"), "root");
   store().addJack("t", "in");
   store().addJack("t", "out");
-  store().addRackFromCatalogue("instruments", "AMSynth", "t", "S");
+  store().addRackFromCatalogue("tone/AMSynth", "t", "S");
   const [input = "", output = ""] = store().racks.t?.jackIds ?? [];
   return { input, output };
 };
@@ -462,7 +457,7 @@ test("patches a child to its group's output inside the group", () => {
 
 test("patches a group to a sibling in the tree that holds them", () => {
   const { output } = groupAroundSynth();
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
 
   store().connectJacks(output, "D:in");
 
@@ -475,7 +470,7 @@ test("patches through a group nested in a group", () => {
   store().addRack(tree("inner"), "t");
   store().addJack("inner", "in");
   const [innerInput = ""] = store().racks.inner?.jackIds ?? [];
-  store().addRackFromCatalogue("output", "Destination", "inner", "D");
+  store().addRackFromCatalogue("tone/Destination", "inner", "D");
 
   store().connectJacks(input, innerInput);
   store().connectJacks(innerInput, "D:in");
@@ -486,7 +481,7 @@ test("patches through a group nested in a group", () => {
 
 test("refuses patches that skip a level or stay on one rack", () => {
   const { input, output } = groupAroundSynth();
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
 
   // Into a rack in a group from outside it, and out of one the same way.
   expect(store().canConnectJacks("S:out", "D:in")).toBe(false);
@@ -498,10 +493,10 @@ test("refuses patches that skip a level or stay on one rack", () => {
 });
 
 test("lets a jack take many patches in both directions", () => {
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "A");
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "B");
-  store().addRackFromCatalogue("output", "Destination", "root", "C");
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "A");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "B");
+  store().addRackFromCatalogue("tone/Destination", "root", "C");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
 
   store().connectJacks("A:out", "C:in");
   store().connectJacks("A:out", "D:in");
@@ -513,8 +508,8 @@ test("lets a jack take many patches in both directions", () => {
 
 test("moving a rack drops the patches it can no longer make", () => {
   const { input, output } = groupAroundSynth();
-  store().addRackFromCatalogue("output", "Destination", "root", "D");
-  store().addRackFromCatalogue("instruments", "AMSynth", "root", "R");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
+  store().addRackFromCatalogue("tone/AMSynth", "root", "R");
   store().connectJacks(input, "S:in");
   store().connectJacks("S:out", output);
   store().connectJacks("R:out", "D:in");

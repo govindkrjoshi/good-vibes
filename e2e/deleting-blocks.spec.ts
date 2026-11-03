@@ -1,13 +1,13 @@
 import { expect, test } from "./fixtures";
-import { blocks, connect, handle } from "./helpers";
+import { addBlock, blocks, connect, handle } from "./helpers";
 
 test("deletes the selected block and the patches wired to it", async ({
   page,
 }) => {
   const remove = page.getByTestId("delete-selection");
 
-  await page.getByTestId("add-source").click();
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
+  await addBlock(page, "components", "tone/Mono");
   await expect(blocks(page)).toHaveCount(2);
   await connect(page, handle(page, 0, "out"), handle(page, 1, "in"));
   await expect(page.locator(".react-flow__edge")).toHaveCount(1);
@@ -24,7 +24,7 @@ test("deletes the selected block and the patches wired to it", async ({
 });
 
 test("deletes the selected block from the keyboard", async ({ page }) => {
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
   await blocks(page).first().click();
 
   await page.keyboard.press("Backspace");
@@ -33,7 +33,7 @@ test("deletes the selected block from the keyboard", async ({ page }) => {
 });
 
 test("keeps a selected block while the canvas is locked", async ({ page }) => {
-  await page.getByTestId("add-source").click();
+  await addBlock(page, "components", "tone/Mono");
   await blocks(page).first().click();
   await page.getByTestId("toggle-lock").click();
 

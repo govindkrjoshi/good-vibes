@@ -1,11 +1,22 @@
 import { Schema } from "effect";
-import { inputJack, outputJack } from "../catalogue/common";
+
+const JackDirectionSchema = Schema.Literals(["in", "out"]);
+
+// Which part of a leaf's node a jack reaches. `member` is a path to a property
+// of the node, such as a CrossFade's `a` or a filter's `frequency` param;
+// `index` is the node's numbered input or output, as on a Split or Merge.
+// A jack with no port is the node itself.
+export const JackPortSchema = Schema.Struct({
+  member: Schema.optionalKey(Schema.Array(Schema.String)),
+  index: Schema.optionalKey(Schema.Number),
+});
 
 const JackSchema = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   belongToBlockId: Schema.String,
-  direction: Schema.Enum({ in: "in", out: "out" }),
+  direction: JackDirectionSchema,
+  port: Schema.optionalKey(JackPortSchema),
 });
 
 const PatchSchema = Schema.Struct({
@@ -46,8 +57,9 @@ const BaseParamFields = {
   description: Schema.optionalKey(Schema.String),
 };
 
-const NumberParamSchema = Schema.Struct({
-  ...BaseParamFields,
+// What each kind of param adds to the fields every param has. The catalogue's
+// specs reuse these with fields of their own in place of the ids.
+export const NumberParamFields = {
   kind: Schema.Literal("number"),
   defaultValue: Schema.Number,
   min: Schema.optionalKey(Schema.Number),
@@ -55,32 +67,29 @@ const NumberParamSchema = Schema.Struct({
   step: Schema.optionalKey(Schema.Number),
   unit: Schema.optionalKey(Schema.String),
   automation: Schema.optionalKey(ParamAutomationSchema),
-});
+};
 
-const BooleanParamSchema = Schema.Struct({
-  ...BaseParamFields,
+export const BooleanParamFields = {
   kind: Schema.Literal("boolean"),
   defaultValue: Schema.Boolean,
-});
+};
 
-const TextParamSchema = Schema.Struct({
-  ...BaseParamFields,
+export const TextParamFields = {
   kind: Schema.Literal("text"),
   defaultValue: Schema.String,
-});
+};
 
-const SelectParamSchema = Schema.Struct({
-  ...BaseParamFields,
+export const SelectParamFields = {
   kind: Schema.Literal("select"),
   defaultValue: ParamValueSchema,
   options: Schema.Array(ParamOptionSchema),
-});
+};
 
 const ParamSchema = Schema.Union([
-  NumberParamSchema,
-  BooleanParamSchema,
-  TextParamSchema,
-  SelectParamSchema,
+  Schema.Struct({ ...BaseParamFields, ...NumberParamFields }),
+  Schema.Struct({ ...BaseParamFields, ...BooleanParamFields }),
+  Schema.Struct({ ...BaseParamFields, ...TextParamFields }),
+  Schema.Struct({ ...BaseParamFields, ...SelectParamFields }),
 ]);
 
 export type Param = Schema.Schema.Type<typeof ParamSchema>;
@@ -116,7 +125,7 @@ const MethodArgKindSchema = Schema.Literals([
   "note",
 ]);
 
-const MethodArgSchema = Schema.Struct({
+export const MethodArgSchema = Schema.Struct({
   name: Schema.String,
   kind: MethodArgKindSchema,
   optional: Schema.optionalKey(Schema.Boolean),
@@ -144,10 +153,17 @@ const BaseBlockFields = {
   eventIds: Schema.Array(Schema.String),
 };
 
+// What a leaf shows of its node while it plays, read by the sandbox and drawn
+// by the rack's panel.
+export const ReadoutSchema = Schema.Struct({
+  kind: Schema.Literals(["level", "dc", "spectrum", "waveform"]),
+});
+
 const LeafRack = Schema.Struct({
   ...BaseBlockFields,
   type: Schema.Literal("leaf"),
   code: CodeSchema,
+  readout: Schema.optionalKey(ReadoutSchema),
 });
 
 const TreeRack = Schema.Struct({
@@ -174,11 +190,9 @@ const PatternNameSchema = Schema.Literals([
 ]);
 
 // What every Tone event class shares: the method it calls with its fixed
-// args, and the ToneEvent knobs.
-const BaseEventFields = {
-  id: Schema.String,
-  belongToBlockId: Schema.String,
-  methodId: Schema.String,
+// args, and the ToneEvent knobs. The catalogue's specs reuse these, naming the
+// method in place of the ids.
+export const EventSettingFields = {
   args: Schema.Record(Schema.String, ParamValueSchema),
   mute: Schema.Boolean,
   probability: Schema.optionalKey(Schema.Number),
@@ -186,32 +200,36 @@ const BaseEventFields = {
   playbackRate: Schema.optionalKey(Schema.Number),
 };
 
+const BaseEventFields = {
+  id: Schema.String,
+  belongToBlockId: Schema.String,
+  methodId: Schema.String,
+  ...EventSettingFields,
+};
+
 // A null step is a rest.
-const SequenceEventSchema = Schema.Struct({
-  ...BaseEventFields,
+export const SequenceEventFields = {
   kind: Schema.Literal("sequence"),
   steps: Schema.Array(Schema.NullOr(StepValueSchema)),
   subdivision: Schema.String,
-});
+};
 
 // Tone's Loop is a ToneEvent with loop on and loopEnd as its interval, so a
 // loop is this kind with no value.
-const ToneEventSchema = Schema.Struct({
-  ...BaseEventFields,
+export const ToneEventFields = {
   kind: Schema.Literal("event"),
   value: Schema.optionalKey(StepValueSchema),
   start: Schema.String,
   loop: Schema.Union([Schema.Boolean, Schema.Number]),
   loopEnd: Schema.optionalKey(Schema.String),
-});
+};
 
-const PatternEventSchema = Schema.Struct({
-  ...BaseEventFields,
+export const PatternEventFields = {
   kind: Schema.Literal("pattern"),
   values: Schema.Array(StepValueSchema),
   pattern: PatternNameSchema,
   interval: Schema.String,
-});
+};
 
 const EventStepSchema = Schema.Struct({
   time: Schema.String,
@@ -219,18 +237,17 @@ const EventStepSchema = Schema.Struct({
 });
 
 // Plays once, or loops when it has a loopEnd.
-const PartEventSchema = Schema.Struct({
-  ...BaseEventFields,
+export const PartEventFields = {
   kind: Schema.Literal("part"),
   steps: Schema.Array(EventStepSchema),
   loopEnd: Schema.optionalKey(Schema.String),
-});
+};
 
 const RackEventSchema = Schema.Union([
-  SequenceEventSchema,
-  ToneEventSchema,
-  PatternEventSchema,
-  PartEventSchema,
+  Schema.Struct({ ...BaseEventFields, ...SequenceEventFields }),
+  Schema.Struct({ ...BaseEventFields, ...ToneEventFields }),
+  Schema.Struct({ ...BaseEventFields, ...PatternEventFields }),
+  Schema.Struct({ ...BaseEventFields, ...PartEventFields }),
 ]);
 
 export const isRackEvent = Schema.is(RackEventSchema);
@@ -255,6 +272,8 @@ export type Code = Schema.Schema.Type<typeof CodeSchema>;
 export type RackEvent = Schema.Schema.Type<typeof RackEventSchema>;
 export type RackEventStep = Schema.Schema.Type<typeof EventStepSchema>;
 export type Transport = Schema.Schema.Type<typeof TransportSchema>;
+export type JackPort = Schema.Schema.Type<typeof JackPortSchema>;
+export type Readout = Schema.Schema.Type<typeof ReadoutSchema>;
 
 // One scheduled change to a number param, named after the Tone.js call that
 // will make it. `time` is when it lands (or, for the two ramp-to-value calls,
@@ -272,34 +291,11 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
   ? Omit<T, K>
   : never;
 
-export interface ParamTemplateGroup {
-  readonly name?: string;
-  readonly params?: Readonly<Record<string, ParamTemplate>>;
-  readonly groups?: Readonly<Record<string, ParamTemplateGroup>>;
-}
-
 // The method is named separately when an event is added, and stays fixed.
 export type EventSettings = DistributiveOmit<
   RackEvent,
   "id" | "belongToBlockId" | "methodId"
 >;
-
-export type ParamTemplate = DistributiveOmit<Param, "id" | "belongToBlockId">;
-export type MethodTemplate = Omit<Method, "id" | "belongToBlockId">;
-// `method` is the key of the method in the same template's `methods`.
-export type EventTemplate = EventSettings & { readonly method: string };
-export type RackTemplate = DistributiveOmit<
-  Rack,
-  "paramIds" | "methodIds" | "eventIds"
-> & {
-  readonly params: ParamTemplateGroup;
-  readonly methods?: Readonly<Record<string, MethodTemplate>>;
-  // What the block plays as soon as it is added.
-  readonly events?: Readonly<Record<string, EventTemplate>>;
-  // Which of the default jacks a block made from this template gets. Most get
-  // both; a sink like the destination only takes input.
-  readonly jacks?: readonly Jack["direction"][];
-};
 
 export type TreeBlock = Schema.Schema.Type<typeof TreeRack>;
 
@@ -402,7 +398,7 @@ export const makeBlock = (
     id,
     isRoot: false,
     parentId,
-    jackIds: [inputJack(id).id, outputJack(id).id],
+    jackIds: [`${id}:in`, `${id}:out`],
     paramGroupId: "",
     methodIds: [],
     eventIds: [],
@@ -465,3 +461,22 @@ export const findParam = (
   Object.values(state.paramGroups)
     .flatMap(flattenParams)
     .find((param) => param.id === paramId);
+
+// The racks driving a param through patches into its jack, by name. A driven
+// param follows what comes in, so its own value waits until they are gone.
+export const paramDrivers = (
+  state: Pick<RackState, "patches" | "jacks" | "racks">,
+  paramId: string,
+): string[] =>
+  Object.values(state.patches).flatMap((patch) => {
+    const jack = state.jacks[patch.to];
+    const member = jack?.port?.member;
+    if (
+      member === undefined ||
+      `${jack?.belongToBlockId}:param:${member.join(".")}` !== paramId
+    ) {
+      return [];
+    }
+    const source = state.jacks[patch.from]?.belongToBlockId;
+    return [state.racks[source ?? ""]?.name ?? "a patch"];
+  });

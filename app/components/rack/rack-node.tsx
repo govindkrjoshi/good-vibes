@@ -19,6 +19,7 @@ import { JackBay } from "../canvas/jack-bay";
 import { EnvelopeCurve } from "./envelope-curve";
 import { EventEditor, EventRow } from "./event-editor";
 import { ParamControl } from "./param-control";
+import { Readout } from "./readout";
 import { rackNodeWidth, type RackNodeType } from "../../canvas";
 import { useStore } from "../../stores";
 import { timeArg, type Method, type Param, type ParamGroup } from "../../rack";
@@ -31,6 +32,10 @@ export function RackNode({ id, data, selected }: NodeProps<RackNodeType>) {
   const paramGroup = useStore((state) => {
     const groupId = state.rack.racks[id]?.paramGroupId;
     return groupId === undefined ? undefined : state.rack.paramGroups[groupId];
+  });
+  const readout = useStore((state) => {
+    const rack = state.rack.racks[id];
+    return rack?.type === "leaf" ? rack.readout?.kind : undefined;
   });
   const methods = useStore(
     useShallow((state) =>
@@ -72,6 +77,7 @@ export function RackNode({ id, data, selected }: NodeProps<RackNodeType>) {
       <JackBay jacks={data.jacks} />
 
       <CardContent className="nodrag cursor-default px-0">
+        {readout === undefined ? null : <Readout rackId={id} kind={readout} />}
         {paramGroup === undefined ? null : <ParamPanel group={paramGroup} />}
       </CardContent>
 

@@ -1,10 +1,9 @@
 import { castDraft, type Draft } from "immer";
 
 import type { SliceCreator, Store } from "./common";
-import type { CatalogueItem } from "../catalogue";
+import { instantiate } from "../catalogue";
 import {
   canPatch,
-  flattenParams,
   isInside,
   patchScope,
   rackParams,
@@ -29,9 +28,9 @@ type State = RackState & {
 
 type Actions = {
   readonly addRack: (rack: Rack, parentId: string) => void;
+  // `itemKey` is `pluginId/name`, as the catalogue's registry has it.
   readonly addRackFromCatalogue: (
-    category: string,
-    name: string,
+    itemKey: string,
     parentId: string,
     id?: string,
   ) => void;
@@ -81,34 +80,6 @@ const initialState: State = {
   rootId: "root",
   errors: [],
 };
-
-// Every id a catalogue item owns starts with its rack's id, so swapping that
-// prefix gives a copy that can sit beside other copies of the same item. A
-// rack's code is text that never starts with an id, so it stays as written.
-const rekey = (value: unknown, from: string, to: string): unknown => {
-  if (typeof value === "string") {
-    return value === from || value.startsWith(`${from}:`)
-      ? to + value.slice(from.length)
-      : value;
-  }
-  if (Array.isArray(value)) return value.map((v) => rekey(v, from, to));
-  if (
-    value !== null &&
-    typeof value === "object" &&
-    Object.getPrototypeOf(value) === Object.prototype
-  ) {
-    return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [
-        rekey(k, from, to),
-        rekey(v, from, to),
-      ]),
-    );
-  }
-  return value;
-};
-
-const withRackId = (item: CatalogueItem, id: string): CatalogueItem =>
-  rekey(item, item.rack.id, id) as CatalogueItem;
 
 // Puts a rack in the store as a child of its parent, which has to be a tree.
 // Returns whether it was added, so the caller can add what the rack owns.
@@ -399,30 +370,22 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       false,
       "rack/reportError",
     ),
-  addRackFromCatalogue: (
-    category,
-    name,
-    parentId,
-    id = crypto.randomUUID(),
-  ) => {
-    const found = get().catalogue.findByCategoryAndName(category, name);
-    const item = found && withRackId(found, id);
+  addRackFromCatalogue: (itemKey, parentId, id = crypto.randomUUID()) => {
+    const found = get().catalogue.findItem(itemKey);
+    const item = found && instantiate(found, id);
     set(
       (state) => {
         if (!item) {
-          state.rack.errors.push(`${category} ${name} is not in the catalogue`);
+          state.rack.errors.push(`${itemKey} is not in the catalogue`);
           return;
         }
         if (!addToParent(state, item.rack, parentId)) return;
 
-        const params = flattenParams(item.paramGroup);
         state.rack.paramGroups[item.paramGroup.id] = castDraft(item.paramGroup);
         Object.assign(state.rack.jacks, item.jacks);
         Object.assign(state.rack.methods, item.methods);
         Object.assign(state.rack.events, item.events);
-        for (const param of params) {
-          state.rack.values[param.id] = param.defaultValue;
-        }
+        Object.assign(state.rack.values, item.values);
       },
       false,
       "rack/addRackFromCatalogue",

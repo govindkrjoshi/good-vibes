@@ -10,7 +10,7 @@ import type {
   RackEvent,
   RackState,
 } from "./model";
-import { triggerAttackRelease } from "../catalogue/common";
+import { triggerAttackRelease } from "../catalogue/kit";
 
 // A stand-in for Tone that records what is done to it.
 class FakeNode {
@@ -18,11 +18,15 @@ class FakeNode {
   disposed = false;
   readonly params: object[] = [];
   readonly played: unknown[][] = [];
+  readonly envelope = { attack: 0 };
   constructor(readonly name: string) {
     made.push(this);
   }
   set(props: object) {
     this.params.push(props);
+  }
+  get() {
+    return { forwarded: { gain: 0 } };
   }
   connect(to: FakeNode) {
     if (!(to instanceof FakeNode) || to.name === "noInput") {
@@ -230,6 +234,35 @@ test("applies a rack's values when built and as they change", () => {
   expect(synth().params).toHaveLength(2);
 });
 
+test("sets a param the node only has through get()", () => {
+  go({
+    racks: { S: { ...leaf("S"), paramGroupId: "g" } },
+    paramGroups: {
+      g: { id: "g", params: [{ ...volume("S"), path: ["forwarded", "gain"] }] },
+    },
+    values: { "S:volume": 1 },
+  });
+
+  expect(synth().params).toEqual([{ forwarded: { gain: 1 } }]);
+  expect(errors).toEqual([]);
+});
+
+test("reports a param whose path the node doesn't have", () => {
+  go({
+    racks: { S: { ...leaf("S"), paramGroupId: "g" } },
+    paramGroups: {
+      g: {
+        id: "g",
+        params: [{ ...volume("S"), path: ["enevlope", "attack"] }],
+      },
+    },
+    values: { "S:volume": 1 },
+  });
+
+  expect(synth().params).toEqual([]);
+  expect(errors).toEqual(["Volume can't be set: synth has no enevlope.attack"]);
+});
+
 test("disconnects a removed patch", () => {
   go(synthIntoSpeakers);
   go({ patches: {} });
@@ -352,7 +385,9 @@ const riff: RackEvent = {
 test("plays a step through the method its event names", () => {
   go({
     ...synthIntoSpeakers,
-    methods: { m: { ...triggerAttackRelease("S"), id: "m" } },
+    methods: {
+      m: { ...triggerAttackRelease(), id: "m", belongToBlockId: "S" },
+    },
     events: { riff },
   });
 

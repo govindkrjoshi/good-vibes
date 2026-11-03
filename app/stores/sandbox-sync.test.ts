@@ -25,7 +25,7 @@ test("sends the sandbox what a change did to the rack", () => {
 test("sends what a catalogue item is made of, code as text", () => {
   useStore
     .getState()
-    .rack.addRackFromCatalogue("output", "Destination", "root", "D");
+    .rack.addRackFromCatalogue("tone/Destination", "root", "D");
 
   const [message] = postMessage.mock.calls[0] ?? [];
   expect(() => structuredClone(message)).not.toThrow();
