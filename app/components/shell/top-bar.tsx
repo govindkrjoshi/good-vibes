@@ -62,7 +62,11 @@ export function TopBar({
             {chatOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
           </Button>
         </Hint>
-        <img src="/favicon.svg" alt="" className="size-6 max-sm:hidden" />
+        <img
+          src={`${import.meta.env.BASE_URL}favicon.svg`}
+          alt=""
+          className="size-6 max-sm:hidden"
+        />
         <span className="truncate text-sm font-semibold max-sm:sr-only">
           Good Vibes
         </span>

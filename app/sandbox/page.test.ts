@@ -28,3 +28,18 @@ test("grants the sandbox eval, for rack code, but no blob or worker privileges",
   expect(csp).not.toContain("blob:");
   expect(csp).not.toContain("worker-src");
 });
+
+test("carries the fetch policy in a meta tag for static hosts", async () => {
+  const html = await sandboxResponse().text();
+  const meta = html.match(
+    /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/,
+  )?.[1];
+
+  expect(meta).toContain("default-src 'none'");
+  expect(meta).toContain("connect-src 'none'");
+  expect(meta).not.toContain("sandbox");
+  expect(meta).not.toContain("frame-ancestors");
+  expect(html.indexOf("Content-Security-Policy")).toBeLessThan(
+    html.indexOf("<script>"),
+  );
+});

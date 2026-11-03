@@ -29,7 +29,7 @@ const SandboxContext = createContext<SandboxContextValue | undefined>(
 
 export function SandboxProvider({
   children,
-  sandboxSrc = "/sandbox.html",
+  sandboxSrc = `${import.meta.env.BASE_URL}sandbox.html`,
 }: {
   readonly children: ReactNode;
   readonly sandboxSrc?: string;

@@ -4,6 +4,8 @@ import { defineConfig, loadEnv } from "vite";
 import { sandboxRuntime } from "./app/sandbox/vite-plugin.ts";
 
 export default defineConfig(({ command, mode }) => ({
+  // Matches `basename` in react-router.config.ts; set for GitHub Pages builds.
+  base: process.env.BASE_PATH ?? "/",
   plugins: [tailwindcss(), reactRouter(), sandboxRuntime()],
   define: {
     // The dev server hands its OpenRouter key (from the shell or a .env file)
