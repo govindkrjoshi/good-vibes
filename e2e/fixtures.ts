@@ -9,17 +9,57 @@ const apiKeyStorageKey = "good-vibes:openrouter-api-key";
 
 const fallbackReply = "Hello from Good Vibes.";
 
+// One reply from the fake model: what it says, or the tools it calls.
+export type ScriptedReply =
+  string | { readonly toolCalls: readonly { name: string; args: object }[] };
+
 // OpenRouter's chat-completions stream, cut down to what pi-ai reads.
-const completion = (text: string) =>
-  [
-    { choices: [{ index: 0, delta: { role: "assistant", content: text } }] },
-    {
-      choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-    },
-  ]
-    .map((chunk) => `data: ${JSON.stringify({ id: "gen", ...chunk })}\n\n`)
-    .join("") + "data: [DONE]\n\n";
+const completion = (reply: ScriptedReply) => {
+  const chunks =
+    typeof reply === "string"
+      ? [
+          {
+            choices: [
+              { index: 0, delta: { role: "assistant", content: reply } },
+            ],
+          },
+          { choices: [{ index: 0, delta: {}, finish_reason: "stop" }] },
+        ]
+      : [
+          {
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: "assistant",
+                  tool_calls: reply.toolCalls.map((call, index) => ({
+                    index,
+                    id: `call-${index}`,
+                    type: "function",
+                    function: {
+                      name: call.name,
+                      arguments: JSON.stringify(call.args),
+                    },
+                  })),
+                },
+              },
+            ],
+          },
+          { choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] },
+        ];
+  return (
+    chunks
+      .map(
+        (chunk) =>
+          `data: ${JSON.stringify({
+            id: "gen",
+            usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+            ...chunk,
+          })}\n\n`,
+      )
+      .join("") + "data: [DONE]\n\n"
+  );
+};
 
 export async function openSandboxPage(page: Page) {
   // The toolbar is server-rendered, so it shows up before hydration and cannot
@@ -38,7 +78,7 @@ export async function openSandboxPage(page: Page) {
 type Options = {
   // What the fake OpenRouter says, one reply per request in order; once they
   // run out it keeps giving the fallback.
-  readonly openRouterReplies: readonly string[];
+  readonly openRouterReplies: readonly ScriptedReply[];
 };
 
 export const test = base.extend<Options>({

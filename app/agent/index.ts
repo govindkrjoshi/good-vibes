@@ -10,4 +10,9 @@ export {
   type SessionState,
 } from "./session";
 export { apiKeyStorageKey, knownApiKey, storeApiKey } from "./key";
-export { PromptError, type ApiKey, type GoodVibesMessage } from "./types";
+export {
+  PromptError,
+  type ApiKey,
+  type GoodVibesMessage,
+  type RackStore,
+} from "./types";

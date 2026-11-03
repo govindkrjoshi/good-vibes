@@ -21,7 +21,8 @@ app/
 
 Modules hold logic only: no React, no JSX, no DOM, and no imports from
 `components`, `hooks` or `pages`. Modules import each other in one direction:
-`catalogue` and `canvas` use `rack`; `agent` and `sandbox` stand alone.
+`catalogue` and `canvas` use `rack`; `agent` uses `rack`, `catalogue`,
+`demos` and the store's types; `sandbox` stands alone.
 Components import modules, `components/ui` and `hooks`. Pages import anything;
 nothing imports from `pages`. `.oxlintrc.json` enforces these boundaries, so
 `pnpm lint` fails on a crossing.
@@ -41,7 +42,10 @@ pnpm lint
 ## Agent
 
 The chat panel on the home page talks to an agent (`app/agent/`, built on
-`@earendil-works/pi-agent-core`). The agent runs in the browser and calls
+`@earendil-works/pi-agent-core`). It reads the rack and the catalogue and
+changes the rack with tools, one for each thing a user can do by hand, and
+can write a rack of its own from Tone.js code when the catalogue has nothing
+that fits; see `docs/agent-tools.md`. The agent runs in the browser and calls
 OpenRouter directly, using the first key it finds:
 
 1. **Dev server only:** `OPENROUTER_API_KEY` from the shell or a `.env` file.

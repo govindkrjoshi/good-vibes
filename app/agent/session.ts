@@ -1,15 +1,17 @@
 import { Effect, Exit, Scope, Stream } from "effect";
 import { knownApiKey, storeApiKey } from "./key";
-import type { ApiKey, GoodVibesMessage } from "./types";
+import type { ApiKey, GoodVibesMessage, RackStore } from "./types";
 import type { GoodVibesAgent } from "./agent";
 
 // What the chat shows of one message: who said it and the text so far. The
-// agent's thoughts are its reasoning, shown apart from what it says.
+// agent's thoughts are its reasoning, shown apart from what it says; a tool
+// is something it did to the rack, pending until it is done.
 export type ChatMessage = {
   readonly id: string;
   readonly role: "user" | "assistant";
-  readonly kind: "message" | "thought";
+  readonly kind: "message" | "thought" | "tool";
   readonly text: string;
+  readonly pending?: boolean;
   readonly error?: string;
 };
 
@@ -33,12 +35,15 @@ export type Session = {
 
 export type CreateAgent = (
   apiKey: ApiKey,
+  store: RackStore,
 ) => Effect.Effect<GoodVibesAgent, never, Scope.Scope>;
 
 export type SessionOptions = {
   // Called when a prompt needs a key and none is known. Rejecting fails the
   // prompt; the next prompt asks again.
   readonly askForKey: () => Promise<string>;
+  // The store the agent reads the rack from and changes it in.
+  readonly store: RackStore;
   // How the agent is made. By default the agent module is loaded on first
   // use, so the model runtime stays out of the initial bundle.
   readonly createAgent?: CreateAgent;
@@ -46,9 +51,11 @@ export type SessionOptions = {
 
 let agentModule: Promise<typeof import("./agent")> | undefined;
 
-const loadAgent: CreateAgent = (apiKey) =>
+const loadAgent: CreateAgent = (apiKey, store) =>
   Effect.promise(() => (agentModule ??= import("./agent"))).pipe(
-    Effect.flatMap(({ createGoodVibesAgent }) => createGoodVibesAgent(apiKey)),
+    Effect.flatMap(({ createGoodVibesAgent }) =>
+      createGoodVibesAgent(apiKey, store),
+    ),
   );
 
 // Runs one agent for as long as the session lives, so the conversation
@@ -57,6 +64,7 @@ const loadAgent: CreateAgent = (apiKey) =>
 // storage, and failing both the session asks for one.
 export const createSession = ({
   askForKey,
+  store,
   createAgent = loadAgent,
 }: SessionOptions): Session => {
   let state: SessionState = { messages: [], busy: false };
@@ -106,15 +114,22 @@ export const createSession = ({
   // updated in place.
   const onMessage = (said: GoodVibesMessage) => {
     const id = `agent-${said.id}`;
+    const shown: ChatMessage = {
+      id,
+      role: "assistant",
+      kind: said.type,
+      text: said.text,
+      ...(said.type === "tool"
+        ? {
+            pending: !said.done,
+            ...(said.error === undefined ? {} : { error: said.error }),
+          }
+        : {}),
+    };
     setMessages((list) =>
       list.some((message) => message.id === id)
-        ? list.map((message) =>
-            message.id === id ? { ...message, text: said.text } : message,
-          )
-        : [
-            ...list,
-            { id, role: "assistant", kind: said.type, text: said.text },
-          ],
+        ? list.map((message) => (message.id === id ? shown : message))
+        : [...list, shown],
     );
   };
 
@@ -145,7 +160,7 @@ export const createSession = ({
       // Read on every request, so a key changed in settings applies at once.
       const created = await Effect.runPromise(
         Effect.gen(function* () {
-          const made = yield* createAgent(() => currentKey() ?? "");
+          const made = yield* createAgent(() => currentKey() ?? "", store);
           yield* Stream.runForEach(made.messages, (said) =>
             Effect.sync(() => onMessage(said)),
           ).pipe(Effect.forkScoped({ startImmediately: true }));

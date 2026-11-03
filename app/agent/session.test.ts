@@ -2,6 +2,7 @@ import { Effect, PubSub, Stream } from "effect";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GoodVibesAgent } from "./agent";
 import { createSession, type CreateAgent, type Session } from "./session";
+import { useStore } from "../stores";
 import { PromptError, type GoodVibesMessage } from "./types";
 
 // Stands in for the agent: a prompt says its reply a word at a time, then
@@ -38,7 +39,8 @@ let agent: ReturnType<typeof fakeAgent>;
 const createAgent = vi.fn<CreateAgent>();
 const askForKey = vi.fn<() => Promise<string>>();
 
-const session = (): Session => createSession({ askForKey, createAgent });
+const session = (): Session =>
+  createSession({ askForKey, store: useStore, createAgent });
 
 // The key the agent would send with its next request.
 const agentKey = () => createAgent.mock.calls[0]?.[0]();
@@ -138,6 +140,58 @@ test("shows the agent's thoughts apart from what it says", async () => {
     },
     { id: "agent-1-1", role: "assistant", kind: "message", text: "Hi there" },
   ]);
+});
+
+test("shows what the agent does to the rack, pending until done", async () => {
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.sync(() => {
+      agent.say({
+        type: "tool",
+        id: "tool-1",
+        text: "Adding a rack…",
+        done: false,
+      });
+      agent.say({
+        type: "tool",
+        id: "tool-1",
+        text: "Added [bass] MonoSynth",
+        done: true,
+      });
+      agent.say({
+        type: "tool",
+        id: "tool-2",
+        text: "Patching failed",
+        done: true,
+        error: "There is no jack bass:output",
+      });
+      agent.say({ type: "message", id: "1-2", text: "Done" });
+    }),
+  );
+  const chat = session();
+  const seen: (boolean | undefined)[] = [];
+  chat.subscribe(() => seen.push(chat.getState().messages.at(-1)?.pending));
+
+  await chat.prompt("add a bass");
+
+  expect(chat.getState().messages.slice(1)).toEqual([
+    {
+      id: "agent-tool-1",
+      role: "assistant",
+      kind: "tool",
+      text: "Added [bass] MonoSynth",
+      pending: false,
+    },
+    {
+      id: "agent-tool-2",
+      role: "assistant",
+      kind: "tool",
+      text: "Patching failed",
+      pending: false,
+      error: "There is no jack bass:output",
+    },
+    { id: "agent-1-2", role: "assistant", kind: "message", text: "Done" },
+  ]);
+  expect(seen).toContain(true);
 });
 
 test("is busy from sending until the reply ends", async () => {

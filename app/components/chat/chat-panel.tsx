@@ -1,5 +1,11 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ArrowUp, CircleAlert, MessageCircle, Square } from "lucide-react";
+import {
+  ArrowUp,
+  CircleAlert,
+  MessageCircle,
+  Square,
+  Wrench,
+} from "lucide-react";
 import { cn } from "cn";
 import { Bubble, BubbleContent } from "../ui/bubble";
 import {
@@ -17,6 +23,7 @@ import {
 } from "../ui/input-group";
 import { Marker, MarkerContent, MarkerIcon } from "../ui/marker";
 import { Message, MessageContent } from "../ui/message";
+import { Spinner } from "../ui/spinner";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -30,9 +37,39 @@ import { useGoodVibesAgent, type ChatMessage } from "./agent-provider";
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "The message could not be sent";
 
+// Something the agent did to the rack: one line, turning while it runs, and
+// what went wrong when it failed.
+function ToolRow({ message }: { readonly message: ChatMessage }) {
+  return (
+    <Message align="start" data-role="assistant" data-kind="tool">
+      <MessageContent className="gap-1">
+        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+          {message.pending === true ? (
+            <Spinner className="size-3" />
+          ) : (
+            <Wrench aria-hidden className="size-3" />
+          )}
+          <span className="truncate">{message.text}</span>
+        </p>
+        {message.error !== undefined && (
+          <Marker>
+            <MarkerIcon>
+              <CircleAlert />
+            </MarkerIcon>
+            <MarkerContent className="whitespace-pre-wrap">
+              {message.error}
+            </MarkerContent>
+          </Marker>
+        )}
+      </MessageContent>
+    </Message>
+  );
+}
+
 // The agent's words sit on the panel itself; only the user's own messages get
 // a bubble, so the conversation reads as the instrument talking back.
 function ChatRow({ message }: { readonly message: ChatMessage }) {
+  if (message.kind === "tool") return <ToolRow message={message} />;
   const fromUser = message.role === "user";
   return (
     <Message align={fromUser ? "end" : "start"} data-role={message.role}>
@@ -67,9 +104,14 @@ export function ChatPanel({ className }: { readonly className?: string }) {
   const inputId = useId();
 
   const last = messages.at(-1);
-  // Until the reply's first words arrive there is nothing else to show.
+  // Until the reply's first words arrive there is nothing else to show, and
+  // the same once a tool is done and the agent is on to its next turn.
   const thinking =
-    busy && (last === undefined || last.role === "user" || last.text === "");
+    busy &&
+    (last === undefined ||
+      last.role === "user" ||
+      last.text === "" ||
+      (last.kind === "tool" && last.pending !== true));
 
   const send = (event?: FormEvent) => {
     event?.preventDefault();

@@ -1,6 +1,12 @@
 import { beforeEach, expect, test } from "vitest";
 import { useStore } from ".";
 import { tonePlugin } from "../catalogue";
+import {
+  defineItem,
+  frequency,
+  triggerAttackRelease,
+  wet,
+} from "../catalogue/kit";
 import { makeBlock, newTree, type Rack } from "../rack/model";
 
 const initial = useStore.getState();
@@ -71,12 +77,147 @@ test("refuses a parent that is missing or not a tree", () => {
   expect(store().errors).toHaveLength(2);
 });
 
-test("lists a rack added twice under its parent once", () => {
+test("refuses a rack whose id is taken", () => {
   const block = makeBlock("a", "root", "leaf");
   store().addRack(block, "root");
-  store().addRack(block, "root");
+  store().addRack({ ...block, name: "Again" }, "root");
+  store().addRackFromCatalogue("tone/Filter", "root", "a");
 
   expect(children("root")).toEqual(["a"]);
+  expect(store().racks.a?.name).toBe("Leaf");
+  expect(store().errors).toEqual([
+    "there is already a rack a",
+    "there is already a rack a",
+  ]);
+});
+
+test("remembers which catalogue item a leaf came from", () => {
+  store().addRackFromCatalogue("tone/AMSynth", "root", "S");
+  const synth = store().racks.S;
+
+  expect(synth?.type === "leaf" && synth.item).toBe("tone/AMSynth");
+});
+
+const wobble = defineItem("effects", "Wobble", {
+  description: "A test item.",
+  code: "Effect.void",
+  params: {
+    params: [
+      wet({ patchable: true }),
+      frequency({ name: "Rate", defaultValue: 2, min: 0, max: 20 }),
+    ],
+  },
+  methods: [triggerAttackRelease()],
+});
+
+test("places a spec of its own as a leaf with everything it owns", () => {
+  store().addItem(wobble, "root", "W");
+  const leaf = store().racks.W;
+
+  expect(leaf).toMatchObject({
+    type: "leaf",
+    name: "Wobble",
+    parentId: "root",
+  });
+  expect(leaf?.type === "leaf" && leaf.item).toBeUndefined();
+  expect(Object.keys(store().jacks)).toEqual(["W:in", "W:out", "W:mod:wet"]);
+  expect(store().values).toEqual({ "W:param:wet": 1, "W:param:frequency": 2 });
+  expect(Object.keys(store().methods)).toEqual([
+    "W:method:triggerAttackRelease",
+  ]);
+});
+
+test("makes a leaf over from a new spec, keeping what still fits", () => {
+  store().addRackFromCatalogue("tone/LFO", "root", "lfo");
+  store().addRackFromCatalogue("tone/Destination", "root", "D");
+  store().addItem(wobble, "root", "W");
+  store().connectJacks("W:out", "D:in");
+  store().connectJacks("lfo:out", "W:mod:wet");
+  store().setParamValue("W:param:wet", 0.5);
+  store().setParamValue("W:param:frequency", 7);
+  store().addAutomation("W:param:frequency", {
+    method: "rampTo",
+    value: 1,
+    time: "1m",
+    rampTime: "4n",
+  });
+  const added = store().addEvent("W:method:triggerAttackRelease", {
+    kind: "sequence",
+    steps: ["C4"],
+    subdivision: "8n",
+    args: { duration: "8n" },
+    mute: false,
+  });
+
+  const next = defineItem("effects", "Wobble 2", {
+    description: "Changed.",
+    code: "Effect.succeed(1)",
+    params: {
+      params: [
+        wet(),
+        frequency({ name: "Rate", defaultValue: 2, min: 0, max: 20 }),
+      ],
+    },
+    methods: [triggerAttackRelease()],
+    events: [
+      {
+        kind: "sequence",
+        method: "triggerAttackRelease",
+        steps: ["E4"],
+        subdivision: "4n",
+        args: { duration: "8n" },
+        mute: false,
+      },
+    ],
+  });
+  store().replaceItem("W", next);
+  const leaf = store().racks.W;
+
+  expect(leaf).toMatchObject({ name: "Wobble 2", parentId: "root" });
+  expect(leaf?.type === "leaf" && leaf.code).toBe("Effect.succeed(1)");
+  expect(children("root")).toEqual(["lfo", "D", "W"]);
+  // Wet is no longer patchable, so its jack and the patch into it go.
+  expect(Object.keys(store().jacks)).not.toContain("W:mod:wet");
+  expect(Object.values(store().patches).map((patch) => patch.to)).toEqual([
+    "D:in",
+  ]);
+  expect(store().values["W:param:wet"]).toBe(0.5);
+  expect(store().values["W:param:frequency"]).toBe(7);
+  expect(store().automations["W:param:frequency"]).toHaveLength(1);
+  // The event added by hand stays; the spec's own events are the new ones.
+  expect(leaf?.eventIds).toEqual([added, "W:event:0"]);
+  expect(store().events["W:event:0"]?.kind).toBe("sequence");
+  expect(store().errors).toEqual([]);
+});
+
+test("drops what a new spec no longer fits", () => {
+  store().addItem(wobble, "root", "W");
+  store().setParamValue("W:param:frequency", 7);
+  const next = defineItem("effects", "Wobble", {
+    description: "Changed.",
+    code: "Effect.void",
+    params: {
+      params: [
+        { kind: "text", name: "Rate", path: ["frequency"], defaultValue: "x" },
+      ],
+    },
+  });
+  store().replaceItem("W", next);
+
+  expect(store().values).toEqual({ "W:param:frequency": "x" });
+  expect(store().methods).toEqual({});
+  expect(store().jacks["W:mod:wet"]).toBeUndefined();
+});
+
+test("only makes a leaf over", () => {
+  store().addRack(newTree("G", "root"), "root");
+  store().replaceItem("G", wobble);
+  store().replaceItem("root", wobble);
+
+  expect(store().errors).toEqual([
+    "G is not a leaf rack",
+    "root is not a leaf rack",
+  ]);
 });
 
 test("gives a new block an input and an output jack", () => {

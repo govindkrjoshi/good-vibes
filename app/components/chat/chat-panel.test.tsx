@@ -112,6 +112,45 @@ test("bubbles only the user's messages", () => {
   expect(variant("assistant")).toBe("ghost");
 });
 
+test("shows what the agent did to the rack as a line, not a bubble", () => {
+  agent.messages = [
+    { id: "a", role: "user", kind: "message", text: "add a bass" },
+    {
+      id: "b",
+      role: "assistant",
+      kind: "tool",
+      text: "Adding a rack…",
+      pending: true,
+    },
+    {
+      id: "c",
+      role: "assistant",
+      kind: "tool",
+      text: "Patching failed",
+      error: "There is no jack bass:output",
+    },
+  ];
+  render();
+
+  const rows = container.querySelectorAll('[data-kind="tool"]');
+  expect(rows).toHaveLength(2);
+  expect(rows[0]?.querySelector('[data-slot="spinner"]')).not.toBeNull();
+  expect(rows[0]?.querySelector('[data-slot="bubble"]')).toBeNull();
+  expect(rows[1]?.querySelector('[data-slot="spinner"]')).toBeNull();
+  expect(rows[1]?.textContent).toContain("There is no jack bass:output");
+});
+
+test("keeps thinking once a tool is done and the agent carries on", () => {
+  agent.busy = true;
+  agent.messages = [
+    { id: "a", role: "user", kind: "message", text: "add a bass" },
+    { id: "b", role: "assistant", kind: "tool", text: "Added a rack" },
+  ];
+  render();
+
+  expect(container.textContent).toContain("Thinking…");
+});
+
 test("offers Stop while the agent is replying", () => {
   agent.busy = true;
   agent.messages = [{ id: "a", role: "user", kind: "message", text: "hello" }];

@@ -96,7 +96,13 @@ const toJacks = (rackId: string, spec: ItemSpec): Jack[] => {
   return [...jacks, ...driven];
 };
 
-export const instantiate = (spec: ItemSpec, rackId: string): Instance => {
+// `item` is the catalogue key the spec came from, kept on the rack so it can
+// be told from one made from its own code.
+export const instantiate = (
+  spec: ItemSpec,
+  rackId: string,
+  item?: string,
+): Instance => {
   const paramGroup = toGroup(rackId, `${rackId}:paramGroup`, spec.params ?? {});
   const values = Object.fromEntries(
     specParams(spec.params).map((param) => [
@@ -134,6 +140,7 @@ export const instantiate = (spec: ItemSpec, rackId: string): Instance => {
     eventIds: events.map((event) => event.id),
     code: spec.code,
     ...(spec.readout === undefined ? {} : { readout: spec.readout }),
+    ...(item === undefined ? {} : { item }),
   };
 
   return {

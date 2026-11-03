@@ -208,7 +208,7 @@ export class DemoBuilder {
     const parent = this.parent(parentId, id);
     const spec = this.registry.items[key];
     if (spec === undefined) throw new Error(`${key} is not in the catalogue`);
-    const placed = instantiate(spec, id);
+    const placed = instantiate(spec, id, key);
 
     for (const [path, value] of Object.entries(values)) {
       const held = paramId(id, path.split("."));

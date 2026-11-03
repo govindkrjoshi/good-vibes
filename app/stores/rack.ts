@@ -1,7 +1,7 @@
 import { castDraft, type Draft } from "immer";
 
 import type { SliceCreator, Store } from "./common";
-import { instantiate } from "../catalogue";
+import { instantiate, type Instance, type ItemSpec } from "../catalogue";
 import {
   canPatch,
   isInside,
@@ -34,11 +34,32 @@ type Actions = {
     parentId: string,
     id?: string,
   ) => void;
+  // Places an item spec as a leaf with everything it owns. `item` is the
+  // catalogue key it came from, if any; a spec written on the spot has none.
+  readonly addItem: (
+    spec: ItemSpec,
+    parentId: string,
+    id?: string,
+    item?: string,
+  ) => void;
+  // Makes a leaf over again from a spec, keeping its place, the values of
+  // params it still has, the patches to jacks it still has, and the events
+  // added to it since it was placed whose method it still has.
+  readonly replaceItem: (rackId: string, spec: ItemSpec, item?: string) => void;
   readonly moveRack: (rackId: string, parentId: string) => void;
-  readonly addJack: (rackId: string, direction: Jack["direction"]) => void;
+  // Returns the new jack's id, or nothing when the rack is not a tree.
+  readonly addJack: (
+    rackId: string,
+    direction: Jack["direction"],
+    name?: string,
+  ) => string | undefined;
   readonly removeJack: (jackId: string) => void;
   readonly canConnectJacks: (fromJackId: string, toJackId: string) => boolean;
-  readonly connectJacks: (fromJackId: string, toJackId: string) => void;
+  // Returns the patch between the jacks, made now or already there.
+  readonly connectJacks: (
+    fromJackId: string,
+    toJackId: string,
+  ) => string | undefined;
   readonly removeRacks: (rackIds: readonly string[]) => void;
   readonly removePatches: (patchIds: readonly string[]) => void;
   readonly setParamValue: (paramId: string, value: ParamValue) => void;
@@ -99,8 +120,27 @@ const addToParent = (
     );
     return false;
   }
+  if (state.rack.racks[rack.id] !== undefined) {
+    state.rack.errors.push(`there is already a rack ${rack.id}`);
+    return false;
+  }
   state.rack.racks[rack.id] = castDraft({ ...rack, parentId });
   if (!parent.children.includes(rack.id)) parent.children.push(rack.id);
+  return true;
+};
+
+// Puts everything an instance owns in the store, under its parent.
+const placeInstance = (
+  state: Draft<Store>,
+  item: Instance,
+  parentId: string,
+): boolean => {
+  if (!addToParent(state, item.rack, parentId)) return false;
+  state.rack.paramGroups[item.paramGroup.id] = castDraft(item.paramGroup);
+  Object.assign(state.rack.jacks, item.jacks);
+  Object.assign(state.rack.methods, item.methods);
+  Object.assign(state.rack.events, item.events);
+  Object.assign(state.rack.values, item.values);
   return true;
 };
 
@@ -217,7 +257,9 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       "rack/moveRack",
     ),
   // Only a tree's jacks are the user's to change: a leaf's are what its code has.
-  addJack: (rackId, direction) =>
+  addJack: (rackId, direction, name) => {
+    const id = `${rackId}:${direction}:${crypto.randomUUID()}`;
+    let added = false;
     set(
       (state) => {
         const rack = state.rack.racks[rackId];
@@ -234,18 +276,20 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
         let number = 1;
         while (taken.has(`${label} ${number}`)) number += 1;
 
-        const id = `${rackId}:${direction}:${crypto.randomUUID()}`;
         state.rack.jacks[id] = {
           id,
-          name: `${label} ${number}`,
+          name: name ?? `${label} ${number}`,
           belongToBlockId: rackId,
           direction,
         };
         rack.jackIds.push(id);
+        added = true;
       },
       false,
       "rack/addJack",
-    ),
+    );
+    return added ? id : undefined;
+  },
   // Every patch to the jack goes with it.
   removeJack: (jackId) =>
     set(
@@ -277,7 +321,8 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
     return from !== undefined && to !== undefined && canPatch(racks, from, to);
   },
   // A jack takes any number of patches, but only one between the same two jacks.
-  connectJacks: (fromJackId, toJackId) =>
+  connectJacks: (fromJackId, toJackId) => {
+    let patchId: string | undefined;
     set(
       (state) => {
         const { jacks, patches, racks } = state.rack;
@@ -294,10 +339,13 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
           );
           return;
         }
-        const taken = Object.values(patches).some(
+        const taken = Object.values(patches).find(
           (patch) => patch.from === from.id && patch.to === to.id,
         );
-        if (taken) return;
+        if (taken !== undefined) {
+          patchId = taken.id;
+          return;
+        }
 
         const id = crypto.randomUUID();
         patches[id] = {
@@ -307,10 +355,13 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
           to: to.id,
         };
         scope.patches.push(id);
+        patchId = id;
       },
       false,
       "rack/connectJacks",
-    ),
+    );
+    return patchId;
+  },
   // A tree takes everything under it along, and every patch to a removed
   // rack goes with it. The root rack is never removed.
   removeRacks: (rackIds) =>
@@ -483,25 +534,99 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
       false,
       "rack/reportError",
     ),
-  addRackFromCatalogue: (itemKey, parentId, id = crypto.randomUUID()) => {
+  addRackFromCatalogue: (itemKey, parentId, id) => {
     const found = get().catalogue.findItem(itemKey);
-    const item = found && instantiate(found, id);
+    if (found === undefined) {
+      get().rack.reportError(`${itemKey} is not in the catalogue`);
+      return;
+    }
+    get().rack.addItem(found, parentId, id, found.key);
+  },
+  addItem: (spec, parentId, id = crypto.randomUUID(), item) => {
+    const placed = instantiate(spec, id, item);
     set(
       (state) => {
-        if (!item) {
-          state.rack.errors.push(`${itemKey} is not in the catalogue`);
-          return;
-        }
-        if (!addToParent(state, item.rack, parentId)) return;
-
-        state.rack.paramGroups[item.paramGroup.id] = castDraft(item.paramGroup);
-        Object.assign(state.rack.jacks, item.jacks);
-        Object.assign(state.rack.methods, item.methods);
-        Object.assign(state.rack.events, item.events);
-        Object.assign(state.rack.values, item.values);
+        placeInstance(state, placed, parentId);
       },
       false,
-      "rack/addRackFromCatalogue",
+      "rack/addItem",
+    );
+  },
+  replaceItem: (rackId, spec, item) => {
+    const next = instantiate(spec, rackId, item);
+    set(
+      (state) => {
+        const held = state.rack.racks[rackId];
+        if (held?.type !== "leaf" || held.parentId === undefined) {
+          state.rack.errors.push(`${rackId} is not a leaf rack`);
+          return;
+        }
+        const { jacks, patches, methods, events, values, automations } =
+          state.rack;
+
+        // Values and automation stay where the param is still there and the
+        // value still fits; the rest start from the spec's defaults.
+        const kept: Record<string, ParamValue> = {};
+        for (const param of rackParams(state.rack, rackId)) {
+          const value = values[param.id];
+          const fresh = next.values[param.id];
+          if (
+            value !== undefined &&
+            fresh !== undefined &&
+            typeof value === typeof fresh
+          ) {
+            kept[param.id] = value;
+          } else {
+            delete automations[param.id];
+          }
+          delete values[param.id];
+        }
+        const oldGroupId = held.paramGroupId;
+        if (oldGroupId !== undefined) delete state.rack.paramGroups[oldGroupId];
+        state.rack.paramGroups[next.paramGroup.id] = castDraft(next.paramGroup);
+        Object.assign(values, next.values, kept);
+
+        // Patches to jacks the spec no longer has go with them.
+        for (const id of held.jackIds) {
+          if (next.jacks[id] === undefined) delete jacks[id];
+        }
+        Object.assign(jacks, next.jacks);
+        dropPatches(
+          state,
+          Object.values(patches)
+            .filter(
+              (patch) =>
+                jacks[patch.from] === undefined ||
+                jacks[patch.to] === undefined,
+            )
+            .map((patch) => patch.id),
+        );
+
+        for (const id of held.methodIds) delete methods[id];
+        Object.assign(methods, next.methods);
+
+        // The spec's own events are replaced by the new spec's; events added
+        // since stay while their method is still there.
+        const survivors = held.eventIds.filter((id) => {
+          const event = events[id];
+          const own = id.startsWith(`${rackId}:event:`);
+          const keep =
+            event !== undefined &&
+            !own &&
+            next.methods[event.methodId] !== undefined;
+          if (!keep) delete events[id];
+          return keep;
+        });
+        Object.assign(events, next.events);
+
+        state.rack.racks[rackId] = castDraft({
+          ...next.rack,
+          parentId: held.parentId,
+          eventIds: [...survivors, ...next.rack.eventIds],
+        });
+      },
+      false,
+      "rack/replaceItem",
     );
   },
 });

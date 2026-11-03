@@ -37,12 +37,14 @@ const ParamOptionSchema = Schema.Struct({
   value: ParamValueSchema,
 });
 
-const RampMethodSchema = Schema.Literals([
+export const rampMethods = [
   "setValueAtTime",
   "rampTo",
   "linearRampToValueAtTime",
   "exponentialRampToValueAtTime",
-]);
+] as const;
+
+const RampMethodSchema = Schema.Literals(rampMethods);
 
 const ParamAutomationSchema = Schema.Struct({
   methods: Schema.Array(RampMethodSchema),
@@ -164,6 +166,9 @@ const LeafRack = Schema.Struct({
   type: Schema.Literal("leaf"),
   code: CodeSchema,
   readout: Schema.optionalKey(ReadoutSchema),
+  // The catalogue item the leaf was placed from, as `pluginId/name`. A leaf
+  // made from its own code has none.
+  item: Schema.optionalKey(Schema.String),
 });
 
 const TreeRack = Schema.Struct({
@@ -177,7 +182,7 @@ const RackSchema = Schema.Union([LeafRack, TreeRack]);
 
 const StepValueSchema = Schema.Union([Schema.String, Schema.Number]);
 
-const PatternNameSchema = Schema.Literals([
+export const patternNames = [
   "up",
   "down",
   "upDown",
@@ -187,7 +192,9 @@ const PatternNameSchema = Schema.Literals([
   "random",
   "randomOnce",
   "randomWalk",
-]);
+] as const;
+
+const PatternNameSchema = Schema.Literals(patternNames);
 
 // What every Tone event class shares: the method it calls with its fixed
 // args, and the ToneEvent knobs. The catalogue's specs reuse these, naming the
@@ -271,6 +278,7 @@ export type Patch = Schema.Schema.Type<typeof PatchSchema>;
 export type Code = Schema.Schema.Type<typeof CodeSchema>;
 export type RackEvent = Schema.Schema.Type<typeof RackEventSchema>;
 export type RackEventStep = Schema.Schema.Type<typeof EventStepSchema>;
+export type PatternName = Schema.Schema.Type<typeof PatternNameSchema>;
 export type Transport = Schema.Schema.Type<typeof TransportSchema>;
 export type JackPort = Schema.Schema.Type<typeof JackPortSchema>;
 export type Readout = Schema.Schema.Type<typeof ReadoutSchema>;
