@@ -197,7 +197,7 @@ test("says what it is about to do, apart from what it does", async () => {
   });
 });
 
-test("carries on a kept conversation and says the page was reloaded", async () => {
+test("carries on a kept conversation and says it was reopened", async () => {
   let heard: string[] = [];
   const history: AgentMessage[] = [
     { role: "user", content: "hi", timestamp: 1 },
@@ -226,7 +226,7 @@ test("carries on a kept conversation and says the page was reloaded", async () =
 
     expect(heard).toEqual([
       "hi",
-      expect.stringContaining("The page has been reloaded"),
+      expect.stringContaining("This conversation has been reopened"),
       "what's there?",
     ]);
     expect(heard[1]).toContain("Transport: 120 bpm, stopped.");
@@ -240,6 +240,45 @@ test("carries on a kept conversation and says the page was reloaded", async () =
 
     await Effect.runPromise(agent.reset);
     expect(await Effect.runPromise(agent.transcript)).toEqual([]);
+  } finally {
+    await Effect.runPromise(Scope.close(scope, Exit.succeed(undefined)));
+  }
+});
+
+test("carries on another conversation in place of this one", async () => {
+  let heard: string[] = [];
+  const faux = fauxProvider();
+  const models = createModels();
+  models.setProvider(faux.provider);
+  faux.setResponses([
+    fauxAssistantMessage("First."),
+    (context) => {
+      heard = texts(context.messages);
+      return fauxAssistantMessage("Back again.");
+    },
+  ]);
+  const scope = Effect.runSync(Scope.make());
+  const agent = await Effect.runPromise(
+    createGoodVibesAgent(() => credential, useStore, {
+      model: faux.getModel(),
+      streamFn: models.streamSimple.bind(models),
+    }).pipe(Scope.provide(scope)),
+  );
+  try {
+    await Effect.runPromise(agent.prompt("one chat"));
+    await Effect.runPromise(
+      agent.restore([
+        { role: "user", content: "another chat", timestamp: 1 },
+        fauxAssistantMessage("Hello."),
+      ]),
+    );
+    await Effect.runPromise(agent.prompt("what's there?"));
+
+    expect(heard).toEqual([
+      "another chat",
+      expect.stringContaining("This conversation has been reopened"),
+      "what's there?",
+    ]);
   } finally {
     await Effect.runPromise(Scope.close(scope, Exit.succeed(undefined)));
   }

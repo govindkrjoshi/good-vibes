@@ -8,6 +8,9 @@ import { noKeyGiven } from "../../agent/explain";
 import { knownCredential, storeCredential } from "../../agent/key";
 import type { Credential } from "../../agent/providers";
 import { PromptError, type GoodVibesMessage } from "../../agent/types";
+import { useStore } from "../../stores";
+import { stopChats, useChats } from "../../stores/chats";
+import { noChatKey } from "../../stores/persist";
 import { GoodVibesAgentProvider, useGoodVibesAgent } from "./agent-provider";
 
 // Stands in for the agent: a prompt says its reply a word at a time, then
@@ -36,6 +39,7 @@ const fakeAgent = () => {
     abort: Effect.sync(() => aborted()),
     transcript: Effect.succeed([]),
     reset: Effect.void,
+    restore: () => Effect.void,
     aborted,
   };
   return agent;
@@ -115,9 +119,15 @@ beforeEach(() => {
   };
 });
 
+const initialStore = useStore.getState();
+
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  stopChats();
+  useStore.persist.setOptions({ name: noChatKey });
+  useStore.setState(initialStore, true);
+  useChats.setState({ chats: [], selectedId: undefined });
   localStorage.clear();
   createGoodVibesAgent.mockReset();
   vi.restoreAllMocks();
@@ -140,6 +150,8 @@ test("asks for a key when none is known, then saves it", async () => {
   act(() => {
     done = current?.prompt("hello");
   });
+  // The prompt waits for the open chat to load first.
+  await flush();
   expect(keyInput()).not.toBeNull();
   expect(createGoodVibesAgent).not.toHaveBeenCalled();
 
@@ -159,6 +171,7 @@ test("tells the service from the key, and lets the user pick another", async () 
   act(() => {
     done = current?.prompt("hello");
   });
+  await flush();
 
   enterKey("sk-ant-typed");
   await flush();
@@ -194,6 +207,7 @@ test("prompts waiting on the key share one dialog and one agent", async () => {
     first = current?.prompt("one");
     second = current?.prompt("two");
   });
+  await flush();
   expect(document.querySelectorAll("dialog")).toHaveLength(1);
 
   enterKey("sk-or-typed");
@@ -223,6 +237,7 @@ test("rejects when the user declines to give a key", async () => {
   act(() => {
     done = current?.prompt("hello");
   });
+  await flush();
   act(() => button("Not now").click());
 
   await expect(done).rejects.toThrow(noKeyGiven);
@@ -232,6 +247,7 @@ test("rejects when the user declines to give a key", async () => {
   act(() => {
     done = current?.prompt("hello");
   });
+  await flush();
   expect(keyInput()).not.toBeNull();
 });
 
@@ -259,6 +275,7 @@ test("is busy from sending until the reply ends", async () => {
   act(() => {
     done = current?.prompt("hello");
   });
+  await flush();
   expect(current?.busy).toBe(true);
 
   await flush();

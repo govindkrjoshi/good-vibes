@@ -1,15 +1,26 @@
 import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   ArrowUp,
+  ChevronDown,
   CircleAlert,
   MessageCircle,
   Square,
   SquarePen,
+  Trash2,
 } from "lucide-react";
 import { cn } from "cn";
 import { explainError, type Explanation } from "../../agent";
 import { Bubble, BubbleContent } from "../ui/bubble";
 import { Button } from "../ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
 import {
   Empty,
   EmptyContent,
@@ -38,6 +49,8 @@ import {
 } from "../ui/message-scroller";
 import { useGoodVibesAgent, type ChatMessage } from "./agent-provider";
 import { rowsOf, ToolRunBlock } from "./tool-run";
+import { useStore } from "../../stores";
+import { untitled, type ChatSummary } from "../../stores/chats";
 
 const explain = (error: unknown): Explanation =>
   explainError(
@@ -86,6 +99,68 @@ function Trouble({
   );
 }
 
+// The chats kept in this browser, to open one with its rack or let the open
+// one go.
+function ChatPicker({
+  chats,
+  selectedId,
+  onOpen,
+  onDelete,
+}: {
+  readonly chats: readonly ChatSummary[];
+  readonly selectedId: string | undefined;
+  readonly onOpen: (id: string) => void;
+  readonly onDelete: (id: string) => void;
+}) {
+  const open = chats.find((chat) => chat.id === selectedId);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="ghost"
+            size="sm"
+            data-testid="chat-picker"
+            aria-label="Conversations"
+            className="-ml-2 min-w-0 justify-start gap-1 px-2 font-medium"
+          >
+            <span className="truncate">{open?.title ?? untitled}</span>
+            <ChevronDown className="text-chat-dim" />
+          </Button>
+        }
+      />
+      <DropdownMenuContent align="start" className="w-72">
+        <DropdownMenuRadioGroup
+          value={selectedId ?? ""}
+          onValueChange={(id: string) => onOpen(id)}
+        >
+          {chats.map((chat) => (
+            <DropdownMenuRadioItem
+              key={chat.id}
+              value={chat.id}
+              data-testid="chat-picker-item"
+            >
+              <span className="truncate">{chat.title}</span>
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+        {selectedId !== undefined && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-testid="chat-delete"
+              onClick={() => onDelete(selectedId)}
+            >
+              <Trash2 />
+              Delete this conversation
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 // The agent's words sit on the panel itself; only the user's own messages get
 // a bubble, so the conversation reads as the instrument talking back.
 function ChatRow({
@@ -127,8 +202,24 @@ function ChatRow({
 }
 
 export function ChatPanel({ className }: { readonly className?: string }) {
-  const { messages, busy, prompt, abort, reset, changeKey } =
-    useGoodVibesAgent();
+  const {
+    messages,
+    busy,
+    prompt,
+    abort,
+    chats,
+    selectedId,
+    newChat,
+    openChat,
+    deleteChat,
+    saveError,
+    changeKey,
+  } = useGoodVibesAgent();
+  // A chat with a rack built by hand is worth keeping too.
+  const hasRacks = useStore((state) => {
+    const root = state.rack.racks[state.rack.rootId];
+    return root?.type === "tree" && root.children.length > 0;
+  });
   const [draft, setDraft] = useState("");
   const [trouble, setTrouble] = useState<Explanation | undefined>(undefined);
   const inputId = useId();
@@ -176,16 +267,28 @@ export function ChatPanel({ className }: { readonly className?: string }) {
         className,
       )}
     >
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-sidebar-border pr-1 pl-4">
-        <h2 className="text-sm font-medium">Chat</h2>
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-sidebar-border pr-1 pl-4">
+        <h2 className="sr-only">Chat</h2>
+        <ChatPicker
+          chats={chats}
+          selectedId={selectedId}
+          onOpen={(id) => {
+            openChat(id);
+            setTrouble(undefined);
+          }}
+          onDelete={(id) => {
+            deleteChat(id);
+            setTrouble(undefined);
+          }}
+        />
         <Hint label="New conversation">
           <Button
             variant="ghost"
             size="icon-sm"
             data-testid="chat-new"
-            disabled={messages.length === 0 && !busy}
+            disabled={messages.length === 0 && !hasRacks && !busy}
             onClick={() => {
-              reset();
+              newChat();
               setTrouble(undefined);
             }}
           >
@@ -248,6 +351,11 @@ export function ChatPanel({ className }: { readonly className?: string }) {
                   <p role="status" className="shimmer text-sm">
                     Thinking…
                   </p>
+                </MessageScrollerItem>
+              )}
+              {saveError !== undefined && (
+                <MessageScrollerItem messageId="save-error">
+                  <Trouble message={saveError} onChangeKey={changeKey} />
                 </MessageScrollerItem>
               )}
               {trouble !== undefined && (

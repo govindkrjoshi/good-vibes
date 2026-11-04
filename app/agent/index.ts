@@ -18,7 +18,7 @@ export {
   type Provider,
   type ProviderId,
 } from "./providers";
-export { chatStorageKey } from "./history";
+export { legacyChatStorageKey } from "./history";
 export { explainError, noKeyGiven, type Explanation } from "./explain";
 export {
   PromptError,

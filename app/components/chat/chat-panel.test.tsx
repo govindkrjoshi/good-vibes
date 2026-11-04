@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { ReactFlowProvider } from "@xyflow/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { newTree } from "../../rack";
 import { useStore } from "../../stores";
 import type { ChatMessage } from "./agent-provider";
 import { ChatPanel } from "./chat-panel";
@@ -13,7 +14,17 @@ const agent = vi.hoisted(() => ({
   busy: false,
   prompt: vi.fn(),
   abort: vi.fn(),
-  reset: vi.fn(),
+  chats: [] as {
+    id: string;
+    title: string;
+    createdAt: number;
+    updatedAt: number;
+  }[],
+  selectedId: undefined as string | undefined,
+  newChat: vi.fn(),
+  openChat: vi.fn(),
+  deleteChat: vi.fn(),
+  saveError: undefined as string | undefined,
   changeKey: vi.fn(),
 }));
 
@@ -69,6 +80,9 @@ const press = (key: string, init: KeyboardEventInit = {}) =>
 beforeEach(() => {
   agent.messages = [];
   agent.busy = false;
+  agent.chats = [];
+  agent.selectedId = undefined;
+  agent.saveError = undefined;
   agent.prompt.mockResolvedValue(undefined);
   useStore.setState(initial, true);
 });
@@ -284,7 +298,33 @@ test("starts a new conversation", () => {
 
   act(() => byTestId("chat-new")?.click());
 
-  expect(agent.reset).toHaveBeenCalledTimes(1);
+  expect(agent.newChat).toHaveBeenCalledTimes(1);
+});
+
+test("starts a new conversation from a rack built without one", () => {
+  render();
+  expect(byTestId<HTMLButtonElement>("chat-new")?.disabled).toBe(true);
+  act(() => useStore.getState().rack.addRack(newTree("t", "root"), "root"));
+
+  expect(byTestId<HTMLButtonElement>("chat-new")?.disabled).toBe(false);
+});
+
+test("names the open conversation", () => {
+  agent.chats = [
+    { id: "a", title: "Bass line", createdAt: 1, updatedAt: 2 },
+    { id: "b", title: "Reverb", createdAt: 1, updatedAt: 1 },
+  ];
+  agent.selectedId = "a";
+  render();
+
+  expect(byTestId("chat-picker")?.textContent).toContain("Bass line");
+});
+
+test("says when the chat could not be kept", () => {
+  agent.saveError = "This chat could not be saved in this browser.";
+  render();
+
+  expect(container.textContent).toContain("could not be saved");
 });
 
 test("keeps thinking once a tool is done and the agent carries on", () => {

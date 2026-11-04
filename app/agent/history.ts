@@ -1,11 +1,10 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ChatMessage } from "./types";
 
-// The conversation, kept in this browser so a reload picks it up where it
-// left off: what the chat showed, and the agent's own transcript so the
-// model remembers the same conversation the user sees. The rack itself is
-// not kept, so the agent is told the page reloaded when it resumes.
-export const chatStorageKey = "good-vibes:chat";
+// Where one conversation was kept before there could be several. Each chat
+// now lives in the store's own storage with its rack (see stores/persist), so
+// this is only read once, to bring an old conversation over.
+export const legacyChatStorageKey = "good-vibes:chat";
 
 export type StoredChat = {
   readonly messages: readonly ChatMessage[];
@@ -15,7 +14,7 @@ export type StoredChat = {
 const roles = new Set(["user", "assistant"]);
 const kinds = new Set(["message", "brief", "tool"]);
 
-const isChatMessage = (value: unknown): value is ChatMessage =>
+export const isChatMessage = (value: unknown): value is ChatMessage =>
   typeof value === "object" &&
   value !== null &&
   typeof (value as ChatMessage).id === "string" &&
@@ -23,41 +22,36 @@ const isChatMessage = (value: unknown): value is ChatMessage =>
   roles.has((value as ChatMessage).role) &&
   kinds.has((value as ChatMessage).kind);
 
-const isTranscriptMessage = (value: unknown): value is AgentMessage =>
+export const isTranscriptMessage = (value: unknown): value is AgentMessage =>
   typeof value === "object" &&
   value !== null &&
   typeof (value as AgentMessage).role === "string";
 
+// A conversation as stored, or nothing when it is something else.
+export const asStoredChat = (value: unknown): StoredChat | undefined => {
+  if (typeof value !== "object" || value === null) return undefined;
+  const { messages, transcript } = value as Partial<StoredChat>;
+  if (!Array.isArray(messages) || !Array.isArray(transcript)) return undefined;
+  if (!messages.every(isChatMessage)) return undefined;
+  if (!transcript.every(isTranscriptMessage)) return undefined;
+  return { messages, transcript };
+};
+
 // Storage can be missing, throw, or hold something older than this shape,
-// all of which only mean starting afresh.
-export const loadChat = (): StoredChat | undefined => {
+// all of which only mean there is nothing to bring over.
+export const loadLegacyChat = (): StoredChat | undefined => {
   try {
-    const raw = localStorage.getItem(chatStorageKey);
+    const raw = localStorage.getItem(legacyChatStorageKey);
     if (raw === null) return undefined;
-    const parsed: unknown = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null) return undefined;
-    const { messages, transcript } = parsed as Partial<StoredChat>;
-    if (!Array.isArray(messages) || !Array.isArray(transcript))
-      return undefined;
-    if (!messages.every(isChatMessage)) return undefined;
-    if (!transcript.every(isTranscriptMessage)) return undefined;
-    return { messages, transcript };
+    return asStoredChat(JSON.parse(raw));
   } catch {
     return undefined;
   }
 };
 
-export const storeChat = (chat: StoredChat) => {
+export const clearLegacyChat = () => {
   try {
-    localStorage.setItem(chatStorageKey, JSON.stringify(chat));
-  } catch {
-    // Kept for this page load only.
-  }
-};
-
-export const clearChat = () => {
-  try {
-    localStorage.removeItem(chatStorageKey);
+    localStorage.removeItem(legacyChatStorageKey);
   } catch {
     // Nothing was kept, then.
   }

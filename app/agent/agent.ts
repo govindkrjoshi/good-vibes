@@ -89,6 +89,9 @@ export type GoodVibesAgent = {
   readonly transcript: Effect.Effect<readonly AgentMessage[]>;
   // Forgets the conversation, stopping a running reply first.
   readonly reset: Effect.Effect<void>;
+  // Carries on another conversation in place of this one, stopping a
+  // running reply first, as when the user opens another chat.
+  readonly restore: (history: readonly AgentMessage[]) => Effect.Effect<void>;
 };
 
 // The parts of one assistant reply as our messages. `reply` numbers the
@@ -107,16 +110,18 @@ export const messagesOf = (
   });
 };
 
-// Told to the agent when it carries on a conversation from before the page
-// was reloaded: its memory is of a rack that may be gone, so here is the
-// rack as it is now.
+// Told to the agent when it carries on a conversation it was not in the
+// middle of: after a reload, or on opening a chat again. The rack is kept
+// with the chat and restored with it, but may differ from what the agent
+// remembers, so here is the rack as it is now.
 export const reloadNote = (store: RackStore): AgentMessage => ({
   role: "user",
   content: [
     {
       type: "text",
-      text: `The page has been reloaded since your last reply, so the rack may not be as you \
-left it. Here it is now:\n${describeRackTree(store.getState().rack)}`,
+      text: `This conversation has been reopened since your last reply. Its rack was kept \
+with it and has been restored, but check it rather than going on memory. Here it is now:\n\
+${describeRackTree(store.getState().rack)}`,
     },
   ],
   timestamp: Date.now(),
@@ -331,13 +336,18 @@ export const createGoodVibesAgent = (
       agent.state.messages.filter((message) => message.role !== "system"),
     );
 
-    const reset = Effect.promise(async () => {
-      agent.abort();
-      await agent.waitForIdle();
-      agent.reset();
-      pending = [];
-      resumed = false;
-    });
+    const restore = (history: readonly AgentMessage[]) =>
+      Effect.promise(async () => {
+        agent.abort();
+        await agent.waitForIdle();
+        agent.reset();
+        // Reset keeps the system prompt; the history goes after it.
+        agent.state.messages = [...agent.state.messages, ...history];
+        pending = [];
+        resumed = history.length > 0;
+      });
+
+    const reset = restore([]);
 
     return {
       prompt,
@@ -345,5 +355,6 @@ export const createGoodVibesAgent = (
       abort,
       transcript,
       reset,
+      restore,
     };
   });

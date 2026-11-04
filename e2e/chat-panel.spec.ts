@@ -58,6 +58,34 @@ test("keeps the conversation across a reload, until a new one is started", async
   await expect(chat(page)).toContainText("Talk to the agent");
 });
 
+test("keeps each chat's rack with it, across a reload and between chats", async ({
+  page,
+}) => {
+  await page.getByTestId("add-group").click();
+  await expect(page.getByTestId("tree-node")).toHaveCount(1);
+  await page.getByTestId("chat-input").fill("Keep this group");
+  await page.getByTestId("chat-input").press("Enter");
+  await expect(chat(page)).toContainText("Try a reverb.");
+
+  await openSandboxPage(page);
+  await expect(page.getByTestId("tree-node")).toHaveCount(1);
+  await expect(page.getByTestId("chat-picker")).toContainText(
+    "Keep this group",
+  );
+
+  await page.getByTestId("chat-new").click();
+  await expect(page.getByTestId("tree-node")).toHaveCount(0);
+  await expect(chat(page)).toContainText("Talk to the agent");
+
+  await page.getByTestId("chat-picker").click();
+  await page
+    .getByTestId("chat-picker-item")
+    .filter({ hasText: "Keep this group" })
+    .click();
+  await expect(page.getByTestId("tree-node")).toHaveCount(1);
+  await expect(chat(page)).toContainText("Keep this group");
+});
+
 test("typing in the chat leaves the rack shortcuts alone", async ({ page }) => {
   await page.getByTestId("chat-input").fill("");
   await page.getByTestId("chat-input").press("s");

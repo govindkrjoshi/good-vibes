@@ -5,10 +5,17 @@ import { Effect, PubSub, Stream } from "effect";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GoodVibesAgent } from "./agent";
 import { noKeyGiven } from "./explain";
-import { chatStorageKey } from "./history";
 import type { Credential } from "./providers";
 import { createSession, type CreateAgent, type Session } from "./session";
-import { useStore } from "../stores";
+import { storage, useStore } from "../stores";
+import {
+  newChat,
+  openChat,
+  startChats,
+  stopChats,
+  useChats,
+} from "../stores/chats";
+import { chatKey, noChatKey } from "../stores/persist";
 import { PromptError, type GoodVibesMessage } from "./types";
 
 // Stands in for the agent: a prompt says its reply a word at a time, then
@@ -20,6 +27,7 @@ const fakeAgent = () => {
   let reply = 0;
   const aborted = vi.fn();
   const wasReset = vi.fn();
+  const restored = vi.fn<(history: readonly AgentMessage[]) => void>();
   let outcome: Effect.Effect<void, PromptError> = Effect.void;
   // What the model would remember: each prompt and a reply to it.
   let transcript: AgentMessage[] = [];
@@ -52,8 +60,14 @@ const fakeAgent = () => {
       transcript = [];
       wasReset();
     }),
+    restore: (history: readonly AgentMessage[]) =>
+      Effect.sync(() => {
+        transcript = [...history];
+        restored(history);
+      }),
     aborted,
     wasReset,
+    restored,
   };
   return agent;
 };
@@ -62,8 +76,28 @@ let agent: ReturnType<typeof fakeAgent>;
 const createAgent = vi.fn<CreateAgent>();
 const askForKey = vi.fn<() => Promise<Credential>>();
 
-const session = (): Session =>
-  createSession({ askForKey, store: useStore, createAgent });
+const sessions: Session[] = [];
+const session = (): Session => {
+  const made = createSession({ askForKey, store: useStore, createAgent });
+  sessions.push(made);
+  return made;
+};
+
+const initialStore = useStore.getState();
+
+// What a fresh page load starts from, before the kept chats are read.
+const freshPage = () => {
+  stopChats();
+  useStore.persist.setOptions({ name: noChatKey });
+  useStore.setState(initialStore, true);
+};
+
+// The open chat as kept in storage.
+const keptChat = () => {
+  storage.flush();
+  const id = useChats.getState().selectedId ?? "";
+  return JSON.parse(localStorage.getItem(chatKey(id)) ?? "{}").state;
+};
 
 // The key the agent would send with its next request.
 const agentKey = () => createAgent.mock.calls[0]?.[0]().key;
@@ -72,12 +106,16 @@ const agentKey = () => createAgent.mock.calls[0]?.[0]().key;
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 beforeEach(() => {
+  freshPage();
   agent = fakeAgent();
   createAgent.mockImplementation(() => Effect.succeed(agent as GoodVibesAgent));
   askForKey.mockResolvedValue({ provider: "openrouter", key: "sk-or-typed" });
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await Promise.all(sessions.splice(0).map((made) => made.close()));
+  freshPage();
+  useChats.setState({ chats: [], selectedId: undefined });
   createAgent.mockReset();
   askForKey.mockReset();
   localStorage.clear();
@@ -286,34 +324,41 @@ test("marks the reply the user stopped", async () => {
   });
 });
 
-test("keeps the conversation in this browser and carries it on after a reload", async () => {
+test("keeps the conversation in the open chat, with its rack, and carries it on after a reload", async () => {
+  await startChats();
   const chat = session();
   await chat.prompt("hello");
   await chat.prompt("again");
+  useStore.getState().rack.setTransport({ bpm: 90 });
 
-  const stored = JSON.parse(localStorage.getItem(chatStorageKey) ?? "{}");
-  expect(stored.messages.map((m: { text: string }) => m.text)).toEqual([
+  const stored = keptChat();
+  expect(stored.chat.messages.map((m: { text: string }) => m.text)).toEqual([
     "hello",
     "Hi there",
     "again",
     "Hi there",
   ]);
-  expect(stored.transcript).toHaveLength(4);
+  expect(stored.chat.transcript).toHaveLength(4);
+  expect(stored.rack.transport.bpm).toBe(90);
 
   // The next page load: a new session, a new agent handed the history.
+  freshPage();
   createAgent.mockClear();
+  await startChats();
   const later = session();
   expect(later.getState().messages).toHaveLength(4);
+  expect(useStore.getState().rack.transport.bpm).toBe(90);
 
   await later.prompt("still there?");
 
   expect(createAgent.mock.calls[0]?.[2]).toEqual({
-    history: stored.transcript,
+    history: stored.chat.transcript,
   });
   expect(later.getState().messages).toHaveLength(6);
 });
 
 test("leaves a reply that failed out of what the model carries on from", async () => {
+  await startChats();
   const chat = session();
   await chat.prompt("hello");
   agent.prompt.mockImplementationOnce(() =>
@@ -324,31 +369,57 @@ test("leaves a reply that failed out of what the model carries on from", async (
   );
   await chat.prompt("again");
 
-  const stored = JSON.parse(localStorage.getItem(chatStorageKey) ?? "{}");
-  expect(stored.messages).toHaveLength(4);
-  expect(stored.transcript).toHaveLength(2);
+  const stored = keptChat();
+  expect(stored.chat.messages).toHaveLength(4);
+  expect(stored.chat.transcript).toHaveLength(2);
 });
 
-test("starts over on reset, here and in storage", async () => {
+test("opening another chat swaps the conversation, the rack, and what the agent carries on", async () => {
+  await startChats();
   const chat = session();
   await chat.prompt("hello");
-  expect(localStorage.getItem(chatStorageKey)).not.toBeNull();
+  useStore.getState().rack.setTransport({ bpm: 90 });
+  const first = useChats.getState().selectedId ?? "";
 
-  chat.reset();
+  await newChat();
   await flush();
 
   expect(chat.getState().messages).toEqual([]);
-  expect(localStorage.getItem(chatStorageKey)).toBeNull();
-  expect(agent.wasReset).toHaveBeenCalledTimes(1);
+  expect(useStore.getState().rack.transport.bpm).toBe(120);
+  expect(agent.restored).toHaveBeenLastCalledWith([]);
 
-  await chat.prompt("hello again");
-  expect(createAgent).toHaveBeenCalledTimes(1);
+  await openChat(first);
+  await flush();
+
   expect(chat.getState().messages).toHaveLength(2);
+  expect(useStore.getState().rack.transport.bpm).toBe(90);
+  expect(agent.restored.mock.lastCall?.[0]).toHaveLength(2);
+  expect(createAgent).toHaveBeenCalledTimes(1);
 });
 
-test("ignores stored chat it cannot read", () => {
-  localStorage.setItem(chatStorageKey, "{not json");
-  expect(session().getState().messages).toEqual([]);
+test("a reply still running when another chat is opened stays out of it", async () => {
+  await startChats();
+  const chat = session();
+  let finish!: () => void;
+  agent.prompt.mockImplementationOnce(() =>
+    Effect.promise(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    ),
+  );
+  const replying = chat.prompt("hello");
+  await flush();
+
+  await newChat();
+  agent.say({ type: "message", id: "1-0", text: "Late words" });
+  finish();
+  await replying;
+  await flush();
+
+  expect(chat.getState().messages).toEqual([]);
+  expect(keptChat()?.chat.transcript ?? []).toEqual([]);
 });
 
 test("shows a failure on the reply it cut short", async () => {

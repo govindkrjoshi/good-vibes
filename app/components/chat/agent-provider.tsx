@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   useSyncExternalStore,
@@ -15,6 +16,15 @@ import {
   type SessionState,
 } from "../../agent";
 import { useStore } from "../../stores";
+import {
+  deleteChat,
+  newChat,
+  openChat,
+  recentChats,
+  startChats,
+  useChats,
+  type ChatSummary,
+} from "../../stores/chats";
 import { ApiKeyDialog } from "./api-key-dialog";
 
 export type { ChatMessage } from "../../agent";
@@ -25,8 +35,15 @@ type GoodVibesAgentContextValue = {
   readonly busy: boolean;
   readonly prompt: (text: string) => Promise<void>;
   readonly abort: () => void;
-  // Forgets the conversation and starts a new one.
-  readonly reset: () => void;
+  // The chats kept in this browser, newest first, and the one open.
+  readonly chats: readonly ChatSummary[];
+  readonly selectedId: string | undefined;
+  // Each loads the chat's rack along with its conversation.
+  readonly newChat: () => void;
+  readonly openChat: (id: string) => void;
+  readonly deleteChat: (id: string) => void;
+  // Why the open chat could not be kept in this browser, if it could not.
+  readonly saveError: string | undefined;
   readonly changeKey: () => void;
 };
 
@@ -35,7 +52,7 @@ const GoodVibesAgentContext = createContext<
 >(undefined);
 
 // What the server renders, and so what the client must render while it
-// hydrates: the conversation kept in this browser's storage is only shown
+// hydrates: the conversation kept in this browser's storage is only loaded
 // once React has taken over, or the two would not match.
 const beforeHydration: SessionState = { messages: [], busy: false };
 
@@ -69,6 +86,7 @@ export function GoodVibesAgentProvider({
   const [session] = useState(() =>
     createSession({
       store: useStore,
+      chatLoaded: startChats,
       askForKey: () => {
         const asked = keyRequest();
         setRequest(asked);
@@ -87,6 +105,16 @@ export function GoodVibesAgentProvider({
     if (request !== undefined) settle(request);
   };
 
+  const chats = useChats((chats) => chats.chats);
+  const selectedId = useChats((chats) => chats.selectedId);
+  const saveError = useStore((store) => store.chat.saveError);
+  const recent = useMemo(() => recentChats(chats), [chats]);
+
+  // The chat open last, with its rack, once the page is in the browser.
+  useEffect(() => {
+    void startChats();
+  }, []);
+
   const changeKey = useCallback(() => setChangingKey(true), []);
 
   const value = useMemo(
@@ -95,10 +123,15 @@ export function GoodVibesAgentProvider({
       busy: state.busy,
       prompt: session.prompt,
       abort: session.abort,
-      reset: session.reset,
+      chats: recent,
+      selectedId,
+      newChat: () => void newChat(),
+      openChat: (id: string) => void openChat(id),
+      deleteChat: (id: string) => void deleteChat(id),
+      saveError,
       changeKey,
     }),
-    [state, session, changeKey],
+    [state, session, recent, selectedId, saveError, changeKey],
   );
 
   return (

@@ -21,8 +21,17 @@ class FakeNode {
   readonly envelope = { attack: 0 };
   readonly frequency = {
     ramped: [] as unknown[][],
+    // Every call on the param in order, ramps included.
+    calls: [] as unknown[][],
     rampTo(...args: unknown[]) {
       this.ramped.push(args);
+      this.calls.push(["rampTo", ...args]);
+    },
+    setValueAtTime(...args: unknown[]) {
+      this.calls.push(["setValueAtTime", ...args]);
+    },
+    cancelScheduledValues(...args: unknown[]) {
+      this.calls.push(["cancelScheduledValues", ...args]);
     },
   };
   constructor(readonly name: string) {
@@ -61,6 +70,10 @@ let sequences: {
   play: (time: number, value: unknown) => void;
   disposed: boolean;
 }[] = [];
+let toneEvents: {
+  play: (time: number, value: unknown) => void;
+  value: unknown;
+}[] = [];
 let transport: {
   bpm: { value: number };
   start: ReturnType<typeof vi.fn>;
@@ -91,6 +104,13 @@ const fakeTone = () =>
         super("noInput");
       }
     },
+    // A node with a part a jack can reach on its own.
+    Filter: class extends FakeNode {
+      readonly cutoff = new FakeNode("cutoff");
+      constructor() {
+        super("filter");
+      }
+    },
     Sequence: class {
       constructor(play: (time: number, value: unknown) => void) {
         sequences.push(Object.assign(this, { play, disposed: false }));
@@ -101,6 +121,17 @@ const fakeTone = () =>
       dispose() {
         (this as unknown as { disposed: boolean }).disposed = true;
       }
+    },
+    // Tone's ToneEvent has a null value when given none.
+    ToneEvent: class {
+      loop: unknown;
+      constructor(play: (time: number, value: unknown) => void, value = null) {
+        toneEvents.push({ play, value });
+      }
+      start() {
+        return this;
+      }
+      dispose() {}
     },
     getDestination: () => speakers,
     getTransport: () => transport,
@@ -198,6 +229,7 @@ const synth = () => made.find((node) => node.name === "synth") as FakeNode;
 beforeEach(() => {
   made = [];
   sequences = [];
+  toneEvents = [];
   speakers = new FakeNode("speakers");
   suspend = vi.fn(() => Promise.resolve());
   transport = {
@@ -479,6 +511,80 @@ test("lands automation added while the transport plays, due ones now", () => {
   ]);
 });
 
+const automatedSynth = {
+  racks: { S: { ...leaf("S"), paramGroupId: "g" } },
+  paramGroups: { g: { id: "g", params: [frequency("S")] } },
+  values: { "S:frequency": 440 },
+};
+
+test("clears an emptied list off the param and gives it its value back", () => {
+  const event = { id: "a", method: "rampTo", value: 1, time: "2" } as const;
+  go({ ...automatedSynth, automations: { "S:frequency": [event] } });
+  synth().params.length = 0;
+
+  go({ automations: { "S:frequency": [] } });
+
+  expect(synth().frequency.calls).toEqual([["cancelScheduledValues", 0]]);
+  expect(synth().params).toEqual([{ frequency: 440 }]);
+});
+
+test("clears a list edited while the transport plays before the new one lands", () => {
+  go(automatedSynth);
+  transport.state = "started";
+  transport.seconds = 3;
+  const first = { id: "a", method: "setValueAtTime", value: 1, time: "6" };
+  go({ automations: { "S:frequency": [first] } as RackState["automations"] });
+  const calls = synth().frequency.calls;
+  calls.length = 0;
+  synth().params.length = 0;
+
+  const second = { ...first, value: 2 };
+  go({ automations: { "S:frequency": [second] } as RackState["automations"] });
+
+  expect(calls).toEqual([
+    ["cancelScheduledValues", 0],
+    ["setValueAtTime", 2, 8],
+  ]);
+  expect(synth().params).toEqual([{ frequency: 440 }]);
+});
+
+test("clears automated params when the transport stops", async () => {
+  const event = { id: "a", method: "rampTo", value: 1, time: "2" } as const;
+  go({
+    ...automatedSynth,
+    automations: { "S:frequency": [event] },
+    transport: { bpm: 120, playing: true },
+  });
+  await vi.waitFor(() => expect(transport.start).toHaveBeenCalledOnce());
+  synth().params.length = 0;
+
+  go({ transport: { bpm: 120, playing: false } });
+
+  expect(synth().frequency.calls).toEqual([["cancelScheduledValues", 0]]);
+  expect(synth().params).toEqual([{ frequency: 440 }]);
+});
+
+test("lands automation again on a rack rebuilt while the transport plays", () => {
+  const event = { id: "a", method: "rampTo", value: 1, time: "6" } as const;
+  go({ ...automatedSynth, automations: { "S:frequency": [event] } });
+  transport.state = "started";
+  transport.seconds = 3;
+
+  go({
+    racks: {
+      S: { ...leaf("S", "new tone.Synth() /* changed */"), paramGroupId: "g" },
+    },
+  });
+
+  const rebuilt = made.filter((node) => node.name === "synth").at(-1);
+  expect(rebuilt).not.toBe(synth());
+  expect(rebuilt?.frequency.calls).toEqual([
+    ["cancelScheduledValues", 0],
+    ["rampTo", 1, undefined, 8],
+  ]);
+  expect(transport.schedule).toHaveBeenCalledTimes(2);
+});
+
 test("starts over from nothing on reset", () => {
   go({
     ...synthIntoSpeakers,
@@ -497,4 +603,109 @@ test("starts over from nothing on reset", () => {
 
   go(synthIntoSpeakers);
   expect(made.filter((node) => node.name === "synth")).toHaveLength(2);
+});
+
+test("unpatches a rack's member before rebuilding it, and patches the new one", () => {
+  go({
+    racks: { S: leaf("S"), F: leaf("F", "new tone.Filter()") },
+    jacks: {
+      "S:out": jack("S", "out"),
+      "F:cutoff": { ...jack("F", "in"), port: { member: ["cutoff"] } },
+    },
+    patches: { p: patch("p", "S:out", "F:cutoff") },
+  });
+  const old = made.find((node) => node.name === "cutoff") as FakeNode;
+  const disposed: boolean[] = [];
+  const disconnect = synth().disconnect.bind(synth());
+  synth().disconnect = (to: FakeNode) => {
+    disposed.push(
+      (made.find((node) => node.name === "filter") as FakeNode).disposed,
+    );
+    disconnect(to);
+  };
+
+  go({ racks: { ...current.racks, F: leaf("F", "new tone.Filter() // new") } });
+
+  const cutoffs = made.filter((node) => node.name === "cutoff");
+  expect(cutoffs).toHaveLength(2);
+  expect(disposed).toEqual([false]);
+  expect(synth().connected).toEqual([cutoffs[1]]);
+  expect(synth().connected).not.toContain(old);
+  expect(errors).toEqual([]);
+});
+
+test("reports a patch that can't be put back, and applies the rest", () => {
+  go({
+    racks: {
+      S: leaf("S"),
+      A: leaf("A", "tone.getDestination()"),
+      B: leaf("B", "tone.getDestination()"),
+    },
+    jacks: {
+      "S:out": jack("S", "out"),
+      "A:in": jack("A", "in"),
+      "B:in": jack("B", "in"),
+    },
+    patches: {
+      a: patch("a", "S:out", "A:in"),
+      b: patch("b", "S:out", "B:in"),
+    },
+  });
+  synth().connect = () => {
+    throw new Error("no way back");
+  };
+
+  go({ patches: { b: patch("b", "S:out", "B:in") }, events: { riff } });
+
+  expect(errors).toEqual(["Patch b can't be put back: no way back"]);
+  expect(sequences).toHaveLength(1);
+});
+
+test("plays a loop with no value with the note from its args", () => {
+  const loop: RackEvent = {
+    kind: "event",
+    id: "loop",
+    belongToBlockId: "S",
+    methodId: "m",
+    args: { note: "E4", duration: "8n" },
+    mute: false,
+    start: "0",
+    loop: true,
+    loopEnd: "1m",
+  };
+  go({
+    ...synthIntoSpeakers,
+    methods: {
+      m: { ...triggerAttackRelease(), id: "m", belongToBlockId: "S" },
+    },
+    events: { loop },
+  });
+
+  toneEvents[0]?.play(2, toneEvents[0].value);
+
+  expect(toneEvents[0]?.value).toBeNull();
+  expect(synth().played).toEqual([["E4", "8n", 2, 1]]);
+});
+
+test("builds a leaf whose code ends in a line comment", () => {
+  go({
+    racks: { S: { ...leaf("S"), code: `${code("new tone.Synth()")} // why` } },
+  });
+
+  expect(synth()).toBeDefined();
+  expect(errors).toEqual([]);
+});
+
+test("reports a failed leaf once, and tries it again when its code changes", () => {
+  const broken = { ...leaf("S"), code: "this is not code" };
+  go({ racks: { S: broken } });
+  go({ racks: { S: { ...broken, name: "Renamed" } } });
+  expect(errors).toHaveLength(1);
+
+  go({ racks: { S: { ...broken, code: "still not code" } } });
+  expect(errors).toHaveLength(2);
+
+  go({ racks: { S: leaf("S") } });
+  expect(synth()).toBeDefined();
+  expect(errors).toHaveLength(2);
 });

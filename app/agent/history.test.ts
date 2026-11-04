@@ -4,11 +4,10 @@ import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { afterEach, expect, test } from "vitest";
 import {
-  chatStorageKey,
-  clearChat,
-  loadChat,
+  clearLegacyChat,
+  legacyChatStorageKey,
+  loadLegacyChat,
   settledTranscript,
-  storeChat,
 } from "./history";
 
 afterEach(() => {
@@ -21,8 +20,8 @@ const user = (text: string): AgentMessage => ({
   timestamp: 1,
 });
 
-test("round-trips a conversation through local storage", () => {
-  expect(loadChat()).toBeUndefined();
+test("reads the conversation kept before there were several", () => {
+  expect(loadLegacyChat()).toBeUndefined();
   const chat = {
     messages: [
       {
@@ -34,29 +33,28 @@ test("round-trips a conversation through local storage", () => {
     ],
     transcript: [user("hi"), fauxAssistantMessage("Hello.")],
   };
+  localStorage.setItem(legacyChatStorageKey, JSON.stringify(chat));
 
-  storeChat(chat);
-
-  expect(loadChat()).toEqual(chat);
-  clearChat();
-  expect(localStorage.getItem(chatStorageKey)).toBeNull();
+  expect(loadLegacyChat()).toEqual(chat);
+  clearLegacyChat();
+  expect(localStorage.getItem(legacyChatStorageKey)).toBeNull();
 });
 
 test("ignores what it cannot read", () => {
-  localStorage.setItem(chatStorageKey, "nope");
-  expect(loadChat()).toBeUndefined();
+  localStorage.setItem(legacyChatStorageKey, "nope");
+  expect(loadLegacyChat()).toBeUndefined();
 
-  localStorage.setItem(chatStorageKey, JSON.stringify({ messages: "x" }));
-  expect(loadChat()).toBeUndefined();
+  localStorage.setItem(legacyChatStorageKey, JSON.stringify({ messages: "x" }));
+  expect(loadLegacyChat()).toBeUndefined();
 
   localStorage.setItem(
-    chatStorageKey,
+    legacyChatStorageKey,
     JSON.stringify({
       messages: [{ id: "a", role: "ghost", kind: "message", text: "" }],
       transcript: [],
     }),
   );
-  expect(loadChat()).toBeUndefined();
+  expect(loadLegacyChat()).toBeUndefined();
 });
 
 test("settles a transcript on a finished reply or tool results", () => {

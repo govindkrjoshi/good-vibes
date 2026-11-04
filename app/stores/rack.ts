@@ -92,7 +92,7 @@ type Actions = {
 
 export type RackSlice = State & Actions;
 
-const initialState: State = {
+export const initialRack: State = {
   racks: { [rootRack.id]: rootRack },
   jacks: {},
   paramGroups: {},
@@ -156,11 +156,11 @@ const dropPatches = (state: Draft<Store>, patchIds: readonly string[]) => {
 };
 
 export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
-  ...initialState,
+  ...initialRack,
   reset: () =>
     set(
       (state) => {
-        Object.assign(state.rack, initialState);
+        Object.assign(state.rack, initialRack);
       },
       false,
       "rack/reset",
@@ -169,7 +169,7 @@ export const createRackSlice: SliceCreator<RackSlice> = (set, get) => ({
     set(
       (state) => {
         const { transport } = state.rack;
-        Object.assign(state.rack, initialState, {
+        Object.assign(state.rack, initialRack, {
           transport: { ...transport, playing: false },
         });
       },

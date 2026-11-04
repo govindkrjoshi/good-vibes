@@ -41,7 +41,8 @@ export const evalLeafCode = (code: string): LeafCode =>
     "Effect",
     "RenderContext",
     "LeafError",
-    `"use strict"; return (${code});`,
+    // On their own lines, so code ending in a line comment still closes.
+    `"use strict"; return (\n${code}\n);`,
   )(Effect, RenderContext, LeafError) as LeafCode;
 
 // One end of a patch: a node, or a part of one a jack's port names, and which
@@ -51,6 +52,9 @@ type End = { readonly node: ToneNode; readonly index: number };
 type Wire = {
   readonly from: End;
   readonly to: End;
+  // The racks whose jacks it joins. An end can be a member of a rack's node,
+  // so the node alone doesn't say whose it is.
+  readonly racks: { readonly from: string; readonly to: string };
   readonly connected: boolean;
   // The param a wire into one drives, put back when the wire goes.
   readonly drives?: { readonly rackId: string; readonly paramId: string };
@@ -64,6 +68,8 @@ const sameEnd = (a: End, b: End) => a.node === b.node && a.index === b.index;
 type Env = {
   state: RackState;
   readonly nodes: Map<string, { readonly code: string; node: ToneNode }>;
+  // The code of each leaf that failed to build.
+  readonly failed: Map<string, string>;
   readonly jacks: Map<string, ToneNode>;
   readonly wires: Map<string, Wire>;
   readonly events: Map<string, { dispose(): unknown }>;
@@ -102,6 +108,7 @@ export const createRenderer = ({
   const env: Env = {
     state: emptyRackState,
     nodes: new Map(),
+    failed: new Map(),
     jacks: new Map(),
     wires: new Map(),
     events: new Map(),
@@ -148,19 +155,23 @@ export const createRenderer = ({
     const held = env.nodes.get(rackId);
     const code = rack?.type === "leaf" ? rack.code : undefined;
     if (held?.code === code) return false;
+    // A failed build is remembered so it is only reported once, and tried
+    // again only when its code changes.
+    if (held === undefined && env.failed.get(rackId) === code) return false;
+    env.failed.delete(rackId);
 
     if (held !== undefined) {
-      unwire(
-        (wire) => wire.from.node === held.node || wire.to.node === held.node,
-      );
+      unwire((wire) => wire.racks.from === rackId || wire.racks.to === rackId);
       disposeNode(held.node);
       env.nodes.delete(rackId);
     }
     if (code !== undefined) {
+      env.failed.set(rackId, code);
       attempt(`${rack?.name} can't be built`, () => {
         const node = Effect.runSync(
           Effect.provideService(evalLeafCode(code), RenderContext, { tone }),
         );
+        env.failed.delete(rackId);
         env.nodes.set(rackId, { code, node });
         setAllParams(rackId, node);
       });
@@ -261,11 +272,15 @@ export const createRenderer = ({
         );
       }
     }
-    for (const wire of env.wires.values()) {
+    for (const [id, wire] of env.wires) {
       const shared = gone.some(
         ([, was]) => sameEnd(was.from, wire.from) && sameEnd(was.to, wire.to),
       );
-      if (shared && wire.connected) connectEnds(wire.from, wire.to);
+      if (shared && wire.connected) {
+        attempt(`Patch ${id} can't be put back`, () =>
+          connectEnds(wire.from, wire.to),
+        );
+      }
     }
     for (const [, wire] of gone) if (wire.drives) restore(wire.drives);
   };
@@ -296,6 +311,10 @@ export const createRenderer = ({
         connectEnds(want.from, want.to);
         connected = true;
       });
+      const racks = {
+        from: env.state.jacks[patch.from]!.belongToBlockId,
+        to: env.state.jacks[patch.to]!.belongToBlockId,
+      };
       const jack = env.state.jacks[patch.to];
       const member = jack?.port?.member;
       const drives =
@@ -305,7 +324,7 @@ export const createRenderer = ({
               paramId: `${jack.belongToBlockId}:param:${member.join(".")}`,
             }
           : undefined;
-      env.wires.set(patch.id, { ...want, connected, drives });
+      env.wires.set(patch.id, { ...want, racks, connected, drives });
     }
   };
 
@@ -328,7 +347,8 @@ export const createRenderer = ({
     const note = noteArg(method);
     const args = method.args.map((arg) => {
       if (arg === when) return time;
-      if (arg === note && value !== undefined) return value;
+      // A ToneEvent with no value plays null, so a loop falls back to its args.
+      if (arg === note && value !== undefined && value !== null) return value;
       return event.args[arg.name] ?? arg.defaultValue;
     });
     attempt(`${method.name} failed`, () =>
@@ -407,6 +427,21 @@ export const createRenderer = ({
     );
   };
 
+  // Points handed to a param stay on it until cancelled, and a stopped
+  // context keeps the ones yet to fire for the next run. So a list is cleared
+  // off the param before it lands again, and the param goes back to its value.
+  const clearAutomation = (paramId: string) => {
+    const param = findParam(env.state, paramId);
+    const node = param && env.nodes.get(param.belongToRackId)?.node;
+    if (param === undefined || node === undefined || isDriven(paramId)) return;
+    const target = memberOf(node, param.path) as unknown as Called | undefined;
+    attempt(`${param.name} can't be cleared`, () =>
+      target?.cancelScheduledValues?.(0),
+    );
+    const value = env.state.values[paramId];
+    if (value !== undefined) setParam(node, param, value);
+  };
+
   // A param's whole list lands when the transport starts, each at its own time.
   // The transport only fires a callback whose tick it has yet to reach, so a
   // list changed while it plays also lands right away, from where it started.
@@ -416,8 +451,12 @@ export const createRenderer = ({
     if (held !== undefined) transport.clear(held);
     env.automations.delete(paramId);
     const events = env.state.automations[paramId] ?? [];
-    if (events.length === 0) return;
+    if (events.length === 0) {
+      clearAutomation(paramId);
+      return;
+    }
     const land = (start: number) => {
+      clearAutomation(paramId);
       for (const event of events) automate(paramId, event, start);
     };
     env.automations.set(paramId, transport.schedule(land, 0));
@@ -438,6 +477,7 @@ export const createRenderer = ({
       );
     } else {
       transport.stop();
+      for (const paramId of env.automations.keys()) clearAutomation(paramId);
       // Oscillators run regardless of the transport; only this silences them.
       void (tone.getContext().rawContext as AudioContext).suspend();
     }
@@ -459,7 +499,13 @@ export const createRenderer = ({
     for (const id of touched("values")) syncValue(id, rebuilt);
     syncWires();
     for (const id of touched("events")) syncEvent(id);
-    for (const id of touched("automations")) syncAutomation(id);
+    // A rebuilt node has only plain values, so its automation lands again.
+    const automated = touched("automations");
+    for (const id of Object.keys(env.state.automations)) {
+      const rackId = findParam(env.state, id)?.belongToRackId;
+      if (rackId !== undefined && rebuilt.has(rackId)) automated.add(id);
+    }
+    for (const id of automated) syncAutomation(id);
     syncTransport(prev.transport);
   };
 
@@ -492,6 +538,7 @@ export const createRenderer = ({
     env.automations.clear();
     env.jacks.clear();
     env.nodes.clear();
+    env.failed.clear();
     const prev = env.state.transport;
     env.state = emptyRackState;
     syncTransport(prev);

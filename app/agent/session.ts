@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { Effect, Exit, Scope, Stream } from "effect";
 import { explainError } from "./explain";
-import { clearChat, loadChat, settledTranscript, storeChat } from "./history";
+import { settledTranscript } from "./history";
 import { knownCredential, storeCredential } from "./key";
 import type { Credential } from "./providers";
 import type { ApiKey, ChatMessage, GoodVibesMessage, RackStore } from "./types";
@@ -20,8 +20,6 @@ export type Session = {
   readonly subscribe: (listener: () => void) => () => void;
   readonly prompt: (text: string) => Promise<void>;
   readonly abort: () => void;
-  // Forgets the conversation, here and in storage, stopping any reply.
-  readonly reset: () => void;
   // Remembers a key the user gave, and the service it is for: for this page
   // load, and in storage when storage allows. The running agent reads it on
   // its next request.
@@ -33,7 +31,7 @@ export type Session = {
 };
 
 export type CreateAgentOptions = {
-  // The model's side of a conversation kept from before a reload.
+  // The model's side of the open chat's conversation, as kept.
   readonly history: readonly AgentMessage[];
 };
 
@@ -52,6 +50,9 @@ export type SessionOptions = {
   // How the agent is made. By default the agent module is loaded on first
   // use, so the model runtime stays out of the initial bundle.
   readonly createAgent?: CreateAgent;
+  // Settles once the open chat is loaded into the store. A prompt waits for
+  // it, so what it says is not put over by the chat as it loads.
+  readonly chatLoaded?: () => Promise<void>;
 };
 
 let agentModule: Promise<typeof import("./agent")> | undefined;
@@ -64,30 +65,36 @@ const loadAgent: CreateAgent = (apiKey, store, options) =>
   );
 
 // Runs one agent for as long as the session lives, so the conversation
-// carries over between prompts, and keeps what was said for the chat and in
-// this browser's storage, so a reload carries on the same conversation. The
-// key comes from the dev server's environment, then from local
-// storage, and failing both the session asks for one.
+// carries over between prompts. What was said is kept in the store's chat,
+// both sides of it, and so in this browser's storage with the rack; opening
+// another chat there has the agent carry on that one instead. The key comes
+// from the dev server's environment, then from local storage, and failing
+// both the session asks for one.
 export const createSession = ({
   askForKey,
   store,
   createAgent = loadAgent,
+  chatLoaded = () => Promise.resolve(),
 }: SessionOptions): Session => {
-  const stored = loadChat();
-  let state: SessionState = { messages: stored?.messages ?? [], busy: false };
-  // The model's side of the conversation, handed to the agent when it is
-  // made, so the two sides match.
-  let history: readonly AgentMessage[] = settledTranscript(
-    stored?.transcript ?? [],
-  );
+  let busy = false;
+  let state: SessionState = {
+    messages: store.getState().chat.messages,
+    busy,
+  };
   const listeners = new Set<() => void>();
-  const setState = (patch: Partial<SessionState>) => {
-    state = { ...state, ...patch };
+  const notify = () => {
+    const { messages } = store.getState().chat;
+    if (messages === state.messages && busy === state.busy) return;
+    state = { messages, busy };
     for (const listener of listeners) listener();
+  };
+  const setBusy = (value: boolean) => {
+    busy = value;
+    notify();
   };
   const setMessages = (
     update: (messages: readonly ChatMessage[]) => readonly ChatMessage[],
-  ) => setState({ messages: update(state.messages) });
+  ) => store.getState().chat.setMessages(update);
 
   // Owns the agent and the listener on what it says; see close.
   const scope = Effect.runSync(Scope.make());
@@ -101,9 +108,11 @@ export const createSession = ({
   let nextId = 0;
   // Set by abort while a reply runs, so the reply is marked as stopped.
   let stopping = false;
-  // Counts resets, so a reply that was running through one does not save
-  // the conversation it belonged to over the fresh one.
+  // Counts the chats opened, so a reply that was running when another was
+  // opened neither shows nor saves anything in the one opened.
   let conversation = 0;
+  // The chat the running reply belongs to.
+  let replyingIn = conversation;
 
   const currentKey = (): Credential | undefined =>
     enteredKey ?? knownCredential();
@@ -131,6 +140,7 @@ export const createSession = ({
   // The agent sends a message again as it grows, so an id already shown is
   // updated in place.
   const onMessage = (said: GoodVibesMessage) => {
+    if (replyingIn !== conversation) return;
     const id = `agent-${said.id}`;
     const shown: ChatMessage = {
       id,
@@ -155,6 +165,7 @@ export const createSession = ({
 
   // Shown on the reply that failed, or on its own when nothing arrived.
   const failReply = (raw: string) => {
+    if (replyingIn !== conversation) return;
     const { message: error, recover } = explainError(
       raw,
       currentKey()?.provider,
@@ -194,7 +205,7 @@ export const createSession = ({
       const created = await Effect.runPromise(
         Effect.gen(function* () {
           const made = yield* createAgent(() => currentKey() ?? given, store, {
-            history,
+            history: settledTranscript(store.getState().chat.transcript),
           });
           yield* Stream.runForEach(made.messages, (said) =>
             Effect.sync(() => onMessage(said)),
@@ -210,18 +221,22 @@ export const createSession = ({
     return agent;
   };
 
-  // Keeps the conversation once the agent is quiet, both sides of it.
-  const save = async (ready: GoodVibesAgent) => {
-    history = settledTranscript(await Effect.runPromise(ready.transcript));
-    storeChat({ messages: state.messages, transcript: history });
+  // Keeps the model's side once the agent is quiet, next to the chat's.
+  const save = async (ready: GoodVibesAgent, started: number) => {
+    const transcript = await Effect.runPromise(ready.transcript);
+    if (started !== conversation) return;
+    store.getState().chat.setTranscript(settledTranscript(transcript));
   };
 
   const prompt = async (text: string) => {
     running += 1;
-    setState({ busy: true });
-    const started = conversation;
+    setBusy(true);
+    let started = conversation;
     let ready: GoodVibesAgent | undefined;
     try {
+      await chatLoaded();
+      started = conversation;
+      replyingIn = started;
       ready = await getAgent();
       setMessages((list) => [
         ...list,
@@ -240,9 +255,9 @@ export const createSession = ({
       running -= 1;
       if (stopping && started === conversation) markStopped();
       if (running === 0) stopping = false;
-      setState({ busy: running > 0 });
+      setBusy(running > 0);
       if (ready !== undefined && running === 0 && started === conversation)
-        await save(ready);
+        await save(ready, started);
     }
   };
 
@@ -253,19 +268,29 @@ export const createSession = ({
       .catch(() => undefined);
   };
 
-  const reset = () => {
+  // Another chat was opened: the running reply is stopped and belongs to
+  // the one left, and the agent carries on the one opened.
+  const switched = () => {
     conversation += 1;
     stopping = false;
-    history = [];
-    setState({ messages: [] });
-    clearChat();
     agent
-      ?.then((ready) => Effect.runPromise(ready.reset))
+      ?.then((ready) =>
+        Effect.runPromise(
+          ready.restore(settledTranscript(store.getState().chat.transcript)),
+        ),
+      )
       .catch(() => undefined);
   };
 
-  const close = () =>
-    Effect.runPromise(Scope.close(scope, Exit.succeed(undefined)));
+  const unwatch = store.subscribe((next, prev) => {
+    if (next.chat.id !== prev.chat.id) switched();
+    notify();
+  });
+
+  const close = () => {
+    unwatch();
+    return Effect.runPromise(Scope.close(scope, Exit.succeed(undefined)));
+  };
 
   return {
     getState: () => state,
@@ -275,7 +300,6 @@ export const createSession = ({
     },
     prompt,
     abort,
-    reset,
     setKey,
     currentKey,
     close,
